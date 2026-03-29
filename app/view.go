@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -38,13 +37,12 @@ func (m Model) View() string {
 			lipgloss.WithWhitespaceBackground(bg))
 	}
 
-	// Beat-reactive glow intensity
-	playing := m.track != nil && m.track.Playing
+	// Subtle ambient glow — steady, no fake pulsing
 	var glowIntensity float64
-	if playing {
-		glowIntensity = 0.08 + 0.30*math.Max(0, math.Cos(m.beatPhase*2*math.Pi))
+	if m.track != nil && m.track.Playing {
+		glowIntensity = 0.20
 	} else {
-		glowIntensity = 0.04
+		glowIntensity = 0.06
 	}
 
 	// Glow colors: outer edge brighter, inner dimmer
