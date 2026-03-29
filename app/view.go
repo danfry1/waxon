@@ -2,14 +2,16 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/danielfry/spotui/mood"
 	"github.com/danielfry/spotui/visual"
 )
 
-const bottomBarH = 6
+const frameDepth = 3 // how many chars deep the edge bars go
 
 func (m Model) View() string {
 	if m.quitting {
@@ -23,15 +25,13 @@ func (m Model) View() string {
 	primary := lipgloss.Color(md.Primary)
 	secondary := lipgloss.Color(md.Secondary)
 	bg := lipgloss.Color(md.Background)
-
-	bgLine := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", m.width))
+	bgStyle := lipgloss.NewStyle().Background(bg)
 
 	// Help overlay
 	if m.showHelp {
 		helpStr := m.help.View(m.keys)
 		helpStyled := lipgloss.NewStyle().
-			Foreground(secondary).
-			Background(bg).
+			Foreground(secondary).Background(bg).
 			Padding(2, 4).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.3))).
@@ -40,62 +40,202 @@ func (m Model) View() string {
 			lipgloss.WithWhitespaceBackground(bg))
 	}
 
-	// Build content sections
-	var sections []string
+	// Interpolate bars for all edges
+	visibleBars := min(numBars, m.width)
+	hBars := visual.InterpolateBars(m.bars[:visibleBars], m.width)       // horizontal (top/bottom)
+	vBars := visual.InterpolateBars(m.bars[:visibleBars], m.height)      // vertical (left/right)
 
-	// ── Mood word ──
-	moodColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.35))
-	moodStyle := lipgloss.NewStyle().Foreground(moodColor).Background(bg)
-	sections = append(sections, centerLine(moodStyle.Render(spacedWord(md.Name)), m.width, bg))
-	sections = append(sections, bgLine)
-
-	// ── Album art (hero element) ──
-	if m.artworkRendered != "" {
-		if m.artworkIsKitty {
-			// Kitty protocol: position escape sequence, reserve rows for image
-			leftPad := max(0, (m.width-m.artworkCols)/2)
-			bgStyle := lipgloss.NewStyle().Background(bg)
-			padLine := bgStyle.Render(strings.Repeat(" ", leftPad)) + m.artworkRendered
-			sections = append(sections, padLine)
-			// Reserve rows so subsequent content appears below the image
-			for range m.artworkRows {
-				sections = append(sections, bgLine)
-			}
-		} else {
-			// Half-block: center each line normally
-			artLines := strings.Split(m.artworkRendered, "\n")
-			for _, line := range artLines {
-				sections = append(sections, centerLine(line, m.width, bg))
-			}
-		}
-		sections = append(sections, bgLine)
+	// Pre-compute frame bar styles (gradient by depth)
+	frameStyles := make([]lipgloss.Style, frameDepth)
+	for d := range frameDepth {
+		fade := 1.0 - float64(d)*0.3 // outer edge brightest, inner edge dimmest
+		color := visual.LerpColor(md.Background, md.Primary, fade*0.7)
+		frameStyles[d] = lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Background(bg)
 	}
 
-	// ── Track info ──
+	// Build content sections (centered, no frame)
+	content := m.buildContent(md, primary, secondary, bg)
+	contentLines := strings.Split(content, "\n")
+
+	// Vertically center content
+	contentH := len(contentLines)
+	topPad := max(0, (m.height-contentH)/2)
+
+	// Pad content to full height
+	bgLine := bgStyle.Render(strings.Repeat(" ", max(0, m.width-frameDepth*2)))
+	allContentLines := make([]string, m.height)
+	for i := range m.height {
+		ci := i - topPad
+		if ci >= 0 && ci < contentH {
+			allContentLines[i] = contentLines[ci]
+		} else {
+			allContentLines[i] = bgLine
+		}
+	}
+
+	// Compose full screen: frame bars + content
+	var full strings.Builder
+	for row := range m.height {
+		// Top/bottom edge bars
+		isTopFrame := row < frameDepth
+		isBottomFrame := row >= m.height-frameDepth
+
+		if isTopFrame {
+			// Top edge: bars hanging down
+			full.WriteString(m.renderHorizontalFrame(hBars, row, frameDepth, true, frameStyles, bg))
+		} else if isBottomFrame {
+			// Bottom edge: bars growing up
+			fromBottom := m.height - 1 - row
+			full.WriteString(m.renderHorizontalFrame(hBars, fromBottom, frameDepth, false, frameStyles, bg))
+		} else {
+			// Content row with left/right edge bars
+			leftEdge := m.renderVerticalEdge(vBars[row], frameDepth, true, frameStyles, bg)
+			rightEdge := m.renderVerticalEdge(vBars[row], frameDepth, false, frameStyles, bg)
+
+			// Pad content line to fill middle
+			cl := allContentLines[row]
+			clWidth := lipgloss.Width(cl)
+			innerWidth := m.width - frameDepth*2
+			if clWidth < innerWidth {
+				cl += bgStyle.Render(strings.Repeat(" ", innerWidth-clWidth))
+			}
+
+			full.WriteString(leftEdge)
+			full.WriteString(cl)
+			full.WriteString(rightEdge)
+		}
+		if row < m.height-1 {
+			full.WriteString("\n")
+		}
+	}
+
+	return full.String()
+}
+
+// renderHorizontalFrame renders one row of the top or bottom frame bars.
+func (m Model) renderHorizontalFrame(bars []float64, depthFromEdge, maxDepth int, inverted bool, styles []lipgloss.Style, bg lipgloss.Color) string {
+	bgStyle := lipgloss.NewStyle().Background(bg)
+	var sb strings.Builder
+
+	for col := range m.width {
+		h := bars[col]
+		barDepth := h * float64(maxDepth)
+		d := float64(depthFromEdge)
+
+		styleIdx := min(depthFromEdge, maxDepth-1)
+		style := styles[styleIdx]
+
+		if d < barDepth-1 {
+			sb.WriteString(style.Render("█"))
+		} else if d < barDepth {
+			frac := barDepth - math.Floor(barDepth)
+			chars := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+			if inverted {
+				chars = []string{"▔", "▀", "▀", "▀", "█", "█", "█", "█"}
+			}
+			idx := int(frac * float64(len(chars)-1))
+			idx = max(0, min(idx, len(chars)-1))
+			sb.WriteString(style.Render(chars[idx]))
+		} else {
+			sb.WriteString(bgStyle.Render(" "))
+		}
+	}
+	return sb.String()
+}
+
+// renderVerticalEdge renders the left or right edge bars for a single row.
+func (m Model) renderVerticalEdge(barVal float64, maxDepth int, isLeft bool, styles []lipgloss.Style, bg lipgloss.Color) string {
+	bgStyle := lipgloss.NewStyle().Background(bg)
+	barCols := barVal * float64(maxDepth)
+
+	var sb strings.Builder
+	for d := range maxDepth {
+		col := d
+		if !isLeft {
+			col = maxDepth - 1 - d
+		}
+
+		styleIdx := col
+		if !isLeft {
+			styleIdx = d
+		}
+		styleIdx = min(styleIdx, maxDepth-1)
+		style := styles[styleIdx]
+
+		distFromEdge := float64(d)
+		if !isLeft {
+			distFromEdge = float64(d)
+		}
+
+		if distFromEdge < barCols-1 {
+			sb.WriteString(style.Render("█"))
+		} else if distFromEdge < barCols {
+			if isLeft {
+				sb.WriteString(style.Render("▐"))
+			} else {
+				sb.WriteString(style.Render("▌"))
+			}
+		} else {
+			sb.WriteString(bgStyle.Render(" "))
+		}
+	}
+	return sb.String()
+}
+
+// buildContent builds the centered content area (mood word, art, track info, progress).
+func (m Model) buildContent(md mood.Mood, primary, secondary, bg lipgloss.Color) string {
+	bgStyle := lipgloss.NewStyle().Background(bg)
+	innerWidth := m.width - frameDepth*2
+
+	var sections []string
+
+	// Mood word
+	moodColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.35))
+	moodStyle := lipgloss.NewStyle().Foreground(moodColor).Background(bg)
+	sections = append(sections, centerInner(moodStyle.Render(spacedWord(md.Name)), innerWidth, bgStyle))
+	sections = append(sections, bgStyle.Render(strings.Repeat(" ", innerWidth)))
+
+	// Album art
+	if m.artworkRendered != "" {
+		if m.artworkIsKitty {
+			leftPad := max(0, (innerWidth-m.artworkCols)/2)
+			padLine := bgStyle.Render(strings.Repeat(" ", leftPad)) + m.artworkRendered
+			sections = append(sections, padLine)
+			for range m.artworkRows {
+				sections = append(sections, bgStyle.Render(strings.Repeat(" ", innerWidth)))
+			}
+		} else {
+			for _, line := range strings.Split(m.artworkRendered, "\n") {
+				sections = append(sections, centerInner(line, innerWidth, bgStyle))
+			}
+		}
+		sections = append(sections, bgStyle.Render(strings.Repeat(" ", innerWidth)))
+	}
+
+	// Track info
 	if m.track != nil {
 		labelColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.4))
 		labelStyle := lipgloss.NewStyle().Foreground(labelColor).Background(bg)
 		trackStyle := lipgloss.NewStyle().Foreground(primary).Bold(true).Background(bg)
 		artistStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
 
-		sections = append(sections, centerLine(labelStyle.Render("N O W   P L A Y I N G"), m.width, bg))
-		sections = append(sections, centerLine(trackStyle.Render(m.track.Name), m.width, bg))
-		sections = append(sections, centerLine(artistStyle.Render(m.track.Artist), m.width, bg))
+		sections = append(sections, centerInner(labelStyle.Render("N O W   P L A Y I N G"), innerWidth, bgStyle))
+		sections = append(sections, centerInner(trackStyle.Render(m.track.Name), innerWidth, bgStyle))
+		sections = append(sections, centerInner(artistStyle.Render(m.track.Artist), innerWidth, bgStyle))
 	} else {
 		titleStyle := lipgloss.NewStyle().Foreground(primary).Bold(true).Background(bg)
 		subStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
-
-		sections = append(sections, centerLine(titleStyle.Render("♫  s p o t u i"), m.width, bg))
-		sections = append(sections, centerLine(subStyle.Render("waiting for music..."), m.width, bg))
+		sections = append(sections, centerInner(titleStyle.Render("♫  s p o t u i"), innerWidth, bgStyle))
+		sections = append(sections, centerInner(subStyle.Render("waiting for music..."), innerWidth, bgStyle))
 	}
 
-	sections = append(sections, bgLine)
+	sections = append(sections, bgStyle.Render(strings.Repeat(" ", innerWidth)))
 
-	// ── Progress bar ──
+	// Progress
 	if m.track != nil {
-		progressWidth := min(m.width-20, 50)
+		progressWidth := min(innerWidth-20, 50)
 		progressStr := m.renderProgress(progressWidth, primary, secondary)
-		sections = append(sections, centerLine(progressStr, m.width, bg))
+		sections = append(sections, centerInner(progressStr, innerWidth, bgStyle))
 
 		playPause := "▶"
 		if m.track.Playing {
@@ -103,52 +243,10 @@ func (m Model) View() string {
 		}
 		controlStr := fmt.Sprintf("⏮      %s      ⏭", playPause)
 		controlStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
-		sections = append(sections, centerLine(controlStyle.Render(controlStr), m.width, bg))
+		sections = append(sections, centerInner(controlStyle.Render(controlStr), innerWidth, bgStyle))
 	}
 
-	// Calculate vertical centering
-	contentH := len(sections)
-	barsH := bottomBarH + bottomBarH/4 // bars + reflection
-	totalContentH := contentH + 1 + barsH // +1 for spacer before bars
-
-	topPad := max(0, (m.height-totalContentH)/2)
-
-	var full strings.Builder
-
-	// Top padding
-	for range topPad {
-		full.WriteString(bgLine)
-		full.WriteString("\n")
-	}
-
-	// Main content
-	for _, line := range sections {
-		full.WriteString(line)
-		full.WriteString("\n")
-	}
-
-	// Spacer before bars
-	full.WriteString(bgLine)
-	full.WriteString("\n")
-
-	// ── Bottom accent bars ──
-	barWidth := m.width - 2
-	visibleBars := min(numBars, barWidth)
-	barHeights := m.bars[:visibleBars]
-	barsStr := visual.RenderBarsFullWidth(barHeights, barWidth, barsH, md.Primary, md.Secondary, md.Background)
-	for _, line := range strings.Split(barsStr, "\n") {
-		full.WriteString(centerLine(line, m.width, bg))
-		full.WriteString("\n")
-	}
-
-	// Bottom padding
-	currentLines := topPad + totalContentH
-	for range max(0, m.height-currentLines) {
-		full.WriteString(bgLine)
-		full.WriteString("\n")
-	}
-
-	return full.String()
+	return strings.Join(sections, "\n")
 }
 
 func (m Model) renderProgress(width int, primary, secondary lipgloss.Color) string {
@@ -188,15 +286,13 @@ func (m Model) renderProgress(width int, primary, secondary lipgloss.Color) stri
 	return fmt.Sprintf("%s %s", bar.String(), timeStyle.Render(fmt.Sprintf("%s / %s", posStr, durStr)))
 }
 
-// centerLine centers rendered text within the given width, filling sides with bg.
-func centerLine(rendered string, totalWidth int, bg lipgloss.Color) string {
+func centerInner(rendered string, innerWidth int, bgStyle lipgloss.Style) string {
 	w := lipgloss.Width(rendered)
-	if w >= totalWidth {
+	if w >= innerWidth {
 		return rendered
 	}
-	leftPad := (totalWidth - w) / 2
-	rightPad := totalWidth - w - leftPad
-	bgStyle := lipgloss.NewStyle().Background(bg)
+	leftPad := (innerWidth - w) / 2
+	rightPad := innerWidth - w - leftPad
 	return bgStyle.Render(strings.Repeat(" ", leftPad)) + rendered + bgStyle.Render(strings.Repeat(" ", rightPad))
 }
 

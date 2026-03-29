@@ -47,7 +47,7 @@ func RenderBarsFullWidth(modelBars []float64, width, height int, primary, second
 	}
 
 	// Smoothly interpolate model bars to fill width
-	smoothBars := interpolateBars(modelBars, width)
+	smoothBars := InterpolateBars(modelBars, width)
 
 	reflectionH := max(2, height/5)
 	mainH := height - reflectionH
@@ -118,7 +118,7 @@ func RenderBarsFullWidth(modelBars []float64, width, height int, primary, second
 
 // interpolateBars uses cosine interpolation to smoothly expand model bars
 // into a higher-resolution output, creating fluid waveforms instead of blocky steps.
-func interpolateBars(modelBars []float64, outputWidth int) []float64 {
+func InterpolateBars(modelBars []float64, outputWidth int) []float64 {
 	if len(modelBars) == 0 || outputWidth == 0 {
 		return make([]float64, outputWidth)
 	}
