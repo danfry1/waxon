@@ -1,21 +1,27 @@
 package visual
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"image"
 	_ "image/jpeg"
+	"image/png"
 	_ "image/png"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/image/draw"
 )
 
-// FetchAndRender downloads album art and renders it as terminal pixel art.
-// Designed to be called from a tea.Cmd (runs async, returns result as message).
-func FetchAndRender(url string, width, height int) string {
-	if url == "" {
+// FetchAndRender downloads album art and renders it for the terminal.
+// Uses Kitty graphics protocol on supported terminals (Ghostty, Kitty, WezTerm),
+// falls back to high-quality half-block pixel art otherwise.
+func FetchAndRender(url string, cols, rows int) string {
+	if url == "" || cols == 0 || rows == 0 {
 		return ""
 	}
 
@@ -31,38 +37,96 @@ func FetchAndRender(url string, width, height int) string {
 		return ""
 	}
 
-	return renderImage(img, width, height)
+	// Try Kitty graphics protocol for supported terminals
+	if supportsKittyGraphics() {
+		result := renderKitty(img, cols, rows)
+		if result != "" {
+			return result
+		}
+	}
+
+	// Fallback: high-quality half-block rendering
+	return renderHalfBlock(img, cols, rows)
 }
 
-// renderImage converts an image to terminal art using half-block characters.
-// Each character cell represents 2 vertical pixels using ▀ with fg=top, bg=bottom.
-// Uses area-average downscaling for smooth, high-quality results.
-func renderImage(img image.Image, targetW, targetH int) string {
-	bounds := img.Bounds()
-	imgW := bounds.Dx()
-	imgH := bounds.Dy()
+// supportsKittyGraphics checks if the terminal supports the Kitty graphics protocol.
+func supportsKittyGraphics() bool {
+	term := os.Getenv("TERM")
+	termProgram := os.Getenv("TERM_PROGRAM")
+	return term == "xterm-kitty" ||
+		termProgram == "ghostty" ||
+		termProgram == "WezTerm" ||
+		strings.Contains(term, "kitty")
+}
 
-	// targetH is character rows, each row = 2 pixels vertically
+// renderKitty renders the image using the Kitty graphics protocol.
+// The image is displayed inline at the specified character cell dimensions.
+func renderKitty(img image.Image, cols, rows int) string {
+	// Resize image to reasonable pixel dimensions for display
+	// Assume ~8px per column, ~16px per row
+	pixW := cols * 8
+	pixH := rows * 16
+
+	// Resize with high-quality Catmull-Rom interpolation
+	resized := resizeImage(img, pixW, pixH)
+
+	// Encode as PNG
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, resized); err != nil {
+		return ""
+	}
+
+	// Base64 encode
+	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	// Build Kitty graphics escape sequence (chunked if needed)
+	var sb strings.Builder
+	chunkSize := 4096
+	for i := 0; i < len(b64); i += chunkSize {
+		end := min(i+chunkSize, len(b64))
+		chunk := b64[i:end]
+		more := 0
+		if end < len(b64) {
+			more = 1
+		}
+
+		if i == 0 {
+			// First chunk: transmit and display
+			sb.WriteString(fmt.Sprintf("\x1b_Gf=100,a=T,t=d,c=%d,r=%d,m=%d;%s\x1b\\", cols, rows, more, chunk))
+		} else {
+			// Continuation chunk
+			sb.WriteString(fmt.Sprintf("\x1b_Gm=%d;%s\x1b\\", more, chunk))
+		}
+	}
+
+	// Reserve terminal rows (spaces for the image area)
+	for range rows {
+		sb.WriteString(strings.Repeat(" ", cols))
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// renderHalfBlock renders the image using ▀ half-block characters with 24-bit color.
+// Uses high-quality Catmull-Rom downscaling for the best possible pixel art.
+func renderHalfBlock(img image.Image, targetW, targetH int) string {
+	// Each character row represents 2 vertical pixels
 	pixelH := targetH * 2
 
+	// Resize with high-quality interpolation
+	resized := resizeImage(img, targetW, pixelH)
+	bounds := resized.Bounds()
+
 	var lines []string
-	for row := 0; row < pixelH; row += 2 {
+	for row := 0; row < bounds.Dy(); row += 2 {
 		var sb strings.Builder
-		for col := 0; col < targetW; col++ {
-			// Area-average sampling for top pixel
-			x1 := bounds.Min.X + col*imgW/targetW
-			x2 := bounds.Min.X + (col+1)*imgW/targetW
-			y1top := bounds.Min.Y + row*imgH/pixelH
-			y2top := bounds.Min.Y + (row+1)*imgH/pixelH
-			r1, g1, b1 := areaAverage(img, x1, y1top, x2, y2top)
+		for col := 0; col < bounds.Dx(); col++ {
+			r1, g1, b1, _ := resized.At(bounds.Min.X+col, bounds.Min.Y+row).RGBA()
+			r2, g2, b2, _ := resized.At(bounds.Min.X+col, bounds.Min.Y+row+1).RGBA()
 
-			// Area-average sampling for bottom pixel
-			y1bot := bounds.Min.Y + (row+1)*imgH/pixelH
-			y2bot := bounds.Min.Y + (row+2)*imgH/pixelH
-			r2, g2, b2 := areaAverage(img, x1, y1bot, x2, y2bot)
-
-			topColor := fmt.Sprintf("#%02x%02x%02x", r1, g1, b1)
-			botColor := fmt.Sprintf("#%02x%02x%02x", r2, g2, b2)
+			topColor := fmt.Sprintf("#%02x%02x%02x", r1>>8, g1>>8, b1>>8)
+			botColor := fmt.Sprintf("#%02x%02x%02x", r2>>8, g2>>8, b2>>8)
 
 			style := lipgloss.NewStyle().
 				Foreground(lipgloss.Color(topColor)).
@@ -74,28 +138,9 @@ func renderImage(img image.Image, targetW, targetH int) string {
 	return strings.Join(lines, "\n")
 }
 
-// areaAverage computes the average color of all pixels in the given rectangle.
-func areaAverage(img image.Image, x1, y1, x2, y2 int) (uint8, uint8, uint8) {
-	if x2 <= x1 {
-		x2 = x1 + 1
-	}
-	if y2 <= y1 {
-		y2 = y1 + 1
-	}
-
-	var rSum, gSum, bSum uint64
-	var count uint64
-	for y := y1; y < y2; y++ {
-		for x := x1; x < x2; x++ {
-			r, g, b, _ := img.At(x, y).RGBA()
-			rSum += uint64(r >> 8)
-			gSum += uint64(g >> 8)
-			bSum += uint64(b >> 8)
-			count++
-		}
-	}
-	if count == 0 {
-		return 0, 0, 0
-	}
-	return uint8(rSum / count), uint8(gSum / count), uint8(bSum / count)
+// resizeImage resizes an image to the target dimensions using Catmull-Rom (high quality).
+func resizeImage(src image.Image, width, height int) image.Image {
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
+	return dst
 }

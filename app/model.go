@@ -172,8 +172,9 @@ func (m *Model) handleTrackUpdate(track *source.Track) tea.Cmd {
 	if track.ArtworkURL != "" && track.ArtworkURL != m.artworkURL {
 		m.artworkURL = track.ArtworkURL
 		m.artworkRendered = ""
-		artW := 40
-		artH := 20
+		// Scale art to terminal: use up to 60% of height, maintain square aspect
+		artH := max(12, min(35, (m.height-16)*3/5))
+		artW := artH * 2 // 2:1 ratio for square appearance in terminal
 		url := track.ArtworkURL
 		return func() tea.Msg {
 			rendered := visual.FetchAndRender(url, artW, artH)
