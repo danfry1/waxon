@@ -274,8 +274,9 @@ func (m *Model) handleClick(x, y int) tea.Cmd {
 		}
 	}
 
-	// Count content lines before progress: mood(1) + empty(1) + art(artH) + empty(1) + labels(3) + empty(1)
-	linesBeforeProgress := 7
+	// Count content lines before progress:
+	// mood(1) + empty(1) + [art(artH) + empty(1) if art] + labels(3) + empty(1)
+	linesBeforeProgress := 6 // mood + empty + labels(3) + empty
 	if artH > 0 {
 		linesBeforeProgress += artH + 1 // art lines + empty after art
 	}
@@ -292,15 +293,15 @@ func (m *Model) handleClick(x, y int) tea.Cmd {
 	barStartCol := 2 + (innerWidth-progressWidth)/2
 	barEndCol := barStartCol + barWidth
 
-	// Click on progress bar → seek
-	if y == progressRow && x >= barStartCol && x <= barEndCol && barWidth > 0 {
+	// Click on progress bar → seek (±1 row tolerance)
+	if y >= progressRow-1 && y <= progressRow+1 && x >= barStartCol && x <= barEndCol && barWidth > 0 {
 		ratio := float64(x-barStartCol) / float64(barWidth)
 		pos := time.Duration(float64(m.track.Duration) * ratio)
 		return m.seekTo(pos)
 	}
 
-	// Click on controls row
-	if y == controlsRow {
+	// Click on controls (±1 row tolerance)
+	if y >= controlsRow-1 && y <= controlsRow+1 {
 		center := m.width / 2
 		if x < center-5 {
 			return controlCmd(m.source.Previous)
