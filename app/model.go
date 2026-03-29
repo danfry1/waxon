@@ -124,11 +124,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) tickAnimation() {
 	m.pattern++
+	playing := m.track != nil && m.track.Playing
 	energy := m.mood.Energy
+
 	for i := range numBars {
 		m.bars[i], m.barVels[i] = m.barSprings[i].Update(m.bars[i], m.barVels[i], m.barTargets[i])
-		if rand.Float64() < 0.06+energy*0.14 {
-			m.barTargets[i] = rand.Float64() * (0.4 + energy*0.6)
+		if playing {
+			if rand.Float64() < 0.06+energy*0.14 {
+				m.barTargets[i] = rand.Float64() * (0.4 + energy*0.6)
+			}
+		} else {
+			// Smoothly decay to zero when paused/stopped
+			m.barTargets[i] = 0
 		}
 	}
 	if m.transition != nil {
