@@ -8,6 +8,7 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	_ "image/png"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -17,35 +18,50 @@ import (
 	"golang.org/x/image/draw"
 )
 
-// FetchAndRender downloads album art and renders it for the terminal.
-// Returns the rendered string and whether Kitty protocol was used.
-func FetchAndRender(url string, cols, rows int) (string, bool) {
+// ArtworkResult holds the rendered artwork and extracted color palette.
+type ArtworkResult struct {
+	Rendered   string
+	IsKitty    bool
+	Primary    string // dominant vibrant color from the art
+	Secondary  string // contrasting color from the art
+	Background string // dark version for terminal background
+	HasColors  bool   // true if color extraction succeeded
+}
+
+// FetchAndRender downloads album art, renders it, and extracts dominant colors.
+func FetchAndRender(url string, cols, rows int) ArtworkResult {
 	if url == "" || cols == 0 || rows == 0 {
-		return "", false
+		return ArtworkResult{}
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return "", false
+		return ArtworkResult{}
 	}
 	defer resp.Body.Close()
 
 	img, _, err := image.Decode(resp.Body)
 	if err != nil {
-		return "", false
+		return ArtworkResult{}
 	}
 
-	// Kitty protocol: opt-in via SPOTUI_KITTY=1
+	// Extract dominant colors from the art
+	result := ArtworkResult{}
+	result.Primary, result.Secondary, result.Background, result.HasColors = extractColors(img)
+
+	// Render the image
 	if os.Getenv("SPOTUI_KITTY") == "1" && supportsKittyGraphics() {
-		result := renderKitty(img, cols, rows)
-		if result != "" {
-			return result, true
+		rendered := renderKitty(img, cols, rows)
+		if rendered != "" {
+			result.Rendered = rendered
+			result.IsKitty = true
+			return result
 		}
 	}
 
-	// Default: quarter-block pixel art (2×2 subpixels per character cell)
-	return renderQuarterBlock(img, cols, rows), false
+	result.Rendered = renderQuarterBlock(img, cols, rows)
+	return result
 }
 
 // Quarter-block characters indexed by 4-bit pattern:
@@ -227,6 +243,96 @@ func renderKitty(img image.Image, cols, rows int) string {
 		}
 	}
 	return sb.String()
+}
+
+// extractColors finds the dominant vibrant color, a contrasting color,
+// and a dark background from the album art. Makes every song feel unique.
+func extractColors(img image.Image) (primary, secondary, background string, ok bool) {
+	small := resizeImage(img, 12, 12)
+	bounds := small.Bounds()
+
+	var pixels []rgb
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			pixels = append(pixels, getPixel(small, x, y))
+		}
+	}
+	if len(pixels) == 0 {
+		return "", "", "", false
+	}
+
+	// Find the most vibrant color → primary
+	bestVib := 0.0
+	var priColor rgb
+	for _, p := range pixels {
+		v := vibrancy(p)
+		if v > bestVib {
+			bestVib = v
+			priColor = p
+		}
+	}
+
+	// If the art is very desaturated, don't override mood colors
+	if bestVib < 0.08 {
+		return "", "", "", false
+	}
+
+	// Ensure primary is bright enough to read as text
+	if priColor.brightness() < 120 {
+		priColor = boostBrightness(priColor, 140)
+	}
+
+	// Find the most different vibrant color → secondary
+	bestDist := 0.0
+	var secColor rgb
+	for _, p := range pixels {
+		d := colorDist(p, priColor)
+		if d > bestDist && vibrancy(p) > 0.03 {
+			bestDist = d
+			secColor = p
+		}
+	}
+	// If secondary is too similar to primary, desaturate primary slightly
+	if colorDist(priColor, secColor) < 2000 {
+		secColor = rgb{
+			uint8(float64(priColor.r)*0.6 + 40),
+			uint8(float64(priColor.g)*0.6 + 40),
+			uint8(float64(priColor.b)*0.6 + 40),
+		}
+	}
+
+	// Background: very dark tint of primary
+	bgColor := rgb{
+		uint8(math.Min(float64(priColor.r)*0.08+5, 30)),
+		uint8(math.Min(float64(priColor.g)*0.08+5, 30)),
+		uint8(math.Min(float64(priColor.b)*0.08+5, 30)),
+	}
+
+	return priColor.hex(), secColor.hex(), bgColor.hex(), true
+}
+
+func vibrancy(c rgb) float64 {
+	max := math.Max(float64(c.r), math.Max(float64(c.g), float64(c.b)))
+	min := math.Min(float64(c.r), math.Min(float64(c.g), float64(c.b)))
+	if max == 0 {
+		return 0
+	}
+	saturation := (max - min) / max
+	brightness := max / 255.0
+	return saturation * brightness
+}
+
+func boostBrightness(c rgb, target float64) rgb {
+	b := c.brightness()
+	if b == 0 {
+		return rgb{uint8(target), uint8(target), uint8(target)}
+	}
+	factor := target / b
+	return rgb{
+		uint8(math.Min(float64(c.r)*factor, 255)),
+		uint8(math.Min(float64(c.g)*factor, 255)),
+		uint8(math.Min(float64(c.b)*factor, 255)),
+	}
 }
 
 func resizeImage(src image.Image, width, height int) image.Image {

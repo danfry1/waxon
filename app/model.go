@@ -27,11 +27,10 @@ type trackUpdateMsg struct{ track *source.Track }
 type trackErrorMsg struct{ err error }
 type controlDoneMsg struct{}
 type artworkMsg struct {
-	url      string
-	rendered string
-	isKitty  bool
-	cols     int
-	rows     int
+	url    string
+	result visual.ArtworkResult
+	cols   int
+	rows   int
 }
 
 type Model struct {
@@ -117,10 +116,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case artworkMsg:
 		if msg.url == m.artworkURL {
-			m.artworkRendered = msg.rendered
-			m.artworkIsKitty = msg.isKitty
+			m.artworkRendered = msg.result.Rendered
+			m.artworkIsKitty = msg.result.IsKitty
 			m.artworkCols = msg.cols
 			m.artworkRows = msg.rows
+			// Override mood colors with album art's dominant colors
+			if msg.result.HasColors {
+				m.mood.Primary = msg.result.Primary
+				m.mood.Secondary = msg.result.Secondary
+				m.mood.Background = msg.result.Background
+				m.targetMood.Primary = msg.result.Primary
+				m.targetMood.Secondary = msg.result.Secondary
+				m.targetMood.Background = msg.result.Background
+			}
 		}
 		return m, nil
 	case trackErrorMsg:
@@ -227,8 +235,8 @@ func (m *Model) handleTrackUpdate(track *source.Track) tea.Cmd {
 		artW := artH * 2 // 2:1 ratio for square appearance in terminal
 		url := track.ArtworkURL
 		return func() tea.Msg {
-			rendered, isKitty := visual.FetchAndRender(url, artW, artH)
-			return artworkMsg{url: url, rendered: rendered, isKitty: isKitty, cols: artW, rows: artH}
+			result := visual.FetchAndRender(url, artW, artH)
+			return artworkMsg{url: url, result: result, cols: artW, rows: artH}
 		}
 	}
 	return nil
