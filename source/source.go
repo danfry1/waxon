@@ -18,4 +18,5 @@ type TrackSource interface {
 	Pause() error
 	Next() error
 	Previous() error
+	Seek(position time.Duration) error
 }

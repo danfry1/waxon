@@ -52,6 +52,11 @@ type Model struct {
 	artworkIsKitty  bool
 	artworkCols     int
 	artworkRows     int
+	// Layout positions for mouse interaction (set by View via pointer)
+	uiProgressRow   int
+	uiProgressStart int
+	uiProgressEnd   int
+	uiControlsRow   int
 	help            help.Model
 	showHelp   bool
 	keys       KeyMap
@@ -102,6 +107,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, controlCmd(m.source.Next)
 		case key.Matches(msg, m.keys.Prev):
 			return m, controlCmd(m.source.Previous)
+		case msg.Type == tea.KeyLeft:
+			return m, m.seekRelative(-5 * time.Second)
+		case msg.Type == tea.KeyRight:
+			return m, m.seekRelative(5 * time.Second)
+		}
+	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			return m, m.handleClick(msg.X, msg.Y)
 		}
 	case animTickMsg:
 		m.tickAnimation()
@@ -248,6 +261,61 @@ func (m *Model) startTransitionTo(target mood.Mood) {
 	}
 	m.targetMood = target
 	m.transition = mood.NewTransition(m.mood, target)
+}
+
+func (m *Model) handleClick(x, y int) tea.Cmd {
+	if m.track == nil {
+		return nil
+	}
+
+	// Click on progress bar → seek
+	if y == m.uiProgressRow && x >= m.uiProgressStart && x <= m.uiProgressEnd {
+		barWidth := m.uiProgressEnd - m.uiProgressStart
+		if barWidth > 0 {
+			ratio := float64(x-m.uiProgressStart) / float64(barWidth)
+			pos := time.Duration(float64(m.track.Duration) * ratio)
+			return m.seekTo(pos)
+		}
+	}
+
+	// Click on controls row
+	if y == m.uiControlsRow {
+		center := m.width / 2
+		if x < center-5 {
+			return controlCmd(m.source.Previous)
+		} else if x > center+5 {
+			return controlCmd(m.source.Next)
+		} else {
+			if m.track.Playing {
+				return controlCmd(m.source.Pause)
+			}
+			return controlCmd(m.source.Play)
+		}
+	}
+
+	return nil
+}
+
+func (m *Model) seekTo(pos time.Duration) tea.Cmd {
+	if m.track == nil {
+		return nil
+	}
+	pos = max(0, min(pos, m.track.Duration))
+	m.track.Position = pos
+	src := m.source
+	return func() tea.Msg {
+		if err := src.Seek(pos); err != nil {
+			return trackErrorMsg{err}
+		}
+		return controlDoneMsg{}
+	}
+}
+
+func (m *Model) seekRelative(delta time.Duration) tea.Cmd {
+	if m.track == nil {
+		return nil
+	}
+	return m.seekTo(m.track.Position + delta)
 }
 
 func fetchTrack(src source.TrackSource) tea.Cmd {

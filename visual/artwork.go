@@ -292,13 +292,18 @@ func extractColors(img image.Image) (primary, secondary, background string, ok b
 			secColor = p
 		}
 	}
-	// If secondary is too similar to primary, desaturate primary slightly
+	// If secondary is too similar to primary, make a lighter variant
 	if colorDist(priColor, secColor) < 2000 {
 		secColor = rgb{
-			uint8(float64(priColor.r)*0.6 + 40),
-			uint8(float64(priColor.g)*0.6 + 40),
-			uint8(float64(priColor.b)*0.6 + 40),
+			uint8(math.Min(float64(priColor.r)*0.6+60, 255)),
+			uint8(math.Min(float64(priColor.g)*0.6+60, 255)),
+			uint8(math.Min(float64(priColor.b)*0.6+60, 255)),
 		}
+	}
+
+	// Ensure secondary is bright enough to read against dark backgrounds
+	if secColor.brightness() < 90 {
+		secColor = boostBrightness(secColor, 110)
 	}
 
 	// Background: very dark tint of primary

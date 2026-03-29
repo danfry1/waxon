@@ -11,8 +11,9 @@ import (
 
 type fakeSource struct{ track *source.Track }
 
-func (f *fakeSource) CurrentTrack() (*source.Track, error) { return f.track, nil }
+func (f *fakeSource) CurrentTrack() (*source.Track, error)  { return f.track, nil }
 func (f *fakeSource) Play() error                          { return nil }
+func (f *fakeSource) Seek(position time.Duration) error    { return nil }
 func (f *fakeSource) Pause() error                         { return nil }
 func (f *fakeSource) Next() error                          { return nil }
 func (f *fakeSource) Previous() error                      { return nil }

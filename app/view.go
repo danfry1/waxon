@@ -60,6 +60,9 @@ func (m Model) View() string {
 	// Vertically center content
 	topPad := max(0, (m.height-contentH-4)/2) // -4 for top/bottom glow rows
 
+	// Record UI positions for mouse interaction (absolute screen rows)
+	m.recordUIPositions(contentLines, topPad)
+
 	// Build full screen
 	var full strings.Builder
 
@@ -210,6 +213,31 @@ func centerInner(rendered string, innerWidth int, bgStyle lipgloss.Style) string
 	leftPad := (innerWidth - w) / 2
 	rightPad := innerWidth - w - leftPad
 	return bgStyle.Render(strings.Repeat(" ", leftPad)) + rendered + bgStyle.Render(strings.Repeat(" ", rightPad))
+}
+
+// recordUIPositions figures out where the progress bar and controls are on screen
+// so the mouse click handler can detect hits.
+func (m *Model) recordUIPositions(contentLines []string, topPad int) {
+	glowTop := 2
+	progressWidth := min(m.width-24, 50)
+	barWidth := progressWidth - 14
+	innerWidth := m.width - 4
+
+	startCol := 2 + (innerWidth-barWidth)/2 // glow(2) + centering
+	endCol := startCol + barWidth
+
+	// Find progress and controls rows by scanning content lines
+	for i, line := range contentLines {
+		if strings.Contains(line, "●") {
+			m.uiProgressRow = glowTop + topPad + i
+			m.uiProgressStart = startCol
+			m.uiProgressEnd = endCol
+			if i+1 < len(contentLines) {
+				m.uiControlsRow = glowTop + topPad + i + 1
+			}
+			break
+		}
+	}
 }
 
 func formatDuration(d time.Duration) string {

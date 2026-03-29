@@ -53,6 +53,12 @@ func (s *LocalSource) Previous() error {
 	return err
 }
 
+func (s *LocalSource) Seek(position time.Duration) error {
+	script := fmt.Sprintf(`tell application "Spotify" to set player position to %f`, position.Seconds())
+	_, err := runOsascript(script)
+	return err
+}
+
 func runOsascript(script string) (string, error) {
 	cmd := exec.Command("osascript", "-e", script)
 	out, err := cmd.Output()
