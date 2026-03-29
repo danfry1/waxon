@@ -41,7 +41,7 @@ func RenderBars(heights []float64, maxHeight int, primary, secondary string) str
 
 // RenderBarsFullWidth smoothly interpolates model bars to fill the entire width,
 // with vertical color gradient, sparkle particles, and a subtle reflection.
-func RenderBarsFullWidth(modelBars []float64, width, height int, primary, secondary, background string, energy float64, frame int) string {
+func RenderBarsFullWidth(modelBars []float64, width, height int, primary, secondary, background string) string {
 	if len(modelBars) == 0 || width == 0 {
 		return strings.Repeat("\n", height)
 	}
@@ -68,14 +68,6 @@ func RenderBarsFullWidth(modelBars []float64, width, height int, primary, second
 		}
 	}
 
-	// Sparkle styles
-	sparkleChars := []string{"·", "✦", "∗", "°"}
-	sparkleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(LerpColor(background, primary, 0.18)))
-	styledSparkles := make([]string, len(sparkleChars))
-	for i, c := range sparkleChars {
-		styledSparkles[i] = sparkleStyle.Render(c)
-	}
-
 	var lines []string
 
 	// Main bars
@@ -95,14 +87,7 @@ func RenderBarsFullWidth(modelBars []float64, width, height int, primary, second
 				idx = max(0, min(idx, len(barChars)-1))
 				sb.WriteString(cache.partials[idx])
 			} else {
-				// Empty space — maybe sparkle (deterministic, persists ~5 frames)
-				hash := uint((col*7919 + row*6271 + (frame/5)*1013)) % 1000
-				threshold := uint(energy * 8)
-				if threshold > 0 && hash < threshold {
-					sb.WriteString(styledSparkles[hash%uint(len(styledSparkles))])
-				} else {
-					sb.WriteString(" ")
-				}
+				sb.WriteString(" ")
 			}
 		}
 		lines = append(lines, sb.String())

@@ -135,7 +135,7 @@ func (m Model) View() string {
 	barWidth := m.width - 2
 	visibleBars := min(numBars, barWidth)
 	barHeights := m.bars[:visibleBars]
-	barsStr := visual.RenderBarsFullWidth(barHeights, barWidth, barsH, md.Primary, md.Secondary, md.Background, md.Energy, m.pattern)
+	barsStr := visual.RenderBarsFullWidth(barHeights, barWidth, barsH, md.Primary, md.Secondary, md.Background)
 	for _, line := range strings.Split(barsStr, "\n") {
 		full.WriteString(centerLine(line, m.width, bg))
 		full.WriteString("\n")

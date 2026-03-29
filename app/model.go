@@ -173,8 +173,10 @@ func (m *Model) tickAnimation() {
 					m.barTargets[i] = rand.Float64() * energy * 0.5
 				}
 			} else {
-				// Between beats: smooth decay toward a low resting level
-				m.barTargets[i] *= 0.92
+				// Between beats: gentle decay with occasional random variation
+				if rand.Float64() < 0.03+energy*0.05 {
+					m.barTargets[i] = rand.Float64() * energy * 0.35
+				}
 			}
 		}
 	} else {
