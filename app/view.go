@@ -9,6 +9,8 @@ import (
 	"github.com/danielfry/spotui/visual"
 )
 
+const bottomBarH = 6
+
 func (m Model) View() string {
 	if m.quitting {
 		return ""
@@ -21,6 +23,8 @@ func (m Model) View() string {
 	primary := lipgloss.Color(md.Primary)
 	secondary := lipgloss.Color(md.Secondary)
 	bg := lipgloss.Color(md.Background)
+
+	bgLine := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", m.width))
 
 	// Help overlay
 	if m.showHelp {
@@ -36,136 +40,97 @@ func (m Model) View() string {
 			lipgloss.WithWhitespaceBackground(bg))
 	}
 
-	// Full-width bar area
-	barWidth := m.width - 6 // 3 char margin each side
-	if barWidth < 20 {
-		barWidth = 20
-	}
-
-	// Calculate how much vertical space we need
-	// mood word: 1, spacer: 2, bars: barMaxH+reflection, spacer: 2,
-	// track info: 3-4, spacer: 1, progress: 1, controls: 1
-	contentH := 1 + 2 + barMaxH + barMaxH/4 + 2 + 4 + 1 + 1 + 1
-	topPad := max(0, (m.height-contentH)/2)
-
-	bgLine := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", m.width))
-
-	var full strings.Builder
-
-	// Top padding — solid dark background
-	for range topPad {
-		full.WriteString(bgLine)
-		full.WriteString("\n")
-	}
+	// Build content sections
+	var sections []string
 
 	// ── Mood word ──
-	moodName := spacedWord(md.Name)
-	moodColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.4))
+	moodColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.35))
 	moodStyle := lipgloss.NewStyle().Foreground(moodColor).Background(bg)
-	moodLine := centerPad(moodStyle.Render(moodName), m.width, bg)
-	full.WriteString(moodLine)
-	full.WriteString("\n")
+	sections = append(sections, centerLine(moodStyle.Render(spacedWord(md.Name)), m.width, bg))
+	sections = append(sections, bgLine)
 
-	// Spacer
-	full.WriteString(bgLine)
-	full.WriteString("\n")
-	full.WriteString(bgLine)
-	full.WriteString("\n")
-
-	// ── Full-width bars with reflection ──
-	visibleBars := min(numBars, barWidth)
-	barHeights := m.bars[:visibleBars]
-	barsStr := visual.RenderBarsFullWidth(barHeights, barWidth, barMaxH+barMaxH/4, md.Primary, md.Secondary, md.Background, md.Energy, m.pattern)
-	for _, line := range strings.Split(barsStr, "\n") {
-		centered := centerPad(line, m.width, bg)
-		full.WriteString(centered)
-		full.WriteString("\n")
+	// ── Album art (hero element) ──
+	if m.artworkRendered != "" {
+		artLines := strings.Split(m.artworkRendered, "\n")
+		for _, line := range artLines {
+			sections = append(sections, centerLine(line, m.width, bg))
+		}
+		sections = append(sections, bgLine)
 	}
 
-	// Spacer
-	full.WriteString(bgLine)
-	full.WriteString("\n")
-	full.WriteString(bgLine)
-	full.WriteString("\n")
-
-	// ── Track info with album art ──
+	// ── Track info ──
 	if m.track != nil {
-		labelColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.45))
+		labelColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.4))
 		labelStyle := lipgloss.NewStyle().Foreground(labelColor).Background(bg)
 		trackStyle := lipgloss.NewStyle().Foreground(primary).Bold(true).Background(bg)
 		artistStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
 
-		// Try to render album art
-		artSize := 12 // character rows (24 pixels tall)
-		artStr := m.artwork.RenderArtwork(m.track.ArtworkURL, artSize*2, artSize)
-
-		if artStr != "" {
-			// Layout: art on left, track info on right
-			artBlock := lipgloss.NewStyle().Background(bg).Render(artStr)
-
-			infoLines := strings.Join([]string{
-				"",
-				"",
-				labelStyle.Render("♫  N O W   P L A Y I N G"),
-				"",
-				trackStyle.Render(m.track.Name),
-				artistStyle.Render(m.track.Artist),
-			}, "\n")
-			infoBlock := lipgloss.NewStyle().
-				Background(bg).
-				PaddingLeft(3).
-				Width(40).
-				Render(infoLines)
-
-			combined := lipgloss.JoinHorizontal(lipgloss.Top, artBlock, infoBlock)
-			full.WriteString(centerPad(combined, m.width, bg))
-			full.WriteString("\n")
-		} else {
-			full.WriteString(centerPad(labelStyle.Render("♫  N O W   P L A Y I N G"), m.width, bg))
-			full.WriteString("\n")
-			full.WriteString(centerPad(trackStyle.Render(m.track.Name), m.width, bg))
-			full.WriteString("\n")
-			full.WriteString(centerPad(artistStyle.Render(m.track.Artist), m.width, bg))
-			full.WriteString("\n")
-		}
+		sections = append(sections, centerLine(labelStyle.Render("N O W   P L A Y I N G"), m.width, bg))
+		sections = append(sections, centerLine(trackStyle.Render(m.track.Name), m.width, bg))
+		sections = append(sections, centerLine(artistStyle.Render(m.track.Artist), m.width, bg))
 	} else {
 		titleStyle := lipgloss.NewStyle().Foreground(primary).Bold(true).Background(bg)
 		subStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
 
-		full.WriteString(centerPad(titleStyle.Render("♫  s p o t u i"), m.width, bg))
-		full.WriteString("\n")
-		full.WriteString(centerPad(subStyle.Render("waiting for music..."), m.width, bg))
-		full.WriteString("\n")
-		full.WriteString(centerPad(subStyle.Render("play something on Spotify to begin"), m.width, bg))
-		full.WriteString("\n")
+		sections = append(sections, centerLine(titleStyle.Render("♫  s p o t u i"), m.width, bg))
+		sections = append(sections, centerLine(subStyle.Render("waiting for music..."), m.width, bg))
 	}
 
-	// Spacer
-	full.WriteString(bgLine)
-	full.WriteString("\n")
+	sections = append(sections, bgLine)
 
 	// ── Progress bar ──
 	if m.track != nil {
 		progressWidth := min(m.width-20, 50)
 		progressStr := m.renderProgress(progressWidth, primary, secondary)
-		full.WriteString(centerPad(progressStr, m.width, bg))
-		full.WriteString("\n")
+		sections = append(sections, centerLine(progressStr, m.width, bg))
 
-		// Controls
 		playPause := "▶"
 		if m.track.Playing {
 			playPause = "⏸"
 		}
 		controlStr := fmt.Sprintf("⏮      %s      ⏭", playPause)
 		controlStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
-		full.WriteString(centerPad(controlStyle.Render(controlStr), m.width, bg))
+		sections = append(sections, centerLine(controlStyle.Render(controlStr), m.width, bg))
+	}
+
+	// Calculate vertical centering
+	contentH := len(sections)
+	barsH := bottomBarH + bottomBarH/4 // bars + reflection
+	totalContentH := contentH + 1 + barsH // +1 for spacer before bars
+
+	topPad := max(0, (m.height-totalContentH)/2)
+
+	var full strings.Builder
+
+	// Top padding
+	for range topPad {
+		full.WriteString(bgLine)
 		full.WriteString("\n")
 	}
 
-	// Fill remaining with solid background
-	currentLines := strings.Count(full.String(), "\n")
-	remaining := m.height - currentLines
-	for range max(0, remaining) {
+	// Main content
+	for _, line := range sections {
+		full.WriteString(line)
+		full.WriteString("\n")
+	}
+
+	// Spacer before bars
+	full.WriteString(bgLine)
+	full.WriteString("\n")
+
+	// ── Bottom accent bars ──
+	barWidth := m.width - 2
+	visibleBars := min(numBars, barWidth)
+	barHeights := m.bars[:visibleBars]
+	barsStr := visual.RenderBarsFullWidth(barHeights, barWidth, barsH, md.Primary, md.Secondary, md.Background, md.Energy, m.pattern)
+	for _, line := range strings.Split(barsStr, "\n") {
+		full.WriteString(centerLine(line, m.width, bg))
+		full.WriteString("\n")
+	}
+
+	// Bottom padding
+	currentLines := topPad + totalContentH
+	for range max(0, m.height-currentLines) {
 		full.WriteString(bgLine)
 		full.WriteString("\n")
 	}
@@ -210,8 +175,8 @@ func (m Model) renderProgress(width int, primary, secondary lipgloss.Color) stri
 	return fmt.Sprintf("%s %s", bar.String(), timeStyle.Render(fmt.Sprintf("%s / %s", posStr, durStr)))
 }
 
-// centerPad centers rendered text within the given width, filling sides with bg color.
-func centerPad(rendered string, totalWidth int, bg lipgloss.Color) string {
+// centerLine centers rendered text within the given width, filling sides with bg.
+func centerLine(rendered string, totalWidth int, bg lipgloss.Color) string {
 	w := lipgloss.Width(rendered)
 	if w >= totalWidth {
 		return rendered

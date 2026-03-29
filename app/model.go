@@ -25,6 +25,10 @@ type pollTickMsg time.Time
 type trackUpdateMsg struct{ track *source.Track }
 type trackErrorMsg struct{ err error }
 type controlDoneMsg struct{}
+type artworkMsg struct {
+	url      string
+	rendered string
+}
 
 type Model struct {
 	source     source.TrackSource
@@ -39,8 +43,9 @@ type Model struct {
 	pattern    int
 	width      int
 	height     int
-	artwork    visual.ArtworkCache
-	help       help.Model
+	artworkURL      string
+	artworkRendered string
+	help            help.Model
 	showHelp   bool
 	keys       KeyMap
 	quitting   bool
@@ -100,7 +105,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tea.Tick(time.Duration(pollSeconds*float64(time.Second)), func(t time.Time) tea.Msg { return pollTickMsg(t) }),
 		)
 	case trackUpdateMsg:
-		m.handleTrackUpdate(msg.track)
+		cmd := m.handleTrackUpdate(msg.track)
+		return m, cmd
+	case artworkMsg:
+		if msg.url == m.artworkURL {
+			m.artworkRendered = msg.rendered
+		}
 		return m, nil
 	case trackErrorMsg:
 		m.track = nil
@@ -138,16 +148,32 @@ func (m *Model) tickAnimation() {
 	}
 }
 
-func (m *Model) handleTrackUpdate(track *source.Track) {
+func (m *Model) handleTrackUpdate(track *source.Track) tea.Cmd {
 	m.track = track
 	if track == nil {
 		m.startTransitionTo(mood.Idle)
-		return
+		m.artworkURL = ""
+		m.artworkRendered = ""
+		return nil
 	}
 	detected := mood.DetectMood(track.Artist, track.Name, track.Album)
 	if detected.Name != m.targetMood.Name {
 		m.startTransitionTo(detected)
 	}
+
+	// Fetch artwork async if URL changed
+	if track.ArtworkURL != "" && track.ArtworkURL != m.artworkURL {
+		m.artworkURL = track.ArtworkURL
+		m.artworkRendered = ""
+		artW := 40
+		artH := 20
+		url := track.ArtworkURL
+		return func() tea.Msg {
+			rendered := visual.FetchAndRender(url, artW, artH)
+			return artworkMsg{url: url, rendered: rendered}
+		}
+	}
+	return nil
 }
 
 func (m *Model) startTransitionTo(target mood.Mood) {
