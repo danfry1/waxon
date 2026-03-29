@@ -28,7 +28,7 @@ func NewLocalSource() *LocalSource {
 func (s *LocalSource) CurrentTrack() (*Track, error) {
 	out, err := runOsascript(spotifyScript)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("osascript: %w", err)
 	}
 	return parseOutput(out)
 }

@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	numBars     = 20
-	barMaxH     = 6
+	numBars     = 40
+	barMaxH     = 10
 	animFPS     = 30
 	pollSeconds = 1.5
 )
@@ -167,5 +167,10 @@ func fetchTrack(src source.TrackSource) tea.Cmd {
 }
 
 func controlCmd(fn func() error) tea.Cmd {
-	return func() tea.Msg { fn(); return controlDoneMsg{} }
+	return func() tea.Msg {
+		if err := fn(); err != nil {
+			return trackErrorMsg{err}
+		}
+		return controlDoneMsg{}
+	}
 }
