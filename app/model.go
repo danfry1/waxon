@@ -28,6 +28,9 @@ type controlDoneMsg struct{}
 type artworkMsg struct {
 	url      string
 	rendered string
+	isKitty  bool
+	cols     int
+	rows     int
 }
 
 type Model struct {
@@ -45,6 +48,9 @@ type Model struct {
 	height     int
 	artworkURL      string
 	artworkRendered string
+	artworkIsKitty  bool
+	artworkCols     int
+	artworkRows     int
 	help            help.Model
 	showHelp   bool
 	keys       KeyMap
@@ -110,6 +116,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case artworkMsg:
 		if msg.url == m.artworkURL {
 			m.artworkRendered = msg.rendered
+			m.artworkIsKitty = msg.isKitty
+			m.artworkCols = msg.cols
+			m.artworkRows = msg.rows
 		}
 		return m, nil
 	case trackErrorMsg:
@@ -172,13 +181,14 @@ func (m *Model) handleTrackUpdate(track *source.Track) tea.Cmd {
 	if track.ArtworkURL != "" && track.ArtworkURL != m.artworkURL {
 		m.artworkURL = track.ArtworkURL
 		m.artworkRendered = ""
+		m.artworkIsKitty = false
 		// Scale art to terminal: use up to 60% of height, maintain square aspect
 		artH := max(12, min(35, (m.height-16)*3/5))
 		artW := artH * 2 // 2:1 ratio for square appearance in terminal
 		url := track.ArtworkURL
 		return func() tea.Msg {
-			rendered := visual.FetchAndRender(url, artW, artH)
-			return artworkMsg{url: url, rendered: rendered}
+			rendered, isKitty := visual.FetchAndRender(url, artW, artH)
+			return artworkMsg{url: url, rendered: rendered, isKitty: isKitty, cols: artW, rows: artH}
 		}
 	}
 	return nil

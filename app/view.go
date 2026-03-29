@@ -51,9 +51,22 @@ func (m Model) View() string {
 
 	// ── Album art (hero element) ──
 	if m.artworkRendered != "" {
-		artLines := strings.Split(m.artworkRendered, "\n")
-		for _, line := range artLines {
-			sections = append(sections, centerLine(line, m.width, bg))
+		if m.artworkIsKitty {
+			// Kitty protocol: position escape sequence, reserve rows for image
+			leftPad := max(0, (m.width-m.artworkCols)/2)
+			bgStyle := lipgloss.NewStyle().Background(bg)
+			padLine := bgStyle.Render(strings.Repeat(" ", leftPad)) + m.artworkRendered
+			sections = append(sections, padLine)
+			// Reserve rows so subsequent content appears below the image
+			for range m.artworkRows {
+				sections = append(sections, bgLine)
+			}
+		} else {
+			// Half-block: center each line normally
+			artLines := strings.Split(m.artworkRendered, "\n")
+			for _, line := range artLines {
+				sections = append(sections, centerLine(line, m.width, bg))
+			}
 		}
 		sections = append(sections, bgLine)
 	}

@@ -18,35 +18,36 @@ import (
 )
 
 // FetchAndRender downloads album art and renders it for the terminal.
+// Returns the rendered string and whether Kitty protocol was used.
 // Uses Kitty graphics protocol on supported terminals (Ghostty, Kitty, WezTerm),
 // falls back to high-quality half-block pixel art otherwise.
-func FetchAndRender(url string, cols, rows int) string {
+func FetchAndRender(url string, cols, rows int) (string, bool) {
 	if url == "" || cols == 0 || rows == 0 {
-		return ""
+		return "", false
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	defer resp.Body.Close()
 
 	img, _, err := image.Decode(resp.Body)
 	if err != nil {
-		return ""
+		return "", false
 	}
 
-	// Try Kitty graphics protocol for supported terminals
-	if supportsKittyGraphics() {
+	// Kitty protocol: opt-in via SPOTUI_KITTY=1 env var
+	if os.Getenv("SPOTUI_KITTY") == "1" && supportsKittyGraphics() {
 		result := renderKitty(img, cols, rows)
 		if result != "" {
-			return result
+			return result, true
 		}
 	}
 
-	// Fallback: high-quality half-block rendering
-	return renderHalfBlock(img, cols, rows)
+	// Default: high-quality half-block pixel art (the terminal flex)
+	return renderHalfBlock(img, cols, rows), false
 }
 
 // supportsKittyGraphics checks if the terminal supports the Kitty graphics protocol.
@@ -80,6 +81,7 @@ func renderKitty(img image.Image, cols, rows int) string {
 	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
 
 	// Build Kitty graphics escape sequence (chunked if needed)
+	// Returns just the escape sequence — caller handles cursor/layout
 	var sb strings.Builder
 	chunkSize := 4096
 	for i := 0; i < len(b64); i += chunkSize {
@@ -91,18 +93,10 @@ func renderKitty(img image.Image, cols, rows int) string {
 		}
 
 		if i == 0 {
-			// First chunk: transmit and display
 			sb.WriteString(fmt.Sprintf("\x1b_Gf=100,a=T,t=d,c=%d,r=%d,m=%d;%s\x1b\\", cols, rows, more, chunk))
 		} else {
-			// Continuation chunk
 			sb.WriteString(fmt.Sprintf("\x1b_Gm=%d;%s\x1b\\", more, chunk))
 		}
-	}
-
-	// Reserve terminal rows (spaces for the image area)
-	for range rows {
-		sb.WriteString(strings.Repeat(" ", cols))
-		sb.WriteString("\n")
 	}
 
 	return sb.String()
