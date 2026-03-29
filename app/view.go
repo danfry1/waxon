@@ -47,6 +47,8 @@ func (m Model) View() string {
 		content.WriteString(pad.Render(titleStyle.Render("♫ spotui")))
 		content.WriteString("\n")
 		content.WriteString(pad.Render(artistStyle.Render("waiting for music...")))
+		content.WriteString("\n")
+		content.WriteString(pad.Render(controlStyle.Render("play something on Spotify to begin")))
 	}
 	content.WriteString("\n\n")
 

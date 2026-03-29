@@ -127,6 +127,13 @@ func (m *Model) tickAnimation() {
 			m.transition = nil
 		}
 	}
+	// Estimate position between polls
+	if m.track != nil && m.track.Playing {
+		m.track.Position += time.Second / animFPS
+		if m.track.Position > m.track.Duration {
+			m.track.Position = m.track.Duration
+		}
+	}
 }
 
 func (m *Model) handleTrackUpdate(track *source.Track) {
