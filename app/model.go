@@ -14,7 +14,7 @@ import (
 
 const (
 	numBars     = 40
-	barMaxH     = 10
+	barMaxH     = 16
 	animFPS     = 30
 	pollSeconds = 1.5
 )
