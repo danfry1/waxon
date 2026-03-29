@@ -3,12 +3,13 @@ package source
 import "time"
 
 type Track struct {
-	Name     string
-	Artist   string
-	Album    string
-	Duration time.Duration
-	Position time.Duration
-	Playing  bool
+	Name       string
+	Artist     string
+	Album      string
+	ArtworkURL string
+	Duration   time.Duration
+	Position   time.Duration
+	Playing    bool
 }
 
 type TrackSource interface {

@@ -75,7 +75,7 @@ func (m Model) View() string {
 	// ── Full-width bars with reflection ──
 	visibleBars := min(numBars, barWidth)
 	barHeights := m.bars[:visibleBars]
-	barsStr := visual.RenderBarsFullWidth(barHeights, barWidth, barMaxH+barMaxH/4, md.Primary, md.Secondary, md.Background)
+	barsStr := visual.RenderBarsFullWidth(barHeights, barWidth, barMaxH+barMaxH/4, md.Primary, md.Secondary, md.Background, md.Energy, m.pattern)
 	for _, line := range strings.Split(barsStr, "\n") {
 		centered := centerPad(line, m.width, bg)
 		full.WriteString(centered)
@@ -88,19 +88,46 @@ func (m Model) View() string {
 	full.WriteString(bgLine)
 	full.WriteString("\n")
 
-	// ── Track info ──
+	// ── Track info with album art ──
 	if m.track != nil {
 		labelColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.45))
 		labelStyle := lipgloss.NewStyle().Foreground(labelColor).Background(bg)
 		trackStyle := lipgloss.NewStyle().Foreground(primary).Bold(true).Background(bg)
 		artistStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
 
-		full.WriteString(centerPad(labelStyle.Render("♫  N O W   P L A Y I N G"), m.width, bg))
-		full.WriteString("\n")
-		full.WriteString(centerPad(trackStyle.Render(m.track.Name), m.width, bg))
-		full.WriteString("\n")
-		full.WriteString(centerPad(artistStyle.Render(m.track.Artist), m.width, bg))
-		full.WriteString("\n")
+		// Try to render album art
+		artSize := 12 // character rows (24 pixels tall)
+		artStr := m.artwork.RenderArtwork(m.track.ArtworkURL, artSize*2, artSize)
+
+		if artStr != "" {
+			// Layout: art on left, track info on right
+			artBlock := lipgloss.NewStyle().Background(bg).Render(artStr)
+
+			infoLines := strings.Join([]string{
+				"",
+				"",
+				labelStyle.Render("♫  N O W   P L A Y I N G"),
+				"",
+				trackStyle.Render(m.track.Name),
+				artistStyle.Render(m.track.Artist),
+			}, "\n")
+			infoBlock := lipgloss.NewStyle().
+				Background(bg).
+				PaddingLeft(3).
+				Width(40).
+				Render(infoLines)
+
+			combined := lipgloss.JoinHorizontal(lipgloss.Top, artBlock, infoBlock)
+			full.WriteString(centerPad(combined, m.width, bg))
+			full.WriteString("\n")
+		} else {
+			full.WriteString(centerPad(labelStyle.Render("♫  N O W   P L A Y I N G"), m.width, bg))
+			full.WriteString("\n")
+			full.WriteString(centerPad(trackStyle.Render(m.track.Name), m.width, bg))
+			full.WriteString("\n")
+			full.WriteString(centerPad(artistStyle.Render(m.track.Artist), m.width, bg))
+			full.WriteString("\n")
+		}
 	} else {
 		titleStyle := lipgloss.NewStyle().Foreground(primary).Bold(true).Background(bg)
 		subStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)

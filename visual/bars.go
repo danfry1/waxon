@@ -9,18 +9,16 @@ import (
 
 var barChars = []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
 
-// RenderBars renders bars at a fixed count, used for smaller layouts.
+// RenderBars renders bars at a fixed count (for tests and small layouts).
 func RenderBars(heights []float64, maxHeight int, primary, secondary string) string {
 	if len(heights) == 0 {
 		return strings.Repeat("\n", maxHeight)
 	}
-
 	lines := make([]string, maxHeight)
 	for row := range maxHeight {
 		rowRatio := 1.0 - float64(row)/float64(maxHeight)
 		rowColor := LerpColor(secondary, primary, rowRatio)
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color(rowColor))
-
 		var sb strings.Builder
 		for _, h := range heights {
 			barH := h * float64(maxHeight)
@@ -41,67 +39,88 @@ func RenderBars(heights []float64, maxHeight int, primary, secondary string) str
 	return strings.Join(lines, "\n")
 }
 
-// RenderBarsFullWidth stretches model bars to fill the given width,
-// with a color gradient (bright top, dim bottom) and a subtle reflection below.
-func RenderBarsFullWidth(modelBars []float64, width, height int, primary, secondary, background string) string {
+// RenderBarsFullWidth smoothly interpolates model bars to fill the entire width,
+// with vertical color gradient, sparkle particles, and a subtle reflection.
+func RenderBarsFullWidth(modelBars []float64, width, height int, primary, secondary, background string, energy float64, frame int) string {
 	if len(modelBars) == 0 || width == 0 {
 		return strings.Repeat("\n", height)
 	}
 
-	reflectionH := height / 4
+	// Smoothly interpolate model bars to fill width
+	smoothBars := interpolateBars(modelBars, width)
+
+	reflectionH := max(2, height/5)
 	mainH := height - reflectionH
+
+	// Pre-compute styled characters per row (vertical gradient)
+	type rowCache struct {
+		block    string
+		partials [8]string
+	}
+	rowCaches := make([]rowCache, mainH)
+	for row := range mainH {
+		rowRatio := 1.0 - float64(row)/float64(mainH)
+		rowColor := LerpColor(secondary, primary, 0.2+rowRatio*0.8)
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(rowColor))
+		rowCaches[row].block = style.Render("█")
+		for i, c := range barChars {
+			rowCaches[row].partials[i] = style.Render(c)
+		}
+	}
+
+	// Sparkle styles
+	sparkleChars := []string{"·", "✦", "∗", "°"}
+	sparkleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(LerpColor(background, primary, 0.18)))
+	styledSparkles := make([]string, len(sparkleChars))
+	for i, c := range sparkleChars {
+		styledSparkles[i] = sparkleStyle.Render(c)
+	}
 
 	var lines []string
 
 	// Main bars
 	for row := range mainH {
-		rowRatio := 1.0 - float64(row)/float64(mainH)
-		rowColor := LerpColor(secondary, primary, 0.3+rowRatio*0.7)
-		style := lipgloss.NewStyle().Foreground(lipgloss.Color(rowColor))
-
+		cache := rowCaches[row]
 		var sb strings.Builder
 		for col := range width {
-			barIdx := col * len(modelBars) / width
-			h := modelBars[barIdx]
+			h := smoothBars[col]
 			barH := h * float64(mainH)
 			rowFromBottom := mainH - 1 - row
 
 			if float64(rowFromBottom) < barH-1 {
-				sb.WriteString(style.Render("█"))
+				sb.WriteString(cache.block)
 			} else if float64(rowFromBottom) < barH {
 				frac := barH - math.Floor(barH)
 				idx := int(frac * float64(len(barChars)-1))
 				idx = max(0, min(idx, len(barChars)-1))
-				sb.WriteString(style.Render(barChars[idx]))
+				sb.WriteString(cache.partials[idx])
 			} else {
-				sb.WriteString(" ")
+				// Empty space — maybe sparkle (deterministic, persists ~5 frames)
+				hash := uint((col*7919 + row*6271 + (frame/5)*1013)) % 1000
+				threshold := uint(energy * 8)
+				if threshold > 0 && hash < threshold {
+					sb.WriteString(styledSparkles[hash%uint(len(styledSparkles))])
+				} else {
+					sb.WriteString(" ")
+				}
 			}
 		}
 		lines = append(lines, sb.String())
 	}
 
-	// Reflection (mirrored, fading out)
+	// Reflection — subtle ▁ characters that fade out
 	for row := range reflectionH {
-		// Map this reflection row to the corresponding main bar row (mirrored)
-		mirrorRow := row
 		fade := 1.0 - float64(row)/float64(reflectionH)
-		rowColor := LerpColor(background, secondary, fade*0.3)
-		style := lipgloss.NewStyle().Foreground(lipgloss.Color(rowColor))
+		reflectColor := LerpColor(background, secondary, fade*0.15)
+		reflectStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(reflectColor))
+		styledReflect := reflectStyle.Render("▁")
 
 		var sb strings.Builder
 		for col := range width {
-			barIdx := col * len(modelBars) / width
-			h := modelBars[barIdx]
-			barH := h * float64(mainH)
-
-			// Mirror: bottom rows of the bar become top rows of reflection
-			reflectH := barH * 0.4 // reflection is shorter than the bar
-			rowFromTop := float64(mirrorRow)
-
-			if rowFromTop < reflectH-1 {
-				sb.WriteString(style.Render("▓"))
-			} else if rowFromTop < reflectH {
-				sb.WriteString(style.Render("░"))
+			h := smoothBars[col]
+			reflectH := h * float64(mainH) * 0.25 * fade
+			if float64(row) < reflectH {
+				sb.WriteString(styledReflect)
 			} else {
 				sb.WriteString(" ")
 			}
@@ -110,4 +129,32 @@ func RenderBarsFullWidth(modelBars []float64, width, height int, primary, second
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// interpolateBars uses cosine interpolation to smoothly expand model bars
+// into a higher-resolution output, creating fluid waveforms instead of blocky steps.
+func interpolateBars(modelBars []float64, outputWidth int) []float64 {
+	if len(modelBars) == 0 || outputWidth == 0 {
+		return make([]float64, outputWidth)
+	}
+	if len(modelBars) == 1 {
+		result := make([]float64, outputWidth)
+		for i := range result {
+			result[i] = modelBars[0]
+		}
+		return result
+	}
+
+	result := make([]float64, outputWidth)
+	for i := range outputWidth {
+		pos := float64(i) * float64(len(modelBars)-1) / float64(outputWidth-1)
+		lo := int(pos)
+		hi := min(lo+1, len(modelBars)-1)
+		frac := pos - float64(lo)
+
+		// Cosine interpolation for smooth curves
+		t := (1 - math.Cos(frac*math.Pi)) / 2
+		result[i] = modelBars[lo]*(1-t) + modelBars[hi]*t
+	}
+	return result
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/harmonica"
 	"github.com/danielfry/spotui/mood"
 	"github.com/danielfry/spotui/source"
+	"github.com/danielfry/spotui/visual"
 )
 
 const (
@@ -38,6 +39,7 @@ type Model struct {
 	pattern    int
 	width      int
 	height     int
+	artwork    visual.ArtworkCache
 	help       help.Model
 	showHelp   bool
 	keys       KeyMap
@@ -115,8 +117,8 @@ func (m *Model) tickAnimation() {
 	energy := m.mood.Energy
 	for i := range numBars {
 		m.bars[i], m.barVels[i] = m.barSprings[i].Update(m.bars[i], m.barVels[i], m.barTargets[i])
-		if rand.Float64() < energy*0.15 {
-			m.barTargets[i] = rand.Float64() * (0.3 + energy*0.7)
+		if rand.Float64() < 0.06+energy*0.14 {
+			m.barTargets[i] = rand.Float64() * (0.4 + energy*0.6)
 		}
 	}
 	if m.transition != nil {

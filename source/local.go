@@ -13,7 +13,7 @@ const spotifyScript = `if application "Spotify" is running then
 		if player state is stopped then
 			return "stopped"
 		end if
-		return (name of current track) & "\n" & (artist of current track) & "\n" & (album of current track) & "\n" & (duration of current track) & "\n" & (player position) & "\n" & (player state as string)
+		return (name of current track) & "\n" & (artist of current track) & "\n" & (album of current track) & "\n" & (duration of current track) & "\n" & (player position) & "\n" & (player state as string) & "\n" & (artwork url of current track)
 	end tell
 else
 	return "not_running"
@@ -67,8 +67,8 @@ func parseOutput(raw string) (*Track, error) {
 		return nil, nil
 	}
 
-	lines := strings.SplitN(raw, "\n", 6)
-	if len(lines) != 6 {
+	lines := strings.SplitN(raw, "\n", 7)
+	if len(lines) < 6 {
 		return nil, fmt.Errorf("unexpected output format: got %d lines", len(lines))
 	}
 
@@ -82,12 +82,18 @@ func parseOutput(raw string) (*Track, error) {
 		return nil, fmt.Errorf("parse position: %w", err)
 	}
 
+	artworkURL := ""
+	if len(lines) >= 7 {
+		artworkURL = lines[6]
+	}
+
 	return &Track{
-		Name:     lines[0],
-		Artist:   lines[1],
-		Album:    lines[2],
-		Duration: time.Duration(durationMs) * time.Millisecond,
-		Position: time.Duration(positionSec * float64(time.Second)),
-		Playing:  lines[5] == "playing",
+		Name:       lines[0],
+		Artist:     lines[1],
+		Album:      lines[2],
+		ArtworkURL: artworkURL,
+		Duration:   time.Duration(durationMs) * time.Millisecond,
+		Position:   time.Duration(positionSec * float64(time.Second)),
+		Playing:    lines[5] == "playing",
 	}, nil
 }
