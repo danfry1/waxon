@@ -1,6 +1,7 @@
 package app
 
 import (
+	"math"
 	"math/rand/v2"
 	"time"
 
@@ -43,6 +44,7 @@ type Model struct {
 	barVels    [numBars]float64
 	barTargets [numBars]float64
 	barSprings [numBars]harmonica.Spring
+	beatPhase  float64 // 0.0-1.0, cycles at estimated BPM
 	pattern    int
 	width      int
 	height     int
@@ -131,22 +133,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// estimateBPM returns a plausible tempo based on mood energy.
+// Low energy (ambient) ≈ 70 BPM, high energy (electronic) ≈ 140 BPM.
+func estimateBPM(energy float64) float64 {
+	return 70 + energy*70
+}
+
 func (m *Model) tickAnimation() {
 	m.pattern++
 	playing := m.track != nil && m.track.Playing
 	energy := m.mood.Energy
 
-	for i := range numBars {
-		m.bars[i], m.barVels[i] = m.barSprings[i].Update(m.bars[i], m.barVels[i], m.barTargets[i])
-		if playing {
-			if rand.Float64() < 0.06+energy*0.14 {
-				m.barTargets[i] = rand.Float64() * (0.4 + energy*0.6)
+	if playing {
+		// Advance beat phase based on estimated BPM
+		bpm := estimateBPM(energy)
+		beatsPerFrame := bpm / 60.0 / animFPS
+		m.beatPhase += beatsPerFrame
+		if m.beatPhase >= 1.0 {
+			m.beatPhase -= 1.0
+		}
+
+		// On the beat (phase near 0): push a wave of energy through the bars
+		onBeat := m.beatPhase < 0.08
+		// On the off-beat (half beat): subtle secondary pulse
+		onOffBeat := m.beatPhase > 0.48 && m.beatPhase < 0.54
+
+		for i := range numBars {
+			m.bars[i], m.barVels[i] = m.barSprings[i].Update(m.bars[i], m.barVels[i], m.barTargets[i])
+
+			if onBeat {
+				// Beat hit: most bars surge, with spatial variation for natural look
+				// Center bars react more, edges react less
+				centerDist := math.Abs(float64(i)-float64(numBars)/2) / (float64(numBars) / 2)
+				intensity := (1.0 - centerDist*0.5) * (0.5 + energy*0.5)
+				m.barTargets[i] = intensity * (0.6 + rand.Float64()*0.4)
+			} else if onOffBeat && energy > 0.4 {
+				// Off-beat: gentler pulse for higher-energy tracks
+				if rand.Float64() < 0.4 {
+					m.barTargets[i] = rand.Float64() * energy * 0.5
+				}
+			} else {
+				// Between beats: gentle decay with occasional random variation
+				if rand.Float64() < 0.03+energy*0.05 {
+					m.barTargets[i] = rand.Float64() * energy * 0.35
+				}
 			}
-		} else {
-			// Smoothly decay to zero when paused/stopped
+		}
+	} else {
+		// Paused: decay to zero
+		for i := range numBars {
+			m.bars[i], m.barVels[i] = m.barSprings[i].Update(m.bars[i], m.barVels[i], m.barTargets[i])
 			m.barTargets[i] = 0
 		}
 	}
+
 	if m.transition != nil {
 		m.transition.Tick()
 		m.mood = m.transition.Current()
