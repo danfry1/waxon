@@ -11,8 +11,6 @@ import (
 	"github.com/danielfry/spotui/visual"
 )
 
-const frameDepth = 3 // how many chars deep the edge bars go
-
 func (m Model) View() string {
 	if m.quitting {
 		return ""
@@ -40,160 +38,82 @@ func (m Model) View() string {
 			lipgloss.WithWhitespaceBackground(bg))
 	}
 
-	// Interpolate bars for all edges
-	visibleBars := min(numBars, m.width)
-	hBars := visual.InterpolateBars(m.bars[:visibleBars], m.width)       // horizontal (top/bottom)
-	vBars := visual.InterpolateBars(m.bars[:visibleBars], m.height)      // vertical (left/right)
-
-	// Pre-compute frame bar styles (gradient by depth)
-	frameStyles := make([]lipgloss.Style, frameDepth)
-	for d := range frameDepth {
-		fade := 1.0 - float64(d)*0.3 // outer edge brightest, inner edge dimmest
-		color := visual.LerpColor(md.Background, md.Primary, fade*0.7)
-		frameStyles[d] = lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Background(bg)
+	// Beat-reactive glow intensity
+	playing := m.track != nil && m.track.Playing
+	var glowIntensity float64
+	if playing {
+		glowIntensity = 0.08 + 0.30*math.Max(0, math.Cos(m.beatPhase*2*math.Pi))
+	} else {
+		glowIntensity = 0.04
 	}
 
-	// Build content sections (centered, no frame)
+	// Glow colors: outer edge brighter, inner dimmer
+	outerGlow := visual.LerpColor(md.Background, md.Primary, glowIntensity)
+	innerGlow := visual.LerpColor(md.Background, md.Primary, glowIntensity*0.4)
+	outerStyle := lipgloss.NewStyle().Background(lipgloss.Color(outerGlow))
+	innerStyle := lipgloss.NewStyle().Background(lipgloss.Color(innerGlow))
+
+	// Build content
 	content := m.buildContent(md, primary, secondary, bg)
 	contentLines := strings.Split(content, "\n")
+	contentH := len(contentLines)
+	innerWidth := m.width - 4 // 2 glow chars per side
 
 	// Vertically center content
-	contentH := len(contentLines)
-	topPad := max(0, (m.height-contentH)/2)
+	topPad := max(0, (m.height-contentH-4)/2) // -4 for top/bottom glow rows
 
-	// Pad content to full height
-	bgLine := bgStyle.Render(strings.Repeat(" ", max(0, m.width-frameDepth*2)))
-	allContentLines := make([]string, m.height)
-	for i := range m.height {
-		ci := i - topPad
-		if ci >= 0 && ci < contentH {
-			allContentLines[i] = contentLines[ci]
-		} else {
-			allContentLines[i] = bgLine
-		}
-	}
-
-	// Compose full screen: frame bars + content
+	// Build full screen
 	var full strings.Builder
-	for row := range m.height {
-		// Top/bottom edge bars
-		isTopFrame := row < frameDepth
-		isBottomFrame := row >= m.height-frameDepth
 
-		if isTopFrame {
-			// Top edge: bars hanging down
-			full.WriteString(m.renderHorizontalFrame(hBars, row, frameDepth, true, frameStyles, bg))
-		} else if isBottomFrame {
-			// Bottom edge: bars growing up
-			fromBottom := m.height - 1 - row
-			full.WriteString(m.renderHorizontalFrame(hBars, fromBottom, frameDepth, false, frameStyles, bg))
-		} else {
-			// Content row with left/right edge bars
-			leftEdge := m.renderVerticalEdge(vBars[row], frameDepth, true, frameStyles, bg)
-			rightEdge := m.renderVerticalEdge(vBars[row], frameDepth, false, frameStyles, bg)
+	// Top glow edge (2 rows)
+	full.WriteString(outerStyle.Render(strings.Repeat(" ", m.width)) + "\n")
+	full.WriteString(innerStyle.Render(strings.Repeat(" ", m.width)) + "\n")
 
-			// Pad content line to fill middle
-			cl := allContentLines[row]
-			clWidth := lipgloss.Width(cl)
-			innerWidth := m.width - frameDepth*2
-			if clWidth < innerWidth {
-				cl += bgStyle.Render(strings.Repeat(" ", innerWidth-clWidth))
+	// Content area with side glow
+	totalContentRows := m.height - 4 // minus top/bottom glow
+	for row := range totalContentRows {
+		// Left glow
+		full.WriteString(outerStyle.Render(" "))
+		full.WriteString(innerStyle.Render(" "))
+
+		// Content or empty
+		ci := row - topPad
+		if ci >= 0 && ci < contentH {
+			line := contentLines[ci]
+			lineW := lipgloss.Width(line)
+			if lineW < innerWidth {
+				line += bgStyle.Render(strings.Repeat(" ", innerWidth-lineW))
 			}
+			full.WriteString(line)
+		} else {
+			full.WriteString(bgStyle.Render(strings.Repeat(" ", innerWidth)))
+		}
 
-			full.WriteString(leftEdge)
-			full.WriteString(cl)
-			full.WriteString(rightEdge)
-		}
-		if row < m.height-1 {
-			full.WriteString("\n")
-		}
+		// Right glow
+		full.WriteString(innerStyle.Render(" "))
+		full.WriteString(outerStyle.Render(" "))
+		full.WriteString("\n")
 	}
+
+	// Bottom glow edge (2 rows)
+	full.WriteString(innerStyle.Render(strings.Repeat(" ", m.width)) + "\n")
+	full.WriteString(outerStyle.Render(strings.Repeat(" ", m.width)))
 
 	return full.String()
 }
 
-// renderHorizontalFrame renders one row of the top or bottom frame bars.
-func (m Model) renderHorizontalFrame(bars []float64, depthFromEdge, maxDepth int, inverted bool, styles []lipgloss.Style, bg lipgloss.Color) string {
-	bgStyle := lipgloss.NewStyle().Background(bg)
-	var sb strings.Builder
-
-	for col := range m.width {
-		h := bars[col]
-		barDepth := h * float64(maxDepth)
-		d := float64(depthFromEdge)
-
-		styleIdx := min(depthFromEdge, maxDepth-1)
-		style := styles[styleIdx]
-
-		if d < barDepth-1 {
-			sb.WriteString(style.Render("█"))
-		} else if d < barDepth {
-			frac := barDepth - math.Floor(barDepth)
-			chars := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
-			if inverted {
-				chars = []string{"▔", "▀", "▀", "▀", "█", "█", "█", "█"}
-			}
-			idx := int(frac * float64(len(chars)-1))
-			idx = max(0, min(idx, len(chars)-1))
-			sb.WriteString(style.Render(chars[idx]))
-		} else {
-			sb.WriteString(bgStyle.Render(" "))
-		}
-	}
-	return sb.String()
-}
-
-// renderVerticalEdge renders the left or right edge bars for a single row.
-func (m Model) renderVerticalEdge(barVal float64, maxDepth int, isLeft bool, styles []lipgloss.Style, bg lipgloss.Color) string {
-	bgStyle := lipgloss.NewStyle().Background(bg)
-	barCols := barVal * float64(maxDepth)
-
-	var sb strings.Builder
-	for d := range maxDepth {
-		col := d
-		if !isLeft {
-			col = maxDepth - 1 - d
-		}
-
-		styleIdx := col
-		if !isLeft {
-			styleIdx = d
-		}
-		styleIdx = min(styleIdx, maxDepth-1)
-		style := styles[styleIdx]
-
-		distFromEdge := float64(d)
-		if !isLeft {
-			distFromEdge = float64(d)
-		}
-
-		if distFromEdge < barCols-1 {
-			sb.WriteString(style.Render("█"))
-		} else if distFromEdge < barCols {
-			if isLeft {
-				sb.WriteString(style.Render("▐"))
-			} else {
-				sb.WriteString(style.Render("▌"))
-			}
-		} else {
-			sb.WriteString(bgStyle.Render(" "))
-		}
-	}
-	return sb.String()
-}
-
-// buildContent builds the centered content area (mood word, art, track info, progress).
 func (m Model) buildContent(md mood.Mood, primary, secondary, bg lipgloss.Color) string {
 	bgStyle := lipgloss.NewStyle().Background(bg)
-	innerWidth := m.width - frameDepth*2
+	innerWidth := m.width - 4
 
 	var sections []string
+	emptyLine := bgStyle.Render(strings.Repeat(" ", innerWidth))
 
 	// Mood word
 	moodColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.35))
 	moodStyle := lipgloss.NewStyle().Foreground(moodColor).Background(bg)
 	sections = append(sections, centerInner(moodStyle.Render(spacedWord(md.Name)), innerWidth, bgStyle))
-	sections = append(sections, bgStyle.Render(strings.Repeat(" ", innerWidth)))
+	sections = append(sections, emptyLine)
 
 	// Album art
 	if m.artworkRendered != "" {
@@ -202,14 +122,14 @@ func (m Model) buildContent(md mood.Mood, primary, secondary, bg lipgloss.Color)
 			padLine := bgStyle.Render(strings.Repeat(" ", leftPad)) + m.artworkRendered
 			sections = append(sections, padLine)
 			for range m.artworkRows {
-				sections = append(sections, bgStyle.Render(strings.Repeat(" ", innerWidth)))
+				sections = append(sections, emptyLine)
 			}
 		} else {
 			for _, line := range strings.Split(m.artworkRendered, "\n") {
 				sections = append(sections, centerInner(line, innerWidth, bgStyle))
 			}
 		}
-		sections = append(sections, bgStyle.Render(strings.Repeat(" ", innerWidth)))
+		sections = append(sections, emptyLine)
 	}
 
 	// Track info
@@ -229,7 +149,7 @@ func (m Model) buildContent(md mood.Mood, primary, secondary, bg lipgloss.Color)
 		sections = append(sections, centerInner(subStyle.Render("waiting for music..."), innerWidth, bgStyle))
 	}
 
-	sections = append(sections, bgStyle.Render(strings.Repeat(" ", innerWidth)))
+	sections = append(sections, emptyLine)
 
 	// Progress
 	if m.track != nil {
@@ -258,7 +178,6 @@ func (m Model) renderProgress(width int, primary, secondary lipgloss.Color) stri
 	if dur == 0 {
 		return ""
 	}
-
 	barWidth := width - 14
 	if barWidth < 10 {
 		barWidth = 10
@@ -282,7 +201,6 @@ func (m Model) renderProgress(width int, primary, secondary lipgloss.Color) stri
 	posStr := formatDuration(pos)
 	durStr := formatDuration(dur)
 	timeStyle := lipgloss.NewStyle().Foreground(secondary)
-
 	return fmt.Sprintf("%s %s", bar.String(), timeStyle.Render(fmt.Sprintf("%s / %s", posStr, durStr)))
 }
 
