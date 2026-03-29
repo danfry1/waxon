@@ -3,6 +3,7 @@ package app
 import (
 	"math"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -52,11 +53,6 @@ type Model struct {
 	artworkIsKitty  bool
 	artworkCols     int
 	artworkRows     int
-	// Layout positions for mouse interaction (set by View via pointer)
-	uiProgressRow   int
-	uiProgressStart int
-	uiProgressEnd   int
-	uiControlsRow   int
 	help            help.Model
 	showHelp   bool
 	keys       KeyMap
@@ -268,18 +264,43 @@ func (m *Model) handleClick(x, y int) tea.Cmd {
 		return nil
 	}
 
-	// Click on progress bar → seek
-	if y == m.uiProgressRow && x >= m.uiProgressStart && x <= m.uiProgressEnd {
-		barWidth := m.uiProgressEnd - m.uiProgressStart
-		if barWidth > 0 {
-			ratio := float64(x-m.uiProgressStart) / float64(barWidth)
-			pos := time.Duration(float64(m.track.Duration) * ratio)
-			return m.seekTo(pos)
+	// Compute layout to find progress bar and controls positions
+	artH := 0
+	if m.artworkRendered != "" {
+		if m.artworkIsKitty {
+			artH = m.artworkRows + 1
+		} else {
+			artH = strings.Count(m.artworkRendered, "\n") + 1
 		}
 	}
 
+	// Count content lines before progress: mood(1) + empty(1) + art(artH) + empty(1) + labels(3) + empty(1)
+	linesBeforeProgress := 7
+	if artH > 0 {
+		linesBeforeProgress += artH + 1 // art lines + empty after art
+	}
+	totalContentH := linesBeforeProgress + 2 // + progress + controls
+	topPad := max(0, (m.height-totalContentH-4)/2)
+
+	progressRow := 2 + topPad + linesBeforeProgress // 2 = top glow
+	controlsRow := progressRow + 1
+
+	// Progress bar dimensions
+	innerWidth := m.width - 4
+	progressWidth := min(m.width-24, 50)
+	barWidth := progressWidth - 14
+	barStartCol := 2 + (innerWidth-progressWidth)/2
+	barEndCol := barStartCol + barWidth
+
+	// Click on progress bar → seek
+	if y == progressRow && x >= barStartCol && x <= barEndCol && barWidth > 0 {
+		ratio := float64(x-barStartCol) / float64(barWidth)
+		pos := time.Duration(float64(m.track.Duration) * ratio)
+		return m.seekTo(pos)
+	}
+
 	// Click on controls row
-	if y == m.uiControlsRow {
+	if y == controlsRow {
 		center := m.width / 2
 		if x < center-5 {
 			return controlCmd(m.source.Previous)
