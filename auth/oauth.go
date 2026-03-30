@@ -48,12 +48,11 @@ func challengeFromVerifier(verifier string) string {
 }
 
 func Authenticate(clientID string) (*oauth2.Token, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", "127.0.0.1:8888")
 	if err != nil {
-		return nil, fmt.Errorf("listen: %w", err)
+		return nil, fmt.Errorf("listen on port 8888: %w", err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	redirectURL := fmt.Sprintf("http://localhost:%d/callback", port)
+	redirectURL := "http://127.0.0.1:8888/callback"
 
 	cfg := SpotifyOAuthConfig(clientID, redirectURL)
 	verifier := generateVerifier()
