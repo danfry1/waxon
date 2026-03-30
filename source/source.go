@@ -3,6 +3,7 @@ package source
 import "time"
 
 type Track struct {
+	ID         string
 	Name       string
 	Artist     string
 	Album      string
