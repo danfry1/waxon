@@ -116,6 +116,52 @@ func RenderBarsFullWidth(modelBars []float64, width, height int, primary, second
 	return strings.Join(lines, "\n")
 }
 
+// RenderBarsWithGlow renders bars with background tinting on tall bars to create a bloom effect.
+func RenderBarsWithGlow(heights []float64, maxHeight int, primary, secondary, background string) string {
+	if len(heights) == 0 {
+		return strings.Repeat("\n", maxHeight)
+	}
+	lines := make([]string, maxHeight)
+	for row := range maxHeight {
+		rowRatio := 1.0 - float64(row)/float64(maxHeight)
+		rowColor := LerpColor(secondary, primary, 0.2+rowRatio*0.8)
+
+		var sb strings.Builder
+		for _, h := range heights {
+			barH := h * float64(maxHeight)
+			rowFromBottom := maxHeight - 1 - row
+
+			if float64(rowFromBottom) < barH-1 {
+				bgTint := background
+				if h > 0.6 {
+					glowT := (h - 0.6) / 0.4 * 0.15
+					bgTint = LerpColor(background, rowColor, glowT)
+				}
+				glowStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color(rowColor)).
+					Background(lipgloss.Color(bgTint))
+				sb.WriteString(glowStyle.Render("█"))
+			} else if float64(rowFromBottom) < barH {
+				frac := barH - math.Floor(barH)
+				idx := int(frac * float64(len(barChars)-1))
+				idx = max(0, min(idx, len(barChars)-1))
+				style := lipgloss.NewStyle().Foreground(lipgloss.Color(rowColor))
+				sb.WriteString(style.Render(barChars[idx]))
+			} else {
+				glowBg := background
+				if h > 0.5 && float64(rowFromBottom) < barH+3 {
+					proximity := 1.0 - (float64(rowFromBottom)-barH)/3.0
+					glowBg = LerpColor(background, secondary, proximity*0.05)
+				}
+				bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(glowBg))
+				sb.WriteString(bgStyle.Render(" "))
+			}
+		}
+		lines[row] = sb.String()
+	}
+	return strings.Join(lines, "\n")
+}
+
 // interpolateBars uses cosine interpolation to smoothly expand model bars
 // into a higher-resolution output, creating fluid waveforms instead of blocky steps.
 func InterpolateBars(modelBars []float64, outputWidth int) []float64 {
