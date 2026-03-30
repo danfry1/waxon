@@ -54,9 +54,13 @@ func TestModelTrackClearedOnNil(t *testing.T) {
 
 func TestModelQuit(t *testing.T) {
 	m := NewModel(&fakeSource{})
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
 		t.Error("expected quit command")
+	}
+	m = updated.(Model)
+	if !m.quitting {
+		t.Error("expected quitting to be true")
 	}
 }
 

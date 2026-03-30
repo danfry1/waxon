@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/harmonica"
 	"github.com/danielfry/spotui/mood"
@@ -33,6 +34,7 @@ type artworkMsg struct {
 	cols   int
 	rows   int
 }
+type audioFeaturesMsg struct{ features *source.AudioFeatures }
 
 type Model struct {
 	source     source.TrackSource
@@ -58,12 +60,25 @@ type Model struct {
 	keys       KeyMap
 	quitting   bool
 	lastPoll   time.Time
+
+	effects       Effects
+	panel         *Panel
+	activePanel   PanelType
+	richSource    source.RichSource
+	volume        int
+	shuffleOn     bool
+	repeatMode    source.RepeatMode
+	audioFeatures *source.AudioFeatures
 }
 
 func NewModel(src source.TrackSource) Model {
 	m := Model{
 		source: src, mood: mood.Idle, targetMood: mood.Idle,
 		keys: DefaultKeyMap(), help: help.New(),
+		volume: 50, repeatMode: source.RepeatOff,
+	}
+	if rich, ok := src.(source.RichSource); ok {
+		m.richSource = rich
 	}
 	for i := range numBars {
 		m.barSprings[i] = harmonica.NewSpring(harmonica.FPS(animFPS), 8.0, 0.6)
@@ -85,8 +100,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.Width = msg.Width
+		m.effects = NewEffects(msg.Width, msg.Height)
+		if m.panel != nil {
+			m.panel.Resize(msg.Width, msg.Height)
+		}
 		return m, nil
 	case tea.KeyMsg:
+		if m.activePanel != PanelNone {
+			return m.updatePanel(msg)
+		}
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			m.quitting = true
@@ -107,6 +129,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.seekRelative(-5 * time.Second)
 		case msg.Type == tea.KeyRight:
 			return m, m.seekRelative(5 * time.Second)
+		case key.Matches(msg, m.keys.Queue):
+			return m.togglePanel(PanelQueue)
+		case key.Matches(msg, m.keys.Library):
+			return m.togglePanel(PanelLibrary)
+		case key.Matches(msg, m.keys.Search):
+			return m.togglePanel(PanelSearch)
+		case key.Matches(msg, m.keys.Devices):
+			return m.togglePanel(PanelDevices)
+		case key.Matches(msg, m.keys.VolumeUp):
+			return m.adjustVolume(5)
+		case key.Matches(msg, m.keys.VolumeDown):
+			return m.adjustVolume(-5)
+		case key.Matches(msg, m.keys.Shuffle):
+			return m.toggleShuffle()
+		case key.Matches(msg, m.keys.Repeat):
+			return m.cycleRepeat()
 		}
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
@@ -138,6 +176,61 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.targetMood.Secondary = msg.result.Secondary
 				m.targetMood.Background = msg.result.Background
 			}
+		}
+		return m, nil
+	case audioFeaturesMsg:
+		m.audioFeatures = msg.features
+		if msg.features != nil {
+			detected := mood.DetectFromFeatures(msg.features)
+			if detected.Name != m.targetMood.Name {
+				m.startTransitionTo(detected)
+			}
+		}
+		return m, nil
+	case queueLoadedMsg:
+		if m.panel != nil && m.panel.Type == PanelQueue {
+			items := make([]list.Item, len(msg.tracks))
+			for i, t := range msg.tracks {
+				items[i] = trackItem{track: t}
+			}
+			m.panel.SetItems(items)
+		}
+		return m, nil
+	case playlistsLoadedMsg:
+		if m.panel != nil && m.panel.Type == PanelLibrary {
+			m.panel.playlists = msg.playlists
+			items := make([]list.Item, len(msg.playlists))
+			for i, p := range msg.playlists {
+				items[i] = playlistItem{playlist: p}
+			}
+			m.panel.SetItems(items)
+		}
+		return m, nil
+	case playlistTracksMsg:
+		if m.panel != nil && m.panel.Type == PanelLibrary && m.panel.inPlaylist {
+			items := make([]list.Item, len(msg.tracks))
+			for i, t := range msg.tracks {
+				items[i] = trackItem{track: t}
+			}
+			m.panel.SetItems(items)
+		}
+		return m, nil
+	case devicesLoadedMsg:
+		if m.panel != nil && m.panel.Type == PanelDevices {
+			items := make([]list.Item, len(msg.devices))
+			for i, d := range msg.devices {
+				items[i] = deviceItem{device: d}
+			}
+			m.panel.SetItems(items)
+		}
+		return m, nil
+	case searchResultsMsg:
+		if m.panel != nil && m.panel.Type == PanelSearch && msg.results != nil {
+			items := make([]list.Item, len(msg.results.Tracks))
+			for i, t := range msg.results.Tracks {
+				items[i] = trackItem{track: t}
+			}
+			m.panel.SetItems(items)
 		}
 		return m, nil
 	case trackErrorMsg:
@@ -219,6 +312,8 @@ func (m *Model) tickAnimation() {
 			m.track.Position = m.track.Duration
 		}
 	}
+
+	m.effects.Tick(energy, m.beatPhase, m.mood.Primary, m.mood.Secondary, m.mood.Background, m.artworkCols, m.artworkRows, m.width, m.height)
 }
 
 func (m *Model) handleTrackUpdate(track *source.Track) tea.Cmd {
@@ -227,11 +322,27 @@ func (m *Model) handleTrackUpdate(track *source.Track) tea.Cmd {
 		m.startTransitionTo(mood.Idle)
 		m.artworkURL = ""
 		m.artworkRendered = ""
+		m.audioFeatures = nil
 		return nil
 	}
 	detected := mood.DetectMood(track.Artist, track.Name, track.Album)
 	if detected.Name != m.targetMood.Name {
 		m.startTransitionTo(detected)
+	}
+
+	var cmds []tea.Cmd
+
+	// Fetch audio features if available
+	if m.richSource != nil && track.ID != "" {
+		rich := m.richSource
+		id := track.ID
+		cmds = append(cmds, func() tea.Msg {
+			features, err := rich.AudioFeatures(id)
+			if err != nil {
+				return audioFeaturesMsg{nil}
+			}
+			return audioFeaturesMsg{features}
+		})
 	}
 
 	// Fetch artwork async if URL changed
@@ -243,12 +354,16 @@ func (m *Model) handleTrackUpdate(track *source.Track) tea.Cmd {
 		artH := max(12, min(35, (m.height-16)*3/5))
 		artW := artH * 2 // 2:1 ratio for square appearance in terminal
 		url := track.ArtworkURL
-		return func() tea.Msg {
+		cmds = append(cmds, func() tea.Msg {
 			result := visual.FetchAndRender(url, artW, artH)
 			return artworkMsg{url: url, result: result, cols: artW, rows: artH}
-		}
+		})
 	}
-	return nil
+
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) startTransitionTo(target mood.Mood) {
@@ -353,6 +468,188 @@ func fetchTrack(src source.TrackSource) tea.Cmd {
 func controlCmd(fn func() error) tea.Cmd {
 	return func() tea.Msg {
 		if err := fn(); err != nil {
+			return trackErrorMsg{err}
+		}
+		return controlDoneMsg{}
+	}
+}
+
+func (m Model) togglePanel(pt PanelType) (tea.Model, tea.Cmd) {
+	if m.activePanel == pt {
+		m.activePanel = PanelNone
+		m.panel = nil
+		return m, nil
+	}
+	if m.richSource == nil {
+		return m, nil
+	}
+	p := NewPanel(pt, m.width, m.height)
+	m.panel = &p
+	m.activePanel = pt
+
+	var cmd tea.Cmd
+	switch pt {
+	case PanelQueue:
+		cmd = fetchQueue(m.richSource)
+	case PanelLibrary:
+		cmd = fetchPlaylists(m.richSource)
+	case PanelDevices:
+		cmd = fetchDevices(m.richSource)
+	}
+	return m, cmd
+}
+
+func (m Model) updatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.panel == nil {
+		return m, nil
+	}
+	switch {
+	case key.Matches(msg, m.keys.Quit):
+		m.quitting = true
+		return m, tea.Quit
+	case key.Matches(msg, m.keys.Close):
+		m.activePanel = PanelNone
+		m.panel = nil
+		return m, nil
+	case key.Matches(msg, m.keys.Select):
+		return m.panelSelect()
+	case key.Matches(msg, m.keys.Back):
+		if m.panel.Type == PanelLibrary && m.panel.inPlaylist {
+			m.panel.inPlaylist = false
+			m.panel.playlistID = ""
+			m.panel.playlistName = ""
+			items := make([]list.Item, len(m.panel.playlists))
+			for i, p := range m.panel.playlists {
+				items[i] = playlistItem{playlist: p}
+			}
+			m.panel.SetItems(items)
+			m.panel.List.Title = "Library"
+			return m, nil
+		}
+		m.activePanel = PanelNone
+		m.panel = nil
+		return m, nil
+	}
+
+	// Handle search input
+	if m.panel.Type == PanelSearch {
+		var cmd tea.Cmd
+		m.panel.Search, cmd = m.panel.Search.Update(msg)
+		// Trigger search on enter within the search field
+		if key.Matches(msg, m.keys.Select) {
+			query := m.panel.Search.Value()
+			if query != "" && m.richSource != nil {
+				return m, doSearch(m.richSource, query)
+			}
+		}
+		if cmd != nil {
+			return m, cmd
+		}
+	}
+
+	// Delegate list navigation
+	var cmd tea.Cmd
+	m.panel.List, cmd = m.panel.List.Update(msg)
+	return m, cmd
+}
+
+func (m Model) panelSelect() (tea.Model, tea.Cmd) {
+	if m.panel == nil || m.richSource == nil {
+		return m, nil
+	}
+	selected := m.panel.List.SelectedItem()
+	if selected == nil {
+		// For search panel, trigger search on enter when no item is selected
+		if m.panel.Type == PanelSearch {
+			query := m.panel.Search.Value()
+			if query != "" {
+				return m, doSearch(m.richSource, query)
+			}
+		}
+		return m, nil
+	}
+
+	switch item := selected.(type) {
+	case trackItem:
+		// Close panel and play the selected track (by seeking to it via queue)
+		m.activePanel = PanelNone
+		m.panel = nil
+		return m, nil
+	case playlistItem:
+		// Drill into playlist
+		m.panel.inPlaylist = true
+		m.panel.playlistID = item.playlist.ID
+		m.panel.playlistName = item.playlist.Name
+		m.panel.List.Title = item.playlist.Name
+		return m, fetchPlaylistTracks(m.richSource, item.playlist.ID)
+	case deviceItem:
+		// Transfer playback to selected device
+		m.activePanel = PanelNone
+		m.panel = nil
+		rich := m.richSource
+		devID := item.device.ID
+		return m, func() tea.Msg {
+			if err := rich.TransferPlayback(devID); err != nil {
+				return trackErrorMsg{err}
+			}
+			return controlDoneMsg{}
+		}
+	}
+	return m, nil
+}
+
+func (m Model) adjustVolume(delta int) (tea.Model, tea.Cmd) {
+	m.volume += delta
+	if m.volume < 0 {
+		m.volume = 0
+	}
+	if m.volume > 100 {
+		m.volume = 100
+	}
+	if m.richSource == nil {
+		return m, nil
+	}
+	rich := m.richSource
+	vol := m.volume
+	return m, func() tea.Msg {
+		if err := rich.SetVolume(vol); err != nil {
+			return trackErrorMsg{err}
+		}
+		return controlDoneMsg{}
+	}
+}
+
+func (m Model) toggleShuffle() (tea.Model, tea.Cmd) {
+	m.shuffleOn = !m.shuffleOn
+	if m.richSource == nil {
+		return m, nil
+	}
+	rich := m.richSource
+	state := m.shuffleOn
+	return m, func() tea.Msg {
+		if err := rich.SetShuffle(state); err != nil {
+			return trackErrorMsg{err}
+		}
+		return controlDoneMsg{}
+	}
+}
+
+func (m Model) cycleRepeat() (tea.Model, tea.Cmd) {
+	switch m.repeatMode {
+	case source.RepeatOff:
+		m.repeatMode = source.RepeatContext
+	case source.RepeatContext:
+		m.repeatMode = source.RepeatTrack
+	default:
+		m.repeatMode = source.RepeatOff
+	}
+	if m.richSource == nil {
+		return m, nil
+	}
+	rich := m.richSource
+	mode := m.repeatMode
+	return m, func() tea.Msg {
+		if err := rich.SetRepeat(mode); err != nil {
 			return trackErrorMsg{err}
 		}
 		return controlDoneMsg{}
