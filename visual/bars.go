@@ -9,6 +9,9 @@ import (
 
 var barChars = []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
 
+// BarChars is the exported version for use by the view compositor.
+var BarChars = barChars
+
 // RenderBars renders bars at a fixed count (for tests and small layouts).
 func RenderBars(heights []float64, maxHeight int, primary, secondary string) string {
 	if len(heights) == 0 {

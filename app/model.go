@@ -380,6 +380,7 @@ func (m *Model) handleClick(x, y int) tea.Cmd {
 	}
 
 	// Compute layout to find progress bar and controls positions
+	// New layout: no borders, content centered in space above bars
 	artH := 0
 	if m.artworkRendered != "" {
 		if m.artworkIsKitty {
@@ -389,33 +390,35 @@ func (m *Model) handleClick(x, y int) tea.Cmd {
 		}
 	}
 
+	barH := max(6, min(10, m.height/4))
+
 	// Count content lines before progress:
 	// mood(1) + empty(1) + [art(artH) + empty(1) if art] + labels(3) + empty(1)
 	linesBeforeProgress := 6 // mood + empty + labels(3) + empty
 	if artH > 0 {
 		linesBeforeProgress += artH + 1 // art lines + empty after art
 	}
-	totalContentH := linesBeforeProgress + 2 // + progress + controls
-	topPad := max(0, (m.height-totalContentH-4)/2)
+	contentH := linesBeforeProgress + 2 // + progress + controls
+	contentAreaH := m.height - barH
+	topPad := max(0, (contentAreaH-contentH)/2)
 
-	progressRow := 2 + topPad + linesBeforeProgress // 2 = top glow
+	progressRow := topPad + linesBeforeProgress
 	controlsRow := progressRow + 1
 
-	// Progress bar dimensions
-	innerWidth := m.width - 4
-	progressWidth := min(m.width-24, 50)
+	// Progress bar dimensions — full width, centered
+	progressWidth := min(m.width-20, 50)
 	barWidth := progressWidth - 14
-	barStartCol := 2 + (innerWidth-progressWidth)/2
+	barStartCol := (m.width - progressWidth) / 2
 	barEndCol := barStartCol + barWidth
 
-	// Click on progress bar → seek (±1 row tolerance)
+	// Click on progress bar -> seek (+-1 row tolerance)
 	if y >= progressRow-1 && y <= progressRow+1 && x >= barStartCol && x <= barEndCol && barWidth > 0 {
 		ratio := float64(x-barStartCol) / float64(barWidth)
 		pos := time.Duration(float64(m.track.Duration) * ratio)
 		return m.seekTo(pos)
 	}
 
-	// Click on controls (±1 row tolerance)
+	// Click on controls (+-1 row tolerance)
 	if y >= controlsRow-1 && y <= controlsRow+1 {
 		center := m.width / 2
 		if x < center-5 {

@@ -20,13 +20,11 @@ func (m Model) View() string {
 	}
 
 	md := m.mood
-	primary := lipgloss.Color(md.Primary)
-	secondary := lipgloss.Color(md.Secondary)
 	bg := lipgloss.Color(md.Background)
-	bgStyle := lipgloss.NewStyle().Background(bg)
 
 	// Help overlay
 	if m.showHelp {
+		secondary := lipgloss.Color(md.Secondary)
 		helpStr := m.help.View(m.keys)
 		helpStyled := lipgloss.NewStyle().
 			Foreground(secondary).Background(bg).
@@ -38,22 +36,12 @@ func (m Model) View() string {
 			lipgloss.WithWhitespaceBackground(bg))
 	}
 
-	// Subtle ambient glow — steady, no fake pulsing
-	var glowIntensity float64
-	if m.track != nil && m.track.Playing {
-		glowIntensity = 0.20
-	} else {
-		glowIntensity = 0.06
+	// Panel overlay — render over background
+	if m.activePanel != PanelNone && m.panel != nil {
+		panelView := m.panel.View(md.Primary, md.Secondary, md.Background)
+		return lipgloss.Place(m.width, m.height, lipgloss.Right, lipgloss.Center, panelView,
+			lipgloss.WithWhitespaceBackground(bg))
 	}
-
-	// Apply breathing effect from effects engine
-	glowIntensity += m.effects.Breathing
-
-	// Glow colors: outer edge brighter, inner dimmer
-	outerGlow := visual.LerpColor(md.Background, md.Primary, glowIntensity)
-	innerGlow := visual.LerpColor(md.Background, md.Primary, glowIntensity*0.4)
-	outerStyle := lipgloss.NewStyle().Background(lipgloss.Color(outerGlow))
-	innerStyle := lipgloss.NewStyle().Background(lipgloss.Color(innerGlow))
 
 	// Get particle grid
 	var particleGrid [][]rune
@@ -61,134 +49,282 @@ func (m Model) View() string {
 		particleGrid = m.effects.Particles.Render()
 	}
 
-	// Build content
-	content := m.buildContent(md, primary, secondary, bg)
-	contentLines := strings.Split(content, "\n")
+	glowGrid := m.effects.GlowGrid
+
+	// Build content lines (no bars — bars are rendered separately at the bottom)
+	contentLines := m.buildContentLines(md)
+
+	// Bar configuration
+	barH := max(6, min(10, m.height/4))
+	smoothBars := visual.InterpolateBars(m.bars[:], m.width)
+
+	// Layout: content centered vertically in the space above the bars
+	contentAreaH := m.height - barH
 	contentH := len(contentLines)
-	innerWidth := m.width - 4 // 2 glow chars per side
+	topPad := max(0, (contentAreaH-contentH)/2)
 
-	// Vertically center content
-	topPad := max(0, (m.height-contentH-4)/2) // -4 for top/bottom glow rows
+	// Pre-compute a base background color from glow intensity
+	var glowIntensity float64
+	if m.track != nil && m.track.Playing {
+		glowIntensity = 0.20
+	} else {
+		glowIntensity = 0.06
+	}
+	glowIntensity += m.effects.Breathing
+	_ = glowIntensity // used via glow grid
 
-	// Build full screen
+	// Render row by row
 	var full strings.Builder
+	full.Grow(m.width * m.height * 4) // rough estimate
 
-	// Top glow edge (2 rows)
-	full.WriteString(outerStyle.Render(strings.Repeat(" ", m.width)) + "\n")
-	full.WriteString(innerStyle.Render(strings.Repeat(" ", m.width)) + "\n")
-
-	// Content area with side glow
-	totalContentRows := m.height - 4 // minus top/bottom glow
-	for row := range totalContentRows {
-		// Left glow
-		full.WriteString(outerStyle.Render(" "))
-		full.WriteString(innerStyle.Render(" "))
-
-		// Content or empty
-		ci := row - topPad
-		if ci >= 0 && ci < contentH {
-			line := contentLines[ci]
-			lineW := lipgloss.Width(line)
-			if lineW < innerWidth {
-				line += bgStyle.Render(strings.Repeat(" ", innerWidth-lineW))
-			}
-			full.WriteString(line)
-		} else {
-			// Empty row: render particles and glow grid effects
-			full.WriteString(m.renderEffectRow(row+2, innerWidth, md, bgStyle, particleGrid))
+	for row := range m.height {
+		if row > 0 {
+			full.WriteByte('\n')
 		}
 
-		// Right glow
-		full.WriteString(innerStyle.Render(" "))
-		full.WriteString(outerStyle.Render(" "))
-		full.WriteString("\n")
+		barRow := row - (m.height - barH)
+
+		if barRow >= 0 {
+			// --- Bar row ---
+			m.renderBarRow(&full, row, barRow, barH, smoothBars, glowGrid, particleGrid, md)
+		} else {
+			// --- Content or empty row ---
+			ci := row - topPad
+			if ci >= 0 && ci < contentH {
+				// Content row: center content, fill sides with glow+particles
+				m.renderContentRow(&full, row, contentLines[ci], glowGrid, particleGrid, md)
+			} else {
+				// Empty row: full glow bg + particles
+				m.renderEmptyRow(&full, row, glowGrid, particleGrid, md)
+			}
+		}
 	}
 
-	// Bottom glow edge (2 rows)
-	full.WriteString(innerStyle.Render(strings.Repeat(" ", m.width)) + "\n")
-	full.WriteString(outerStyle.Render(strings.Repeat(" ", m.width)))
-
-	screen := full.String()
-
-	// Panel overlay
-	if m.activePanel != PanelNone && m.panel != nil {
-		panelView := m.panel.View(md.Primary, md.Secondary, md.Background)
-		screen = lipgloss.Place(m.width, m.height, lipgloss.Right, lipgloss.Center, panelView,
-			lipgloss.WithWhitespaceBackground(bg))
-	}
-
-	return screen
+	return full.String()
 }
 
-// renderEffectRow renders an empty background row with particle and glow effects composited in.
-func (m Model) renderEffectRow(screenRow, innerWidth int, md mood.Mood, bgStyle lipgloss.Style, particleGrid [][]rune) string {
-	glowGrid := m.effects.GlowGrid
+// renderEmptyRow renders a full-width row of glow background and particles.
+func (m Model) renderEmptyRow(sb *strings.Builder, row int, glowGrid [][]string, particleGrid [][]rune, md mood.Mood) {
+	m.renderGlowRow(sb, row, 0, m.width, glowGrid, particleGrid, md)
+}
+
+// renderContentRow centers content text on the row and fills sides with glow.
+func (m Model) renderContentRow(sb *strings.Builder, row int, content string, glowGrid [][]string, particleGrid [][]rune, md mood.Mood) {
+	contentW := lipgloss.Width(content)
+	if contentW >= m.width {
+		sb.WriteString(content)
+		return
+	}
+	leftPad := (m.width - contentW) / 2
+	rightPad := m.width - contentW - leftPad
+
+	// Left side glow
+	m.renderGlowRow(sb, row, 0, leftPad, glowGrid, particleGrid, md)
+	// Content (already has its own styling)
+	sb.WriteString(content)
+	// Right side glow
+	m.renderGlowRow(sb, row, leftPad+contentW, rightPad, glowGrid, particleGrid, md)
+}
+
+// renderGlowRow renders `count` cells starting at `startCol` using glow grid and particles.
+// Batches adjacent cells with the same background color for performance.
+func (m Model) renderGlowRow(sb *strings.Builder, row, startCol, count int, glowGrid [][]string, particleGrid [][]rune, md mood.Mood) {
+	if count <= 0 {
+		return
+	}
+
+	hasGlow := len(glowGrid) > row && len(glowGrid[row]) > 0
+	hasParticles := len(particleGrid) > row && len(particleGrid[row]) > 0
+
+	type cell struct {
+		bg   string
+		ch   rune // 0 means space
+		pFg  string
+	}
+
+	// Build cell data
+	cells := make([]cell, count)
+	for i := range count {
+		col := startCol + i
+		c := cell{bg: md.Background}
+
+		if hasGlow && col < len(glowGrid[row]) && glowGrid[row][col] != "" {
+			c.bg = glowGrid[row][col]
+		}
+
+		if hasParticles && col < len(particleGrid[row]) && particleGrid[row][col] != 0 {
+			c.ch = particleGrid[row][col]
+			c.pFg = visual.LerpColor(md.Background, md.Primary, 0.6)
+		}
+
+		cells[i] = c
+	}
+
+	// Batch render: group adjacent cells with same bg and no particle content into one string
+	i := 0
+	for i < len(cells) {
+		c := cells[i]
+
+		if c.ch != 0 {
+			// Particle cell — render individually
+			style := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(c.pFg)).
+				Background(lipgloss.Color(c.bg))
+			sb.WriteString(style.Render(string(c.ch)))
+			i++
+			continue
+		}
+
+		// Batch plain space cells with same bg
+		j := i + 1
+		for j < len(cells) && cells[j].ch == 0 && cells[j].bg == c.bg {
+			j++
+		}
+		n := j - i
+		style := lipgloss.NewStyle().Background(lipgloss.Color(c.bg))
+		sb.WriteString(style.Render(strings.Repeat(" ", n)))
+		i = j
+	}
+}
+
+// renderBarRow renders one row of the bar visualizer with glow-tinted backgrounds.
+func (m Model) renderBarRow(sb *strings.Builder, screenRow, barRow, barH int, smoothBars []float64, glowGrid [][]string, particleGrid [][]rune, md mood.Mood) {
 	hasGlow := len(glowGrid) > screenRow && len(glowGrid[screenRow]) > 0
 	hasParticles := len(particleGrid) > screenRow && len(particleGrid[screenRow]) > 0
 
-	if !hasGlow && !hasParticles {
-		return bgStyle.Render(strings.Repeat(" ", innerWidth))
+	// Pre-compute row gradient color for bar foreground
+	rowRatio := 1.0 - float64(barRow)/float64(barH)
+	barFgColor := visual.LerpColor(md.Secondary, md.Primary, 0.2+rowRatio*0.8)
+
+	// For each column, determine: is it a bar cell or empty?
+	type barCell struct {
+		isFilled bool
+		isPartial bool
+		partialIdx int
+		bg string
+		particle rune
+		particleFg string
 	}
 
-	bg := lipgloss.Color(md.Background)
-	var row strings.Builder
-	for col := range innerWidth {
-		screenCol := col + 2 // offset for left glow border
+	cells := make([]barCell, m.width)
+	for col := range m.width {
+		bc := barCell{bg: md.Background}
 
-		// Check for particle at this cell
-		if hasParticles && screenCol < len(particleGrid[screenRow]) && particleGrid[screenRow][screenCol] != 0 {
-			ch := particleGrid[screenRow][screenCol]
-			particleColor := lipgloss.Color(visual.LerpColor(md.Primary, md.Secondary, 0.5))
-			style := lipgloss.NewStyle().Foreground(particleColor).Background(bg)
-			// If glow is present at this cell, use it as background
-			if hasGlow && screenCol < len(glowGrid[screenRow]) && glowGrid[screenRow][screenCol] != "" {
-				style = style.Background(lipgloss.Color(glowGrid[screenRow][screenCol]))
+		// Glow background
+		if hasGlow && col < len(glowGrid[screenRow]) && glowGrid[screenRow][col] != "" {
+			bc.bg = glowGrid[screenRow][col]
+		}
+
+		// Bar height check
+		if col < len(smoothBars) {
+			h := smoothBars[col]
+			barPx := h * float64(barH)
+			rowFromBottom := barH - 1 - barRow
+
+			if float64(rowFromBottom) < barPx-1 {
+				bc.isFilled = true
+			} else if float64(rowFromBottom) < barPx {
+				bc.isPartial = true
+				frac := barPx - float64(int(barPx))
+				idx := int(frac * float64(len(visual.BarChars)-1))
+				if idx < 0 {
+					idx = 0
+				}
+				if idx >= len(visual.BarChars) {
+					idx = len(visual.BarChars) - 1
+				}
+				bc.partialIdx = idx
+			} else {
+				// Empty bar cell — check for particle
+				if hasParticles && col < len(particleGrid[screenRow]) && particleGrid[screenRow][col] != 0 {
+					bc.particle = particleGrid[screenRow][col]
+					bc.particleFg = visual.LerpColor(md.Background, md.Primary, 0.6)
+				}
 			}
-			row.WriteString(style.Render(string(ch)))
-			continue
 		}
-
-		// Check for glow color at this cell
-		if hasGlow && screenCol < len(glowGrid[screenRow]) && glowGrid[screenRow][screenCol] != "" {
-			glowStyle := lipgloss.NewStyle().Background(lipgloss.Color(glowGrid[screenRow][screenCol]))
-			row.WriteString(glowStyle.Render(" "))
-			continue
-		}
-
-		// Plain background
-		row.WriteString(bgStyle.Render(" "))
+		cells[col] = bc
 	}
-	return row.String()
+
+	// Render with batching: group adjacent cells of the same type
+	i := 0
+	for i < len(cells) {
+		c := cells[i]
+
+		if c.isFilled {
+			// Batch consecutive filled cells with same bg
+			j := i + 1
+			for j < len(cells) && cells[j].isFilled && cells[j].bg == c.bg {
+				j++
+			}
+			n := j - i
+			style := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(barFgColor)).
+				Background(lipgloss.Color(c.bg))
+			sb.WriteString(style.Render(strings.Repeat("\u2588", n)))
+			i = j
+			continue
+		}
+
+		if c.isPartial {
+			style := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(barFgColor)).
+				Background(lipgloss.Color(c.bg))
+			sb.WriteString(style.Render(visual.BarChars[c.partialIdx]))
+			i++
+			continue
+		}
+
+		if c.particle != 0 {
+			style := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(c.particleFg)).
+				Background(lipgloss.Color(c.bg))
+			sb.WriteString(style.Render(string(c.particle)))
+			i++
+			continue
+		}
+
+		// Empty cell — batch consecutive empty with same bg
+		j := i + 1
+		for j < len(cells) && !cells[j].isFilled && !cells[j].isPartial && cells[j].particle == 0 && cells[j].bg == c.bg {
+			j++
+		}
+		n := j - i
+		style := lipgloss.NewStyle().Background(lipgloss.Color(c.bg))
+		sb.WriteString(style.Render(strings.Repeat(" ", n)))
+		i = j
+	}
 }
 
-func (m Model) buildContent(md mood.Mood, primary, secondary, bg lipgloss.Color) string {
-	bgStyle := lipgloss.NewStyle().Background(bg)
-	innerWidth := m.width - 4
+// buildContentLines produces the styled content lines (mood label, art, track info, progress, controls).
+// Lines are styled but NOT padded to full width — the View compositor handles side fill.
+func (m Model) buildContentLines(md mood.Mood) []string {
+	primary := lipgloss.Color(md.Primary)
+	secondary := lipgloss.Color(md.Secondary)
+	bg := lipgloss.Color(md.Background)
 
-	var sections []string
-	emptyLine := bgStyle.Render(strings.Repeat(" ", innerWidth))
+	var lines []string
 
 	// Mood word
 	moodColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.35))
 	moodStyle := lipgloss.NewStyle().Foreground(moodColor).Background(bg)
-	sections = append(sections, centerInner(moodStyle.Render(spacedWord(md.Name)), innerWidth, bgStyle))
-	sections = append(sections, emptyLine)
+	lines = append(lines, moodStyle.Render(spacedWord(md.Name)))
+
+	// Blank line
+	lines = append(lines, "")
 
 	// Album art
 	if m.artworkRendered != "" {
 		if m.artworkIsKitty {
-			leftPad := max(0, (innerWidth-m.artworkCols)/2)
-			padLine := bgStyle.Render(strings.Repeat(" ", leftPad)) + m.artworkRendered
-			sections = append(sections, padLine)
+			lines = append(lines, m.artworkRendered)
 			for range m.artworkRows {
-				sections = append(sections, emptyLine)
+				lines = append(lines, "")
 			}
 		} else {
 			for _, line := range strings.Split(m.artworkRendered, "\n") {
-				sections = append(sections, centerInner(line, innerWidth, bgStyle))
+				lines = append(lines, line)
 			}
 		}
-		sections = append(sections, emptyLine)
+		lines = append(lines, "")
 	}
 
 	// Track info
@@ -198,54 +334,54 @@ func (m Model) buildContent(md mood.Mood, primary, secondary, bg lipgloss.Color)
 		trackStyle := lipgloss.NewStyle().Foreground(primary).Bold(true).Background(bg)
 		artistStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
 
-		sections = append(sections, centerInner(labelStyle.Render("N O W   P L A Y I N G"), innerWidth, bgStyle))
-		sections = append(sections, centerInner(trackStyle.Render(m.track.Name), innerWidth, bgStyle))
-		sections = append(sections, centerInner(artistStyle.Render(m.track.Artist), innerWidth, bgStyle))
+		lines = append(lines, labelStyle.Render("N O W   P L A Y I N G"))
+		lines = append(lines, trackStyle.Render(m.track.Name))
+		lines = append(lines, artistStyle.Render(m.track.Artist))
 	} else {
 		titleStyle := lipgloss.NewStyle().Foreground(primary).Bold(true).Background(bg)
 		subStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
-		sections = append(sections, centerInner(titleStyle.Render("♫  s p o t u i"), innerWidth, bgStyle))
-		sections = append(sections, centerInner(subStyle.Render("waiting for music..."), innerWidth, bgStyle))
+		lines = append(lines, titleStyle.Render("\u266b  s p o t u i"))
+		lines = append(lines, subStyle.Render("waiting for music..."))
 	}
 
-	sections = append(sections, emptyLine)
+	lines = append(lines, "")
 
-	// Progress
+	// Progress + controls
 	if m.track != nil {
-		progressWidth := min(innerWidth-20, 50)
+		progressWidth := min(m.width-20, 50)
 		progressStr := m.renderProgress(progressWidth, primary, secondary)
-		sections = append(sections, centerInner(progressStr, innerWidth, bgStyle))
+		lines = append(lines, progressStr)
 
-		playPause := "▶"
+		playPause := "\u25b6"
 		if m.track.Playing {
-			playPause = "⏸"
+			playPause = "\u23f8"
 		}
-		controlStr := fmt.Sprintf("⏮      %s      ⏭", playPause)
+		controlStr := fmt.Sprintf("\u23ee      %s      \u23ed", playPause)
 		controlStyle := lipgloss.NewStyle().Foreground(secondary).Background(bg)
-		sections = append(sections, centerInner(controlStyle.Render(controlStr), innerWidth, bgStyle))
+		lines = append(lines, controlStyle.Render(controlStr))
 
 		// Status line: volume, shuffle, repeat
 		var statusParts []string
 		if m.richSource != nil {
-			statusParts = append(statusParts, fmt.Sprintf("♪ %d%%", m.volume))
+			statusParts = append(statusParts, fmt.Sprintf("\u266a %d%%", m.volume))
 			if m.shuffleOn {
-				statusParts = append(statusParts, "⤮ on")
+				statusParts = append(statusParts, "\u292e on")
 			}
 			switch m.repeatMode {
 			case source.RepeatContext:
-				statusParts = append(statusParts, "↻ all")
+				statusParts = append(statusParts, "\u21bb all")
 			case source.RepeatTrack:
-				statusParts = append(statusParts, "↻ one")
+				statusParts = append(statusParts, "\u21bb one")
 			}
 		}
 		if len(statusParts) > 0 {
 			dimColor := lipgloss.Color(visual.LerpColor(md.Background, md.Primary, 0.25))
 			dimStyle := lipgloss.NewStyle().Foreground(dimColor).Background(bg)
-			sections = append(sections, centerInner(dimStyle.Render(strings.Join(statusParts, "  ·  ")), innerWidth, bgStyle))
+			lines = append(lines, dimStyle.Render(strings.Join(statusParts, "  \u00b7  ")))
 		}
 	}
 
-	return strings.Join(sections, "\n")
+	return lines
 }
 
 func (m Model) renderProgress(width int, primary, secondary lipgloss.Color) string {
@@ -270,27 +406,17 @@ func (m Model) renderProgress(width int, primary, secondary lipgloss.Color) stri
 	dotStyle := lipgloss.NewStyle().Foreground(primary).Bold(true)
 	emptyStyle := lipgloss.NewStyle().Foreground(secondary)
 
-	bar.WriteString(filledStyle.Render(strings.Repeat("━", filled)))
-	bar.WriteString(dotStyle.Render("●"))
+	bar.WriteString(filledStyle.Render(strings.Repeat("\u2501", filled)))
+	bar.WriteString(dotStyle.Render("\u25cf"))
 	remaining := barWidth - filled - 1
 	if remaining > 0 {
-		bar.WriteString(emptyStyle.Render(strings.Repeat("━", remaining)))
+		bar.WriteString(emptyStyle.Render(strings.Repeat("\u2501", remaining)))
 	}
 
 	posStr := formatDuration(pos)
 	durStr := formatDuration(dur)
 	timeStyle := lipgloss.NewStyle().Foreground(secondary)
 	return fmt.Sprintf("%s %s", bar.String(), timeStyle.Render(fmt.Sprintf("%s / %s", posStr, durStr)))
-}
-
-func centerInner(rendered string, innerWidth int, bgStyle lipgloss.Style) string {
-	w := lipgloss.Width(rendered)
-	if w >= innerWidth {
-		return rendered
-	}
-	leftPad := (innerWidth - w) / 2
-	rightPad := innerWidth - w - leftPad
-	return bgStyle.Render(strings.Repeat(" ", leftPad)) + rendered + bgStyle.Render(strings.Repeat(" ", rightPad))
 }
 
 func formatDuration(d time.Duration) string {
