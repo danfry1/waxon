@@ -1,6 +1,10 @@
 package mood
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/danielfry/spotui/source"
+)
 
 func TestDetectMood(t *testing.T) {
 	tests := []struct {
@@ -24,5 +28,35 @@ func TestDetectMood(t *testing.T) {
 				t.Errorf("DetectMood(%q, %q, %q) = %q, want %q", tt.artist, tt.track, tt.album, got.Name, tt.wantMood)
 			}
 		})
+	}
+}
+
+func TestDetectFromFeatures(t *testing.T) {
+	tests := []struct {
+		name     string
+		features source.AudioFeatures
+		want     string
+	}{
+		{"high energy dance → electric", source.AudioFeatures{Energy: 0.85, Valence: 0.6, Danceability: 0.8, Tempo: 128}, "electric"},
+		{"low energy ambient → drift", source.AudioFeatures{Energy: 0.15, Valence: 0.3, Danceability: 0.2, Tempo: 80, Acousticness: 0.7}, "drift"},
+		{"happy upbeat → bright", source.AudioFeatures{Energy: 0.7, Valence: 0.8, Danceability: 0.7, Tempo: 120}, "bright"},
+		{"angry intense → dark", source.AudioFeatures{Energy: 0.8, Valence: 0.15, Danceability: 0.4, Tempo: 140}, "dark"},
+		{"acoustic mellow → warm", source.AudioFeatures{Energy: 0.35, Valence: 0.5, Danceability: 0.3, Tempo: 95, Acousticness: 0.8}, "warm"},
+		{"soulful groove → golden", source.AudioFeatures{Energy: 0.45, Valence: 0.65, Danceability: 0.6, Tempo: 110}, "golden"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DetectFromFeatures(&tt.features)
+			if got.Name != tt.want {
+				t.Errorf("DetectFromFeatures() = %q, want %q", got.Name, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectFromFeaturesNil(t *testing.T) {
+	got := DetectFromFeatures(nil)
+	if got.Name != Warm.Name {
+		t.Errorf("nil features should default to warm, got %q", got.Name)
 	}
 }
