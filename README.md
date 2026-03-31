@@ -21,22 +21,31 @@ Browse your library, control playback, and navigate playlists without leaving th
 
 ## Requirements
 
-- Go 1.25 or later
 - Spotify Premium account
 - A terminal with true color support (recommended)
 
 ## Installation
 
+**Homebrew:**
+
 ```
-go install github.com/danielfry/waxon@latest
+brew install danfry1/tap/waxon
 ```
+
+**Go:**
+
+```
+go install github.com/danfry1/waxon@latest
+```
+
+**Binary:** download from the [Releases](https://github.com/danfry1/waxon/releases) page.
 
 ## Quick Start
 
 1. Run the setup wizard to authenticate with Spotify:
 
    ```
-   waxon setup
+   waxon auth
    ```
 
 2. Launch the TUI:
@@ -135,7 +144,7 @@ If you'd prefer to use your own Spotify developer app:
 3. Copy the **Client ID** and run setup with it:
 
    ```
-   SPOTIFY_CLIENT_ID=your_client_id waxon setup
+   SPOTIFY_CLIENT_ID=your_client_id waxon auth
    ```
 
 The client ID is saved to `~/.config/waxon/config.json` automatically, so you only need to set the environment variable once during setup.
@@ -150,11 +159,10 @@ The client ID is saved to `~/.config/waxon/config.json` automatically, so you on
 ## CLI Usage
 
 ```
-waxon         Launch the TUI
-waxon setup    First-time setup wizard
-waxon auth     Re-authorize your Spotify account
+waxon          Launch the TUI
+waxon auth    Connect or re-connect your Spotify account
 waxon version  Print version
-waxon help     Show help
+waxon help     Show this help
 ```
 
 ## License

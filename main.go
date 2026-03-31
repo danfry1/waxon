@@ -26,9 +26,6 @@ func main() {
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "setup":
-			runSetup()
-			return
 		case "auth":
 			runAuth()
 			return
@@ -60,7 +57,7 @@ func main() {
 	if err != nil {
 		cleanup()
 		if errors.Is(err, os.ErrNotExist) {
-			fmt.Println("No Spotify token found. Run 'waxon setup' to connect your account.")
+			fmt.Println("No Spotify token found. Run 'waxon auth' to connect your account.")
 		} else {
 			fmt.Fprintf(os.Stderr, "Failed to read token: %v\n", err)
 			fmt.Println("Your token file may be corrupted. Run 'waxon auth' to re-authenticate.")
@@ -92,21 +89,15 @@ func resolveClientID() string {
 	return cfg.ClientID
 }
 
-func runSetup() {
+func runAuth() {
 	fmt.Println("")
-	fmt.Println("  Welcome to waxon! Let's connect your Spotify account.")
+	fmt.Println("  Connecting your Spotify account...")
 
 	authenticate()
 
 	fmt.Println("")
 	fmt.Println("  You're all set! Run 'waxon' to start.")
 	fmt.Println("")
-}
-
-func runAuth() {
-	tokenPath := authenticate()
-	fmt.Printf("Authenticated! Token saved to %s\n", tokenPath)
-	fmt.Println("Run 'waxon' to launch.")
 }
 
 // authenticate performs the OAuth flow and saves the token. Returns the token path.
@@ -213,8 +204,7 @@ func printUsage() {
 
 Usage:
   waxon          Launch the TUI
-  waxon setup    First-time setup wizard
-  waxon auth     Re-authorize your Spotify account
+  waxon auth    Connect or re-connect your Spotify account
   waxon version  Print version
   waxon help     Show this help
 
