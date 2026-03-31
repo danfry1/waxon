@@ -1,26 +1,42 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/danielfry/spotui/app"
-	myauth "github.com/danielfry/spotui/auth"
-	myspotify "github.com/danielfry/spotui/spotify"
-	"github.com/danielfry/spotui/source"
+	"github.com/danielfry/waxon/app"
+	myauth "github.com/danielfry/waxon/auth"
+	"github.com/danielfry/waxon/config"
+	myspotify "github.com/danielfry/waxon/spotify"
 )
 
-const version = "v0.2.0"
+// version is set at build time via ldflags:
+//
+//	go build -ldflags "-X main.version=v1.2.3"
+var version = "dev"
 
 func main() {
+	cleanup := initLogging()
+	defer cleanup()
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "setup":
+			runSetup()
+			return
 		case "auth":
 			runAuth()
 			return
+		case "debug":
+			runDebug()
+			return
 		case "version":
-			fmt.Println("spotui " + version)
+			fmt.Println("waxon " + version)
 			return
 		case "help", "--help", "-h":
 			printUsage()
@@ -28,7 +44,33 @@ func main() {
 		}
 	}
 
-	src := initSource()
+	clientID := resolveClientID()
+	if clientID == "" {
+		clientID = myauth.DefaultClientID
+	}
+
+	// Warn if the token was issued for a different client ID.
+	if saved, err := config.Load(); err == nil && saved.ClientID != "" && saved.ClientID != clientID {
+		fmt.Fprintf(os.Stderr, "Warning: current client ID differs from the one used during auth.\n")
+		fmt.Fprintf(os.Stderr, "Run 'waxon auth' to re-authenticate, or set SPOTIFY_CLIENT_ID=%s\n", saved.ClientID)
+	}
+
+	tokenPath := myauth.DefaultTokenPath()
+	token, err := myauth.LoadToken(tokenPath)
+	if err != nil {
+		cleanup()
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Println("No Spotify token found. Run 'waxon setup' to connect your account.")
+		} else {
+			fmt.Fprintf(os.Stderr, "Failed to read token: %v\n", err)
+			fmt.Println("Your token file may be corrupted. Run 'waxon auth' to re-authenticate.")
+		}
+		os.Exit(1) //nolint:gocritic // cleanup called above
+	}
+
+	cp := myspotify.NewClient(clientID, token, tokenPath)
+	src := myspotify.NewPlayerSource(cp)
+
 	m := app.NewModel(src)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
@@ -37,35 +79,41 @@ func main() {
 	}
 }
 
-func initSource() source.TrackSource {
-	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
-	if clientID == "" {
-		return source.NewLocalSource()
+// resolveClientID returns the Client ID from the env var (takes priority)
+// or from the saved config file. Returns "" if neither is set.
+func resolveClientID() string {
+	if id := os.Getenv("SPOTIFY_CLIENT_ID"); id != "" {
+		return id
 	}
-
-	tokenPath := myauth.DefaultTokenPath()
-	token, err := myauth.LoadToken(tokenPath)
+	cfg, err := config.Load()
 	if err != nil {
-		fmt.Println("No Spotify token found. Run 'spotui auth' to connect.")
-		fmt.Println("Falling back to local Spotify desktop app...")
-		return source.NewLocalSource()
+		return ""
 	}
+	return cfg.ClientID
+}
 
-	client := myspotify.NewClient(clientID, token, tokenPath)
-	return myspotify.NewPlayerSource(client)
+func runSetup() {
+	fmt.Println("")
+	fmt.Println("  Welcome to waxon! Let's connect your Spotify account.")
+
+	authenticate()
+
+	fmt.Println("")
+	fmt.Println("  You're all set! Run 'waxon' to start.")
+	fmt.Println("")
 }
 
 func runAuth() {
-	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
+	tokenPath := authenticate()
+	fmt.Printf("Authenticated! Token saved to %s\n", tokenPath)
+	fmt.Println("Run 'waxon' to launch.")
+}
+
+// authenticate performs the OAuth flow and saves the token. Returns the token path.
+func authenticate() string {
+	clientID := resolveClientID()
 	if clientID == "" {
-		fmt.Println("Set SPOTIFY_CLIENT_ID environment variable first.")
-		fmt.Println("")
-		fmt.Println("  1. Go to https://developer.spotify.com/dashboard")
-		fmt.Println("  2. Create an app (any name)")
-		fmt.Println("  3. Add redirect URI: http://localhost:8080/callback")
-		fmt.Println("  4. Copy the Client ID")
-		fmt.Println("  5. Run: SPOTIFY_CLIENT_ID=<your-id> spotui auth")
-		return
+		clientID = myauth.DefaultClientID
 	}
 
 	token, err := myauth.Authenticate(clientID)
@@ -80,23 +128,97 @@ func runAuth() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Authenticated! Token saved to %s\n", tokenPath)
-	fmt.Println("Run 'spotui' to launch the player.")
+	// Persist the client ID so subsequent launches use the same one.
+	if err := config.Save(config.Config{ClientID: clientID}); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not save config: %v\n", err)
+	}
+
+	return tokenPath
+}
+
+func runDebug() {
+	clientID := resolveClientID()
+	if clientID == "" {
+		clientID = myauth.DefaultClientID
+		fmt.Println("Client ID: (default)")
+	} else {
+		fmt.Printf("Client ID: %s\n", clientID)
+	}
+	tokenPath := myauth.DefaultTokenPath()
+	token, err := myauth.LoadToken(tokenPath)
+	if err != nil {
+		fmt.Println("No token:", err)
+		return
+	}
+	cp := myspotify.NewClient(clientID, token, tokenPath)
+	src := myspotify.NewPlayerSource(cp)
+
+	ctx := context.Background()
+	ps, err := src.CurrentPlayback(ctx)
+	if err != nil {
+		fmt.Println("CurrentPlayback error:", err)
+		return
+	}
+	if ps == nil || ps.Track == nil {
+		fmt.Println("No track playing")
+		return
+	}
+	track := ps.Track
+	fmt.Printf("Track: %s - %s (ArtistID=%s, AlbumID=%s)\n", track.Name, track.Artist, track.ArtistID, track.AlbumID)
+
+	if track.ArtistID != "" {
+		fmt.Printf("\nGetArtist(%s)...\n", track.ArtistID)
+		page, err := src.GetArtist(ctx, track.ArtistID)
+		if err != nil {
+			fmt.Println("ERROR:", err)
+		} else {
+			fmt.Printf("Artist: %s, Genres: %v, Tracks: %d\n", page.Name, page.Genres, len(page.Tracks))
+		}
+	}
+
+	if track.AlbumID != "" {
+		fmt.Printf("\nGetAlbum(%s)...\n", track.AlbumID)
+		page, err := src.GetAlbum(ctx, track.AlbumID)
+		if err != nil {
+			fmt.Println("ERROR:", err)
+		} else {
+			fmt.Printf("Album: %s — %s, Tracks: %d\n", page.Name, page.Artist, len(page.Tracks))
+		}
+	}
+}
+
+// initLogging configures the global slog logger and returns a cleanup function
+// that closes the log file. The caller must defer the cleanup.
+// If WAXON_LOG is set to a file path, debug-level logs are written there;
+// otherwise logging is disabled.
+func initLogging() func() {
+	logPath := os.Getenv("WAXON_LOG")
+	if logPath == "" {
+		slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+		return func() {}
+	}
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: cannot open log file: %v\n", err)
+		return func() {}
+	}
+	handler := slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug})
+	slog.SetDefault(slog.New(handler))
+	slog.Info("waxon starting", "version", version)
+	return func() { _ = f.Close() }
 }
 
 func printUsage() {
-	fmt.Println(`spotui — an immersive mood-reactive terminal music companion
+	fmt.Println(`waxon — vim-modal Spotify terminal client
 
 Usage:
-  spotui            Launch the TUI
-  spotui auth       Connect your Spotify account
-  spotui version    Print version
-  spotui help       Show this help
+  waxon          Launch the TUI
+  waxon setup    First-time setup wizard
+  waxon auth     Re-authorize your Spotify account
+  waxon version  Print version
+  waxon help     Show this help
 
 Environment:
-  SPOTIFY_CLIENT_ID    Your Spotify app's Client ID (required for API features)
-  SPOTUI_KITTY=1       Enable Kitty graphics protocol for album art
-
-Without SPOTIFY_CLIENT_ID, spotui falls back to controlling the Spotify
-desktop app via AppleScript (macOS only).`)
+  SPOTIFY_CLIENT_ID  Override the saved Client ID
+  WAXON_LOG       Path to debug log file (e.g. /tmp/waxon.log)`)
 }

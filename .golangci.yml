@@ -1,0 +1,87 @@
+version: "2"
+
+run:
+  go: "1.25"
+  timeout: 3m
+
+formatters:
+  enable:
+    - gofumpt
+
+linters:
+  default: none
+  enable:
+    # Correctness
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - bodyclose
+    - nilerr
+    - copyloopvar
+    - durationcheck
+    - errchkjson
+
+    # Security
+    - gosec
+
+    # Style & quality
+    - gocritic
+    - misspell
+    - prealloc
+    - unconvert
+    - usestdlibvars
+    - perfsprint
+    - intrange
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      exclude-functions:
+        - (io.Closer).Close
+        - (net/http.ResponseWriter).Write
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    staticcheck:
+      checks:
+        - "all"
+        - "-SA1019"
+        - "-ST1000" # package comments — not needed for small focused packages
+    gocritic:
+      disabled-checks:
+        - ifElseChain # tag-union if/else chains are clearer than switches
+    gosec:
+      excludes:
+        - G101
+        - G104
+        - G112
+        - G115
+        - G117
+        - G204
+        - G304
+        - G703
+
+  exclusions:
+    paths:
+      - vendor
+      - docs
+    rules:
+      # concat-loop in View() methods is fine — UI rendering, not hot paths
+      - linters:
+          - perfsprint
+        text: "concat-loop"
+      - path: _test\.go
+        linters:
+          - errcheck
+          - prealloc
+          - gosec
+          - usestdlibvars
+          - perfsprint
+          - intrange
+          - staticcheck

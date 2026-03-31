@@ -5,21 +5,32 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os/exec"
 	"runtime"
+	"time"
 
 	"golang.org/x/oauth2"
 )
+
+// DefaultClientID is the ncspot client ID (Extended Quota Mode).
+// This is the same approach used by spotify-player and other open-source
+// Spotify terminal clients — it avoids requiring users to create their
+// own developer app.
+const DefaultClientID = "d420a117a32841c2b3474932e49fb54b"
 
 var spotifyScopes = []string{
 	"user-read-playback-state",
 	"user-modify-playback-state",
 	"user-read-currently-playing",
 	"playlist-read-private",
+	"playlist-read-collaborative",
 	"user-library-read",
+	"user-read-recently-played",
 }
 
 func SpotifyOAuthConfig(clientID, redirectURL string) *oauth2.Config {
@@ -34,12 +45,12 @@ func SpotifyOAuthConfig(clientID, redirectURL string) *oauth2.Config {
 	}
 }
 
-func generateVerifier() string {
+func generateVerifier() (string, error) {
 	buf := make([]byte, 64)
 	if _, err := rand.Read(buf); err != nil {
-		panic(err)
+		return "", fmt.Errorf("generate verifier: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(buf)
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 func challengeFromVerifier(verifier string) string {
@@ -47,54 +58,92 @@ func challengeFromVerifier(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
+// callbackHandler builds the HTTP handler used by the OAuth callback server.
+// It validates the state parameter, extracts the authorization code, and sends
+// results on the provided channels.
+func callbackHandler(expectedState string, codeCh chan<- string, errCh chan<- error) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("state") != expectedState {
+			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+			select {
+			case errCh <- errors.New("OAuth state mismatch (possible CSRF)"):
+			default:
+			}
+			return
+		}
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			errMsg := r.URL.Query().Get("error")
+			http.Error(w, "Auth failed: "+errMsg, http.StatusBadRequest)
+			select {
+			case errCh <- fmt.Errorf("auth denied: %s", errMsg):
+			default:
+			}
+			return
+		}
+		fmt.Fprint(w, "<html><body><h2>Connected to Spotify!</h2><p>You can close this tab.</p></body></html>")
+		select {
+		case codeCh <- code:
+		default:
+		}
+	})
+	return mux
+}
+
 func Authenticate(clientID string) (*oauth2.Token, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:8888")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return nil, fmt.Errorf("listen on port 8888: %w", err)
+		return nil, fmt.Errorf("listen: %w", err)
 	}
-	redirectURL := "http://127.0.0.1:8888/callback"
+	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return nil, errors.New("unexpected listener address type")
+	}
+	port := tcpAddr.Port
+	redirectURL := fmt.Sprintf("http://127.0.0.1:%d/login", port)
 
 	cfg := SpotifyOAuthConfig(clientID, redirectURL)
-	verifier := generateVerifier()
+	verifier, err := generateVerifier()
+	if err != nil {
+		return nil, err
+	}
 	challenge := challengeFromVerifier(verifier)
+	state, err := generateVerifier() // random state for CSRF protection
+	if err != nil {
+		return nil, err
+	}
 
-	authURL := cfg.AuthCodeURL("spotui-state",
+	authURL := cfg.AuthCodeURL(state,
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 		oauth2.SetAuthURLParam("code_challenge", challenge),
 	)
 
 	fmt.Printf("\nOpening browser for Spotify login...\n")
-	fmt.Printf("If it doesn't open, visit:\n%s\n\n", authURL)
-	openBrowser(authURL)
+	if err := openBrowser(authURL); err != nil {
+		fmt.Printf("Could not open browser automatically.\n")
+	}
+	fmt.Printf("If it doesn't open, visit this URL:\n\n  %s\n\n", authURL)
+	fmt.Printf("Waiting for Spotify authorization...\n")
 
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		code := r.URL.Query().Get("code")
-		if code == "" {
-			errMsg := r.URL.Query().Get("error")
-			http.Error(w, "Auth failed: "+errMsg, http.StatusBadRequest)
-			errCh <- fmt.Errorf("auth denied: %s", errMsg)
-			return
-		}
-		fmt.Fprint(w, "<html><body><h2>Connected to Spotify!</h2><p>You can close this tab.</p></body></html>")
-		codeCh <- code
-	})
-
-	server := &http.Server{Handler: mux}
-	go server.Serve(listener)
+	server := &http.Server{Handler: callbackHandler(state, codeCh, errCh)}
+	go func() { _ = server.Serve(listener) }()
 
 	var code string
 	select {
 	case code = <-codeCh:
-	case err := <-errCh:
-		server.Close()
-		return nil, err
+	case authErr := <-errCh:
+		_ = server.Close()
+		return nil, authErr
+	case <-time.After(5 * time.Minute):
+		_ = server.Close()
+		return nil, errors.New("timed out waiting for Spotify authorization (5 minutes)")
 	}
 
-	server.Shutdown(context.Background())
+	_ = server.Shutdown(context.Background())
 
 	token, err := cfg.Exchange(context.Background(), code,
 		oauth2.SetAuthURLParam("code_verifier", verifier),
@@ -106,15 +155,21 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 	return token, nil
 }
 
-func openBrowser(url string) {
+func openBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
 		cmd = exec.Command("open", url)
 	case "linux":
 		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
 	default:
 		cmd = exec.Command("open", url)
 	}
-	cmd.Start()
+	if err := cmd.Start(); err != nil {
+		slog.Warn("failed to open browser", "error", err)
+		return err
+	}
+	return nil
 }

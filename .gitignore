@@ -1,2 +1,11 @@
-.superpowers/
+# Build artifacts
+waxon
+coverage.out
+dist/
+
+# OS
 .DS_Store
+
+# Claude Code
+.superpowers/
+docs/superpowers/

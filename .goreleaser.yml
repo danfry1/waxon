@@ -1,0 +1,57 @@
+version: 2
+
+project_name: waxon
+
+before:
+  hooks:
+    - go mod tidy
+    - go test -race ./...
+
+builds:
+  - main: .
+    binary: waxon
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+brews:
+  - repository:
+      owner: danielfry
+      name: homebrew-tap
+    homepage: https://github.com/danielfry/waxon
+    description: Vim-modal Spotify terminal client
+    license: MIT
+    install: |
+      bin.install "waxon"
+    test: |
+      system bin/"waxon", "version"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
