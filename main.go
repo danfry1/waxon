@@ -32,7 +32,7 @@ func main() {
 		case "debug":
 			runDebug()
 			return
-		case "version":
+		case "version", "--version", "-v":
 			fmt.Println("waxon " + version)
 			return
 		case "help", "--help", "-h":
