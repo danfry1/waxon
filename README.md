@@ -118,20 +118,15 @@ go install github.com/danfry1/waxon@latest
 
 Enter command mode by pressing `:`, then type a command.
 
-| Command                  | Description          |
-|--------------------------|----------------------|
-| `:vol <0-100>`           | Set volume           |
-| `:shuffle`               | Enable shuffle       |
-| `:noshuffle`             | Disable shuffle      |
-| `:repeat off\|all\|track` | Set repeat mode      |
-| `:next`                  | Next track           |
-| `:prev`                  | Previous track       |
-| `:play`                  | Resume playback      |
-| `:pause`                 | Pause playback       |
-| `:device`                | Open device switcher |
-| `:search <query>`        | Search Spotify       |
-| `:recent`                | Recently played      |
-| `:q`                     | Quit                 |
+| Command                 | Description          |
+|-------------------------|----------------------|
+| `:vol <0-100>`          | Set volume           |
+| `:shuffle`              | Toggle shuffle       |
+| `:repeat off\|all\|one` | Set repeat mode      |
+| `:device`               | Open device switcher |
+| `:search <query>`       | Search Spotify       |
+| `:recent`               | Recently played      |
+| `:q`                    | Quit                 |
 
 ## Using Your Own Spotify App (Optional)
 
