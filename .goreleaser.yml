@@ -36,6 +36,7 @@ brews:
   - repository:
       owner: danfry1
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/danfry1/waxon
     description: Vim-modal Spotify terminal client
     license: GPL-3.0
