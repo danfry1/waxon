@@ -11,10 +11,10 @@ test: ## Run tests with race detector
 	go test -race ./...
 
 lint: ## Run golangci-lint
-	golangci-lint run
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4 run
 
 fmt: ## Format code with gofumpt
-	gofumpt -w .
+	go run mvdan.cc/gofumpt@latest -w .
 
 cover: ## Run tests with coverage
 	go test -race -coverprofile=coverage.out ./...
