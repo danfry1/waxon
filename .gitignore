@@ -6,6 +6,12 @@ dist/
 # OS
 .DS_Store
 
+# Secrets / credentials
+.env
+.env.*
+*.key
+*.pem
+
 # Claude Code
 .superpowers/
 docs/superpowers/
