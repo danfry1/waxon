@@ -120,7 +120,7 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 	)
 
 	fmt.Printf("\nOpening browser for Spotify login...\n")
-	if err := openBrowser(authURL); err != nil {
+	if browserErr := openBrowser(authURL); browserErr != nil {
 		fmt.Printf("Could not open browser automatically.\n")
 	}
 	fmt.Printf("If it doesn't open, visit this URL:\n\n  %s\n\n", authURL)
