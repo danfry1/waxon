@@ -1,30 +1,25 @@
-# waxon
+<p align="center">
+  <img src="assets/logo.png" width="128" alt="waxon logo">
+</p>
 
-A vim-modal Spotify client for the terminal, built with Go and [Bubbletea](https://github.com/charmbracelet/bubbletea).
+<h1 align="center">waxon</h1>
 
-Browse your library, control playback, and navigate playlists without leaving the terminal -- all with vim-style keybindings.
+<p align="center">
+  A vim-modal Spotify client for the terminal.
+</p>
 
-## Features
+<p align="center">
+  <a href="#install">Install</a> &middot;
+  <a href="#features">Features</a> &middot;
+  <a href="#keybindings">Keybindings</a> &middot;
+  <a href="#commands">Commands</a>
+</p>
 
-- Vim-style navigation (hjkl, gg/G, Ctrl+u/d, g-prefix motions)
-- Two-pane layout with sidebar (library/queue) and tracklist
-- Album art rendered in the terminal using Unicode half-block characters
-- Full-screen Now Playing view with gradient backgrounds
-- Vinyl record spinning easter egg (press `V` in Now Playing)
-- Fuzzy filter and Spotify search
-- Command mode for volume, shuffle, repeat, and more
-- Context actions menu (go to artist/album, add to queue, copy URI)
-- Spotify Connect device switching
-- Browser-like back navigation history
-- Lazy pagination for large playlists
-- PKCE OAuth flow (no client secret required)
+<p align="center">
+  <img src="demo/recordings/full-tour.gif" alt="waxon demo" width="800">
+</p>
 
-## Requirements
-
-- Spotify Premium account
-- A terminal with true color support (recommended)
-
-## Installation
+## Install
 
 **Homebrew:**
 
@@ -42,17 +37,54 @@ go install github.com/danfry1/waxon@latest
 
 ## Quick Start
 
-1. Run the setup wizard to authenticate with Spotify:
+```bash
+waxon auth    # Connect your Spotify account (one-time setup)
+waxon         # Launch the TUI
+```
 
-   ```
-   waxon auth
-   ```
+Requires a **Spotify Premium** account and a terminal with **true color** support.
 
-2. Launch the TUI:
+## Features
 
-   ```
-   waxon
-   ```
+### Vim Navigation
+
+Navigate everything without leaving the home row — `j`/`k` to move, `gg`/`G` to jump, `h`/`l` to switch panes.
+
+<p align="center">
+  <img src="demo/recordings/navigation.gif" alt="vim navigation" width="800">
+</p>
+
+### Now Playing
+
+Full-screen album art rendered with Unicode half-blocks, gradient backgrounds, and a vinyl spinning mode.
+
+<p align="center">
+  <img src="demo/recordings/nowplaying.gif" alt="now playing view" width="800">
+</p>
+
+### Search
+
+Find tracks, artists, and albums across Spotify.
+
+<p align="center">
+  <img src="demo/recordings/search.gif" alt="search" width="800">
+</p>
+
+### Artist & Album Browsing
+
+Explore discographies, browse full albums, and navigate with a browser-like back stack.
+
+<p align="center">
+  <img src="demo/recordings/browsing.gif" alt="artist and album browsing" width="800">
+</p>
+
+### Command Mode
+
+Vim-style commands for volume, shuffle, repeat, device switching, and more.
+
+<p align="center">
+  <img src="demo/recordings/commands.gif" alt="command mode" width="800">
+</p>
 
 ## Keybindings
 
@@ -150,15 +182,6 @@ The client ID is saved to `~/.config/waxon/config.json` automatically, so you on
 |---------------------|------------------------------------|
 | `SPOTIFY_CLIENT_ID` | Override the saved Spotify Client ID |
 | `WAXON_LOG`         | Path to debug log file (e.g. `/tmp/waxon.log`) |
-
-## CLI Usage
-
-```
-waxon          Launch the TUI
-waxon auth    Connect or re-connect your Spotify account
-waxon version  Print version
-waxon help     Show this help
-```
 
 ## License
 

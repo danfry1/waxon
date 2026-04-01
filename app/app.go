@@ -89,22 +89,23 @@ type npArtLoadedMsg struct {
 
 // Model is the root Bubbletea model for waxon.
 type Model struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	source      source.RichSource
-	mode        Mode
-	focusPane   Pane
-	sidebar     Sidebar
-	tracklist   TrackList
-	statusbar   StatusBar
-	albumart    AlbumArt
-	search      *Search
-	actions     *ActionsPopup
-	devices     *DevicePicker
-	keys        KeyMap
-	gtracker    GTracker
-	cmdInput    string
-	filterInput string
+	ctx             context.Context
+	cancel          context.CancelFunc
+	source          source.RichSource
+	artworkProvider ArtworkProvider // non-nil when source provides embedded art
+	mode            Mode
+	focusPane       Pane
+	sidebar         Sidebar
+	tracklist       TrackList
+	statusbar       StatusBar
+	albumart        AlbumArt
+	search          *Search
+	actions         *ActionsPopup
+	devices         *DevicePicker
+	keys            KeyMap
+	gtracker        GTracker
+	cmdInput        string
+	filterInput     string
 
 	track      *source.Track
 	playlists  []source.Playlist
@@ -141,17 +142,22 @@ type Model struct {
 
 func NewModel(src source.RichSource) Model {
 	ctx, cancel := context.WithCancel(context.Background())
+	var ap ArtworkProvider
+	if provider, ok := src.(ArtworkProvider); ok {
+		ap = provider
+	}
 	return Model{
-		ctx:        ctx,
-		cancel:     cancel,
-		source:     src,
-		mode:       ModeNormal,
-		focusPane:  PaneSidebar,
-		keys:       DefaultKeyMap(),
-		albumart:   NewAlbumArt(),
-		volume:     50,
-		repeatMode: source.RepeatOff,
-		trackCache: make(map[string]cachedPlaylist),
+		ctx:             ctx,
+		cancel:          cancel,
+		source:          src,
+		artworkProvider: ap,
+		mode:            ModeNormal,
+		focusPane:       PaneSidebar,
+		keys:            DefaultKeyMap(),
+		albumart:        NewAlbumArt(),
+		volume:          50,
+		repeatMode:      source.RepeatOff,
+		trackCache:      make(map[string]cachedPlaylist),
 	}
 }
 
@@ -231,7 +237,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case playlistsLoadedMsg:
 		m.playlists = msg.playlists
-		m.sidebar.SetPlaylists(msg.playlists)
+		// sidebar may not exist yet if WindowSizeMsg hasn't arrived;
+		// layoutResize will apply playlists once the sidebar is created.
+		if m.sidebar.width > 0 {
+			m.sidebar.SetPlaylists(msg.playlists)
+		}
 		cmds := []tea.Cmd{m.fetchSidebarIcons(msg.playlists)}
 		if len(msg.playlists) > 0 {
 			cmds = append(cmds, m.fetchPlaylistTracks(msg.playlists[0]))
@@ -1000,6 +1010,11 @@ func (m *Model) layoutResize() {
 		m.sidebar = NewSidebar(sidebarW, contentH)
 		m.tracklist = NewTrackList(tracklistW, contentH)
 		m.statusbar = NewStatusBar(m.width)
+		// If playlists arrived before the first WindowSizeMsg (e.g. demo mode
+		// with instant responses), apply them now that the sidebar exists.
+		if len(m.playlists) > 0 {
+			m.sidebar.SetPlaylists(m.playlists)
+		}
 	} else {
 		m.sidebar.Resize(sidebarW, contentH)
 		m.tracklist.Resize(tracklistW, contentH)
