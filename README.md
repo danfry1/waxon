@@ -183,6 +183,10 @@ The client ID is saved to `~/.config/waxon/config.json` automatically, so you on
 | `SPOTIFY_CLIENT_ID` | Override the saved Spotify Client ID |
 | `WAXON_LOG`         | Path to debug log file (e.g. `/tmp/waxon.log`) |
 
+## Acknowledgements
+
+Built with [Bubbletea](https://github.com/charmbracelet/bubbletea), [Bubbles](https://github.com/charmbracelet/bubbles), and [Lip Gloss](https://github.com/charmbracelet/lipgloss) by [Charmbracelet](https://charm.sh). Demo recordings made with [VHS](https://github.com/charmbracelet/vhs). Huge thanks to the Charm team for making terminal UIs a joy to build.
+
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).
