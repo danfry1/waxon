@@ -15,13 +15,18 @@ type Config struct {
 	ClientID string `json:"client_id,omitempty"`
 }
 
+// Dir returns the waxon config directory, following XDG conventions:
+// $XDG_CONFIG_HOME/waxon or ~/.config/waxon.
+func Dir() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "waxon")
+	}
+	return filepath.Join(os.Getenv("HOME"), ".config", "waxon")
+}
+
 // DefaultPath returns the path to the config file (~/.config/waxon/config.json).
 func DefaultPath() string {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		configDir = os.Getenv("HOME")
-	}
-	return filepath.Join(configDir, "waxon", "config.json")
+	return filepath.Join(Dir(), "config.json")
 }
 
 // Load reads the config from disk. Returns a zero Config (not an error)
