@@ -28,7 +28,8 @@ type DemoSource struct {
 	// Content
 	playlists  []source.Playlist
 	tracksByPL map[string][]source.Track
-	queue      []source.Track
+	userQueue     []source.Track  // manually queued tracks (play next before playlist continues)
+	playingQueued *source.Track   // non-nil when a queued track is currently playing
 	devices    []source.Device
 	artists    map[string]*source.ArtistPage
 	albums     map[string]*source.AlbumPage
@@ -46,7 +47,6 @@ func NewDemoSource() *DemoSource {
 	devices := buildDevices()
 
 	firstPL := pl[0].ID
-	firstTracks := tracksByPL[firstPL]
 
 	ds := &DemoSource{
 		playing:    true,
@@ -59,7 +59,6 @@ func NewDemoSource() *DemoSource {
 		playlists:   pl,
 		tracksByPL:  tracksByPL,
 		allTracks:   allTracks,
-		queue:       firstTracks[1:min(6, len(firstTracks))],
 		devices:     devices,
 		artists:     artists,
 		albums:      albums,
@@ -68,7 +67,13 @@ func NewDemoSource() *DemoSource {
 	return ds
 }
 
+// playingQueued is true when the currently playing track came from the user
+// queue rather than the playlist. Set by advanceTrack/Next when consuming
+// from userQueue, cleared when that track finishes or is skipped.
 func (d *DemoSource) currentTrack() *source.Track {
+	if d.playingQueued != nil {
+		return d.playingQueued
+	}
 	tracks := d.tracksByPL[d.currentPLID]
 	if len(tracks) == 0 {
 		return nil
@@ -94,23 +99,26 @@ func (d *DemoSource) computePosition() time.Duration {
 }
 
 func (d *DemoSource) advanceTrack() {
-	tracks := d.tracksByPL[d.currentPLID]
-	if len(tracks) == 0 {
-		return
+	// If we were playing a queued track, clear it and check for more
+	if d.playingQueued != nil {
+		d.playingQueued = nil
 	}
-	d.trackIdx = (d.trackIdx + 1) % len(tracks)
+
+	// If there are user-queued tracks, play the next one
+	if len(d.userQueue) > 0 {
+		t := d.userQueue[0]
+		d.playingQueued = &t
+		d.userQueue = d.userQueue[1:]
+	} else {
+		// Advance the playlist
+		tracks := d.tracksByPL[d.currentPLID]
+		if len(tracks) == 0 {
+			return
+		}
+		d.trackIdx = (d.trackIdx + 1) % len(tracks)
+	}
 	d.position = 0
 	d.startTime = time.Now()
-	remaining := len(tracks) - d.trackIdx - 1
-	if remaining > 5 {
-		remaining = 5
-	}
-	if remaining > 0 {
-		d.queue = make([]source.Track, remaining)
-		copy(d.queue, tracks[d.trackIdx+1:d.trackIdx+1+remaining])
-	} else {
-		d.queue = nil
-	}
 }
 
 // --- source.TrackSource ---
@@ -277,7 +285,7 @@ func (d *DemoSource) AddToQueue(_ context.Context, trackID string) error {
 	defer d.mu.Unlock()
 	for _, t := range d.allTracks {
 		if t.ID == trackID {
-			d.queue = append(d.queue, t)
+			d.userQueue = append(d.userQueue, t)
 			return nil
 		}
 	}
@@ -289,11 +297,20 @@ func (d *DemoSource) AddToQueue(_ context.Context, trackID string) error {
 func (d *DemoSource) Queue(_ context.Context) ([]source.Track, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// Build queue: current track + user-queued + upcoming from playlist
+	var result []source.Track
 	track := d.currentTrack()
-	if track == nil {
-		return d.queue, nil
+	if track != nil {
+		result = append(result, *track)
 	}
-	return append([]source.Track{*track}, d.queue...), nil
+	result = append(result, d.userQueue...)
+	// Add upcoming from playlist
+	tracks := d.tracksByPL[d.currentPLID]
+	for i := 1; i <= 5 && len(tracks) > 0; i++ {
+		idx := (d.trackIdx + i) % len(tracks)
+		result = append(result, tracks[idx])
+	}
+	return result, nil
 }
 
 func (d *DemoSource) Playlists(_ context.Context) ([]source.Playlist, error) {
