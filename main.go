@@ -35,6 +35,9 @@ func main() {
 		case "version", "--version", "-v":
 			fmt.Println("waxon " + version)
 			return
+		case "demo":
+			runDemo()
+			return
 		case "help", "--help", "-h":
 			printUsage()
 			return
@@ -205,6 +208,7 @@ func printUsage() {
 Usage:
   waxon          Launch the TUI
   waxon auth    Connect or re-connect your Spotify account
+  waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
   waxon help     Show this help
 

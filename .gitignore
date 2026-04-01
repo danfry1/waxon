@@ -12,6 +12,10 @@ dist/
 *.key
 *.pem
 
+# Demo
+waxon-demo
+demo/recordings/
+
 # Claude Code
 .superpowers/
 docs/superpowers/
