@@ -32,13 +32,7 @@ Enter
 Sleep 2.5s
 
 # -- Watch progress with Currents art visible --
-Sleep 2s
-
-# -- Pause/resume --
-Type " "
-Sleep 1.5s
-Type " "
-Sleep 1s
+Sleep 3s
 
 # -- Now playing overlay — Currents swirl full screen --
 Type "N"
@@ -63,7 +57,7 @@ Sleep 400ms
 Type "tame impala"
 Enter
 Sleep 1.5s
-Type "j"
+Down
 Sleep 300ms
 Enter
 Sleep 2s

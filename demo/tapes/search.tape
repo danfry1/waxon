@@ -28,10 +28,10 @@ Sleep 1s
 Enter
 Sleep 1.5s
 
-# Navigate results
-Type "j"
+# Navigate results with arrow keys (search input captures j/k)
+Down
 Sleep 400ms
-Type "j"
+Down
 Sleep 400ms
 
 # Select Get Lucky
