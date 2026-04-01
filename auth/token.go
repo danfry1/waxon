@@ -7,15 +7,12 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/danielfry/waxon/config"
 	"golang.org/x/oauth2"
 )
 
 func DefaultTokenPath() string {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		configDir = os.Getenv("HOME")
-	}
-	return filepath.Join(configDir, "waxon", "token.json")
+	return filepath.Join(config.Dir(), "token.json")
 }
 
 func SaveToken(path string, token *oauth2.Token) error {
