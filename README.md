@@ -167,7 +167,7 @@ waxon works out of the box with no configuration — it ships with a shared clie
 If you'd prefer to use your own Spotify developer app:
 
 1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and create an app
-2. Set the redirect URI to `http://127.0.0.1` (any port — waxon picks one automatically)
+2. Set the redirect URI to `http://127.0.0.1:27228/callback`
 3. Copy the **Client ID** and run setup with it:
 
    ```
