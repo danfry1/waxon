@@ -129,7 +129,6 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 |-------|---------------------|
 | `o`   | Context actions menu |
 | `a`   | Add to queue        |
-| `x`   | Remove              |
 | `/`   | Filter current view |
 | `s`   | Spotify search      |
 | `D`   | Device switcher     |
