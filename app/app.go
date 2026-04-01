@@ -89,10 +89,11 @@ type npArtLoadedMsg struct {
 
 // Model is the root Bubbletea model for waxon.
 type Model struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	source      source.RichSource
-	mode        Mode
+	ctx             context.Context
+	cancel          context.CancelFunc
+	source          source.RichSource
+	artworkProvider ArtworkProvider // non-nil when source provides embedded art
+	mode            Mode
 	focusPane   Pane
 	sidebar     Sidebar
 	tracklist   TrackList
@@ -141,17 +142,22 @@ type Model struct {
 
 func NewModel(src source.RichSource) Model {
 	ctx, cancel := context.WithCancel(context.Background())
+	var ap ArtworkProvider
+	if provider, ok := src.(ArtworkProvider); ok {
+		ap = provider
+	}
 	return Model{
-		ctx:        ctx,
-		cancel:     cancel,
-		source:     src,
-		mode:       ModeNormal,
-		focusPane:  PaneSidebar,
-		keys:       DefaultKeyMap(),
-		albumart:   NewAlbumArt(),
-		volume:     50,
-		repeatMode: source.RepeatOff,
-		trackCache: make(map[string]cachedPlaylist),
+		ctx:             ctx,
+		cancel:          cancel,
+		source:          src,
+		artworkProvider: ap,
+		mode:            ModeNormal,
+		focusPane:       PaneSidebar,
+		keys:            DefaultKeyMap(),
+		albumart:        NewAlbumArt(),
+		volume:          50,
+		repeatMode:      source.RepeatOff,
+		trackCache:      make(map[string]cachedPlaylist),
 	}
 }
 

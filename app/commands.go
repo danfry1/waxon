@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"image"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -101,10 +102,20 @@ func (m Model) fetchMoreTracks() tea.Cmd {
 
 func (m Model) fetchNPArt(url string) tea.Cmd {
 	ctx := m.ctx
+	ap := m.artworkProvider
 	return func() tea.Msg {
-		img, err := FetchImage(ctx, url)
-		if err != nil {
-			return trackErrorMsg{err}
+		var img image.Image
+		var err error
+		if ap != nil {
+			if i, ok := ap.ArtworkImage(url); ok {
+				img = i
+			}
+		}
+		if img == nil {
+			img, err = FetchImage(ctx, url)
+			if err != nil {
+				return trackErrorMsg{err}
+			}
 		}
 		return npArtLoadedMsg{url: url, img: img}
 	}
@@ -160,6 +171,7 @@ func (m Model) doSearch(query string) tea.Cmd {
 
 func (m Model) fetchSidebarIcons(playlists []source.Playlist) tea.Cmd {
 	ctx := m.ctx
+	ap := m.artworkProvider
 	return func() tea.Msg {
 		type iconResult struct {
 			id   string
@@ -184,9 +196,18 @@ func (m Model) fetchSidebarIcons(playlists []source.Playlist) tea.Cmd {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				img, err := FetchImage(ctx, p.ImageURL)
-				if err != nil {
-					return
+				var img image.Image
+				if ap != nil {
+					if i, ok := ap.ArtworkImage(p.ImageURL); ok {
+						img = i
+					}
+				}
+				if img == nil {
+					var err error
+					img, err = FetchImage(ctx, p.ImageURL)
+					if err != nil {
+						return
+					}
 				}
 				results <- iconResult{id: p.ID, icon: renderHalfBlocks(img, 3, 1)}
 			}(pl)
@@ -207,10 +228,20 @@ func (m Model) fetchSidebarIcons(playlists []source.Playlist) tea.Cmd {
 
 func (m Model) fetchArtwork(url string) tea.Cmd {
 	ctx := m.ctx
+	ap := m.artworkProvider
 	return func() tea.Msg {
-		img, err := FetchImage(ctx, url)
-		if err != nil {
-			return controlDoneMsg{} // art fetch errors are non-fatal
+		var img image.Image
+		var err error
+		if ap != nil {
+			if i, ok := ap.ArtworkImage(url); ok {
+				img = i
+			}
+		}
+		if img == nil {
+			img, err = FetchImage(ctx, url)
+			if err != nil {
+				return controlDoneMsg{} // art fetch errors are non-fatal
+			}
 		}
 		return artworkLoadedMsg{url: url, img: img}
 	}
@@ -218,10 +249,20 @@ func (m Model) fetchArtwork(url string) tea.Cmd {
 
 func (m Model) fetchPlaylistArt(url string) tea.Cmd {
 	ctx := m.ctx
+	ap := m.artworkProvider
 	return func() tea.Msg {
-		img, err := FetchImage(ctx, url)
-		if err != nil {
-			return controlDoneMsg{} // art fetch errors are non-fatal
+		var img image.Image
+		var err error
+		if ap != nil {
+			if i, ok := ap.ArtworkImage(url); ok {
+				img = i
+			}
+		}
+		if img == nil {
+			img, err = FetchImage(ctx, url)
+			if err != nil {
+				return controlDoneMsg{} // art fetch errors are non-fatal
+			}
 		}
 		return playlistArtLoadedMsg{url: url, img: img}
 	}
