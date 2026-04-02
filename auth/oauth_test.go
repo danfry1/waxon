@@ -191,7 +191,7 @@ func TestCallbackHandler_ValidCode(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/callback?state=test-state-123&code=auth-code-xyz")
+	resp, err := http.Get(server.URL + "/login?state=test-state-123&code=auth-code-xyz")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestCallbackHandler_StateMismatch(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/callback?state=wrong-state&code=abc")
+	resp, err := http.Get(server.URL + "/login?state=wrong-state&code=abc")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestCallbackHandler_AuthDenied(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/callback?state=my-state&error=access_denied")
+	resp, err := http.Get(server.URL + "/login?state=my-state&error=access_denied")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestCallbackHandler_AuthDenied(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// callbackHandler — non-/callback path returns 404
+// callbackHandler — non-/login path returns 404
 // ---------------------------------------------------------------------------
 
 func TestCallbackHandler_WrongPath(t *testing.T) {
@@ -319,7 +319,7 @@ func TestCallbackHandler_EmptyError(t *testing.T) {
 	defer server.Close()
 
 	// state matches, but no code and no error param
-	resp, err := http.Get(server.URL + "/callback?state=state")
+	resp, err := http.Get(server.URL + "/login?state=state")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -429,14 +429,14 @@ func TestCallbackHandler_OnlyFirstCodeWins(t *testing.T) {
 	defer server.Close()
 
 	// First request: should succeed
-	resp1, err := http.Get(server.URL + "/callback?state=s&code=first")
+	resp1, err := http.Get(server.URL + "/login?state=s&code=first")
 	if err != nil {
 		t.Fatalf("GET 1: %v", err)
 	}
 	resp1.Body.Close()
 
 	// Second request: code channel is already full (buffered 1)
-	resp2, err := http.Get(server.URL + "/callback?state=s&code=second")
+	resp2, err := http.Get(server.URL + "/login?state=s&code=second")
 	if err != nil {
 		t.Fatalf("GET 2: %v", err)
 	}

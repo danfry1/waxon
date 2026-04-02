@@ -63,7 +63,7 @@ func challengeFromVerifier(verifier string) string {
 // results on the provided channels.
 func callbackHandler(expectedState string, codeCh chan<- string, errCh chan<- error) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("state") != expectedState {
 			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
 			select {
@@ -93,7 +93,7 @@ func callbackHandler(expectedState string, codeCh chan<- string, errCh chan<- er
 
 // DefaultCallbackPort is the fixed port used for the OAuth callback server.
 // Users registering their own Spotify app should add
-// http://127.0.0.1:27228/callback as a redirect URI.
+// http://127.0.0.1:27228/login as a redirect URI.
 const DefaultCallbackPort = 27228
 
 func Authenticate(clientID string) (*oauth2.Token, error) {
@@ -102,7 +102,7 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w (is another instance running?)", addr, err)
 	}
-	redirectURL := fmt.Sprintf("http://127.0.0.1:%d/callback", DefaultCallbackPort)
+	redirectURL := fmt.Sprintf("http://127.0.0.1:%d/login", DefaultCallbackPort)
 
 	cfg := SpotifyOAuthConfig(clientID, redirectURL)
 	verifier, err := generateVerifier()
