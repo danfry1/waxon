@@ -187,11 +187,11 @@ func TestCallbackHandler_ValidCode(t *testing.T) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	handler := callbackHandler("test-state-123", codeCh, errCh)
+	handler := callbackHandler("/login", "test-state-123", codeCh, errCh)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/callback?state=test-state-123&code=auth-code-xyz")
+	resp, err := http.Get(server.URL + "/login?state=test-state-123&code=auth-code-xyz")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -217,11 +217,11 @@ func TestCallbackHandler_StateMismatch(t *testing.T) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	handler := callbackHandler("correct-state", codeCh, errCh)
+	handler := callbackHandler("/login", "correct-state", codeCh, errCh)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/callback?state=wrong-state&code=abc")
+	resp, err := http.Get(server.URL + "/login?state=wrong-state&code=abc")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -247,11 +247,11 @@ func TestCallbackHandler_AuthDenied(t *testing.T) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	handler := callbackHandler("my-state", codeCh, errCh)
+	handler := callbackHandler("/login", "my-state", codeCh, errCh)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/callback?state=my-state&error=access_denied")
+	resp, err := http.Get(server.URL + "/login?state=my-state&error=access_denied")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -272,14 +272,14 @@ func TestCallbackHandler_AuthDenied(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// callbackHandler — non-/callback path returns 404
+// callbackHandler — non-/login path returns 404
 // ---------------------------------------------------------------------------
 
 func TestCallbackHandler_WrongPath(t *testing.T) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	handler := callbackHandler("state", codeCh, errCh)
+	handler := callbackHandler("/login", "state", codeCh, errCh)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -314,12 +314,12 @@ func TestCallbackHandler_EmptyError(t *testing.T) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	handler := callbackHandler("state", codeCh, errCh)
+	handler := callbackHandler("/login", "state", codeCh, errCh)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	// state matches, but no code and no error param
-	resp, err := http.Get(server.URL + "/callback?state=state")
+	resp, err := http.Get(server.URL + "/login?state=state")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -424,19 +424,19 @@ func TestCallbackHandler_OnlyFirstCodeWins(t *testing.T) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	handler := callbackHandler("s", codeCh, errCh)
+	handler := callbackHandler("/login", "s", codeCh, errCh)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	// First request: should succeed
-	resp1, err := http.Get(server.URL + "/callback?state=s&code=first")
+	resp1, err := http.Get(server.URL + "/login?state=s&code=first")
 	if err != nil {
 		t.Fatalf("GET 1: %v", err)
 	}
 	resp1.Body.Close()
 
 	// Second request: code channel is already full (buffered 1)
-	resp2, err := http.Get(server.URL + "/callback?state=s&code=second")
+	resp2, err := http.Get(server.URL + "/login?state=s&code=second")
 	if err != nil {
 		t.Fatalf("GET 2: %v", err)
 	}
@@ -452,6 +452,45 @@ func TestCallbackHandler_OnlyFirstCodeWins(t *testing.T) {
 	case extra := <-codeCh:
 		t.Errorf("unexpected extra code: %q", extra)
 	default:
+	}
+}
+
+func TestCallbackPath_DefaultClientID(t *testing.T) {
+	if p := callbackPath(DefaultClientID); p != "/login" {
+		t.Errorf("callbackPath(DefaultClientID) = %q, want /login", p)
+	}
+}
+
+func TestCallbackPath_CustomClientID(t *testing.T) {
+	if p := callbackPath("my-custom-client-id"); p != "/callback" {
+		t.Errorf("callbackPath(custom) = %q, want /callback", p)
+	}
+}
+
+func TestCallbackHandler_CustomPath(t *testing.T) {
+	codeCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+
+	handler := callbackHandler("/callback", "st", codeCh, errCh)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/callback?state=st&code=abc")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	select {
+	case code := <-codeCh:
+		if code != "abc" {
+			t.Errorf("code = %q, want %q", code, "abc")
+		}
+	default:
+		t.Error("expected code on channel")
 	}
 }
 
