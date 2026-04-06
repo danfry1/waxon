@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/danielfry/waxon/source"
+	"github.com/danfry1/waxon/source"
 )
 
 type searchResultsMsg struct {

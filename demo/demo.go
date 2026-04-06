@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielfry/waxon/source"
+	"github.com/danfry1/waxon/source"
 )
 
 // DemoSource implements source.RichSource with curated fake data and

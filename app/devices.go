@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/danielfry/waxon/source"
+	"github.com/danfry1/waxon/source"
 )
 
 // DevicePicker is a floating overlay listing available Spotify Connect devices.

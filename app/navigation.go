@@ -3,7 +3,7 @@ package app
 import (
 	"time"
 
-	"github.com/danielfry/waxon/source"
+	"github.com/danfry1/waxon/source"
 )
 
 const (

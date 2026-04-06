@@ -1,4 +1,4 @@
-module github.com/danielfry/waxon
+module github.com/danfry1/waxon
 
 go 1.25.0
 

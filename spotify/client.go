@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/danielfry/waxon/auth"
+	"github.com/danfry1/waxon/auth"
 	spotifyapi "github.com/zmb3/spotify/v2"
 	"golang.org/x/oauth2"
 )

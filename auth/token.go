@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/danielfry/waxon/config"
+	"github.com/danfry1/waxon/config"
 	"golang.org/x/oauth2"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/danielfry/waxon/source"
+	"github.com/danfry1/waxon/source"
 )
 
 // StubSource is a test double for source.RichSource. Each method delegates to

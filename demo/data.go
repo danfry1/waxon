@@ -5,7 +5,7 @@ package demo
 import (
 	"time"
 
-	"github.com/danielfry/waxon/source"
+	"github.com/danfry1/waxon/source"
 )
 
 // Artwork URLs use a demo:// scheme intercepted by ArtworkProvider.

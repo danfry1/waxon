@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/danielfry/waxon/source"
+	"github.com/danfry1/waxon/source"
 	spotifyapi "github.com/zmb3/spotify/v2"
 )
 

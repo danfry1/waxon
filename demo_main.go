@@ -7,8 +7,8 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/danielfry/waxon/app"
-	"github.com/danielfry/waxon/demo"
+	"github.com/danfry1/waxon/app"
+	"github.com/danfry1/waxon/demo"
 )
 
 func runDemo() {

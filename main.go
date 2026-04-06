@@ -9,10 +9,10 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/danielfry/waxon/app"
-	myauth "github.com/danielfry/waxon/auth"
-	"github.com/danielfry/waxon/config"
-	myspotify "github.com/danielfry/waxon/spotify"
+	"github.com/danfry1/waxon/app"
+	myauth "github.com/danfry1/waxon/auth"
+	"github.com/danfry1/waxon/config"
+	myspotify "github.com/danfry1/waxon/spotify"
 )
 
 // version is set at build time via ldflags:

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/danielfry/waxon/source"
+	"github.com/danfry1/waxon/source"
 	spotifyapi "github.com/zmb3/spotify/v2"
 )
 
