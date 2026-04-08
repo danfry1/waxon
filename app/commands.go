@@ -441,7 +441,7 @@ func (m Model) openActions() (Model, tea.Cmd) {
 			m.tracklist.SetLoading(track.Name)
 			return m, m.fetchAlbumPage(track.AlbumID)
 		}
-		popup := NewTrackActions(track.Name, track.Artist, track.URI, track.ArtistID, track.AlbumID, m.width, m.height)
+		popup := NewTrackActions(track.Name, track.Artist, track.URI, track.ArtistID, track.AlbumID, false, m.width, m.height)
 		m.actions = &popup
 		m.mode = ModeActions
 		return m, nil

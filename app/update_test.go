@@ -777,7 +777,7 @@ func TestBuildArtistTrackListNoDiscography(t *testing.T) {
 // ===========================================================================
 
 func TestNewTrackActions(t *testing.T) {
-	popup := NewTrackActions("MySong", "MyArtist", "spotify:track:123", "artist1", "album1", 80, 40)
+	popup := NewTrackActions("MySong", "MyArtist", "spotify:track:123", "artist1", "album1", false, 80, 40)
 	if popup.title != "MySong — MyArtist" {
 		t.Errorf("title = %q, want %q", popup.title, "MySong — MyArtist")
 	}
@@ -790,8 +790,8 @@ func TestNewTrackActions(t *testing.T) {
 	if popup.albumID != "album1" {
 		t.Errorf("albumID = %q", popup.albumID)
 	}
-	if len(popup.items) != 6 {
-		t.Errorf("items count = %d, want 6", len(popup.items))
+	if len(popup.items) != 7 {
+		t.Errorf("items count = %d, want 7", len(popup.items))
 	}
 	if popup.cursor != 0 {
 		t.Errorf("cursor = %d, want 0", popup.cursor)
@@ -799,7 +799,7 @@ func TestNewTrackActions(t *testing.T) {
 }
 
 func TestNewTrackActionsNoArtist(t *testing.T) {
-	popup := NewTrackActions("MySong", "", "uri", "", "", 80, 40)
+	popup := NewTrackActions("MySong", "", "uri", "", "", false, 80, 40)
 	if popup.title != "MySong" {
 		t.Errorf("title = %q, want %q", popup.title, "MySong")
 	}
@@ -822,7 +822,7 @@ func TestNewPlaylistActions(t *testing.T) {
 }
 
 func TestActionsMoveDownUp(t *testing.T) {
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", 80, 40)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, 80, 40)
 
 	// MoveDown
 	popup.MoveDown()
@@ -854,7 +854,7 @@ func TestActionsMoveDownUp(t *testing.T) {
 }
 
 func TestActionsSelected(t *testing.T) {
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", 80, 40)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, 80, 40)
 
 	sel := popup.Selected()
 	if sel.Type != ActionPlay {
@@ -882,7 +882,7 @@ func TestActionsSelected(t *testing.T) {
 }
 
 func TestActionsGetters(t *testing.T) {
-	popup := NewTrackActions("Song", "Artist", "spotify:track:x", "art1", "alb1", 80, 40)
+	popup := NewTrackActions("Song", "Artist", "spotify:track:x", "art1", "alb1", false, 80, 40)
 	if popup.URI() != "spotify:track:x" {
 		t.Errorf("URI() = %q", popup.URI())
 	}
@@ -1079,7 +1079,7 @@ func TestViewModeSearch(t *testing.T) {
 func TestViewModeActions(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", m.width, m.height)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
@@ -1177,7 +1177,7 @@ func TestHandleKeySearchNilSearch(t *testing.T) {
 func TestHandleKeyActionsNavigation(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", m.width, m.height)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
@@ -1201,7 +1201,7 @@ func TestHandleKeyActionsNavigation(t *testing.T) {
 func TestHandleKeyActionsEscape(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", m.width, m.height)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
@@ -1220,7 +1220,7 @@ func TestHandleKeyActionsEscape(t *testing.T) {
 func TestHandleKeyActionsQuit(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", m.width, m.height)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
@@ -2368,7 +2368,7 @@ func TestUpdateWindowSizeMsg(t *testing.T) {
 // ===========================================================================
 
 func TestActionsView(t *testing.T) {
-	popup := NewTrackActions("Song", "Artist", "uri", "art1", "alb1", 80, 40)
+	popup := NewTrackActions("Song", "Artist", "uri", "art1", "alb1", false, 80, 40)
 	got := popup.View()
 	if got == "" {
 		t.Fatal("ActionsPopup.View() should be non-empty")
@@ -2791,7 +2791,7 @@ func TestHandleKeyActionsEnterPlay(t *testing.T) {
 	m.tracklist.SetTracks(tracks, "Test", "spotify:playlist:abc")
 	m.focusPane = PaneTrackList
 
-	popup := NewTrackActions("Song A", "Artist", "spotify:track:t1", "", "", m.width, m.height)
+	popup := NewTrackActions("Song A", "Artist", "spotify:track:t1", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
