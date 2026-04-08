@@ -68,6 +68,16 @@ type (
 	}
 )
 
+type trackLikedMsg struct {
+	trackID string
+	liked   bool
+}
+
+type trackLikeStatusMsg struct {
+	trackID string
+	liked   bool
+}
+
 type playlistArtLoadedMsg struct {
 	url string
 	img image.Image
@@ -112,6 +122,7 @@ type Model struct {
 	volume     int
 	shuffleOn  bool
 	repeatMode source.RepeatMode
+	liked      bool // whether the currently playing track is liked
 	deviceName string
 	toast      Toast
 	navStack   []NavState                // browser-like back navigation history
@@ -220,9 +231,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.track.ID != prevTrackID && m.sidebar.Section() == SectionQueue {
 				cmds = append(cmds, m.fetchQueue())
 			}
+			// Check liked status when track changes
+			if msg.track.ID != prevTrackID {
+				cmds = append(cmds, m.checkLikeStatus(msg.track.ID))
+			}
 		} else {
 			m.albumart.Clear()
 			m.deviceName = ""
+			m.liked = false
 		}
 		if len(cmds) > 0 {
 			return m, tea.Batch(cmds...)
@@ -416,6 +432,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cmdFlashMsg:
 		m.toast.Show(msg.text, "", ToastInfo)
 		return m, scheduleAutoDismiss()
+
+	case trackLikedMsg:
+		if m.track != nil && m.track.ID == msg.trackID {
+			m.liked = msg.liked
+		}
+		if msg.liked {
+			m.toast.Show("Saved to Liked Songs", "", ToastSuccess)
+		} else {
+			m.toast.Show("Removed from Liked Songs", "", ToastInfo)
+		}
+		return m, scheduleAutoDismiss()
+
+	case trackLikeStatusMsg:
+		if m.track != nil && m.track.ID == msg.trackID {
+			m.liked = msg.liked
+		}
+		return m, nil
 
 	case trackErrorMsg:
 		m.consecutiveErrors++
