@@ -1141,7 +1141,7 @@ func (m Model) View() string {
 		if artBlock == "" {
 			artBlock = m.albumart.View()
 		}
-		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.width, m.height)
+		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.liked, m.width, m.height)
 	}
 
 	// Two-pane layout
@@ -1156,10 +1156,10 @@ func (m Model) View() string {
 		if artView == "" {
 			artView = PlaceholderArt(ArtWidth, ArtHeight)
 		}
-		nowPlayingArea := m.statusbar.ViewNowPlayingWithArt(m.track, m.shuffleOn, m.repeatMode, artView, m.volume, m.deviceName, m.mode, m.cmdInput, m.filterInput, m.tracklist.FilterText())
+		nowPlayingArea := m.statusbar.ViewNowPlayingWithArt(m.track, m.shuffleOn, m.repeatMode, m.liked, artView, m.volume, m.deviceName, m.mode, m.cmdInput, m.filterInput, m.tracklist.FilterText())
 		view = lipgloss.JoinVertical(lipgloss.Left, panes, nowPlayingArea)
 	} else {
-		nowPlaying := m.statusbar.ViewNowPlaying(m.track, m.shuffleOn, m.repeatMode)
+		nowPlaying := m.statusbar.ViewNowPlaying(m.track, m.shuffleOn, m.repeatMode, m.liked)
 		modeLine := m.statusbar.ViewModeLine(m.mode, m.cmdInput, m.filterInput, m.tracklist.FilterText(), m.volume, m.deviceName)
 		view = lipgloss.JoinVertical(lipgloss.Left, panes, nowPlaying, modeLine)
 	}

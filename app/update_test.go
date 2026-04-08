@@ -4076,7 +4076,7 @@ func TestIsAuthErrorHTTP403(t *testing.T) {
 func TestStatusBarViewNowPlayingWithArtNilTrack(t *testing.T) {
 	sb := NewStatusBar(120)
 	art := PlaceholderArt(ArtWidth, ArtHeight)
-	got := sb.ViewNowPlayingWithArt(nil, false, source.RepeatOff, art, 50, "", ModeNormal, "", "", "")
+	got := sb.ViewNowPlayingWithArt(nil, false, source.RepeatOff, false, art, 50, "", ModeNormal, "", "", "")
 	if got == "" {
 		t.Fatal("ViewNowPlayingWithArt with nil track should be non-empty")
 	}
@@ -4087,7 +4087,7 @@ func TestStatusBarViewNowPlayingWithArtNilTrack(t *testing.T) {
 
 func TestStatusBarViewNowPlayingWithArtZeroWidth(t *testing.T) {
 	sb := NewStatusBar(0)
-	got := sb.ViewNowPlayingWithArt(nil, false, source.RepeatOff, "", 50, "", ModeNormal, "", "", "")
+	got := sb.ViewNowPlayingWithArt(nil, false, source.RepeatOff, false, "", 50, "", ModeNormal, "", "", "")
 	if got != "" {
 		t.Errorf("ViewNowPlayingWithArt with zero width = %q, want empty", got)
 	}
@@ -4292,7 +4292,7 @@ func TestUpdateAlbumPageLoaded(t *testing.T) {
 
 func TestStatusBarViewNowPlayingZeroWidth(t *testing.T) {
 	sb := NewStatusBar(0)
-	got := sb.ViewNowPlaying(nil, false, source.RepeatOff)
+	got := sb.ViewNowPlaying(nil, false, source.RepeatOff, false)
 	if got != "" {
 		t.Errorf("ViewNowPlaying with zero width = %q, want empty", got)
 	}
@@ -4300,7 +4300,7 @@ func TestStatusBarViewNowPlayingZeroWidth(t *testing.T) {
 
 func TestStatusBarViewNowPlayingNilTrack(t *testing.T) {
 	sb := NewStatusBar(80)
-	got := sb.ViewNowPlaying(nil, false, source.RepeatOff)
+	got := sb.ViewNowPlaying(nil, false, source.RepeatOff, false)
 	if !strings.Contains(got, "No track playing") {
 		t.Error("should contain 'No track playing'")
 	}
@@ -4316,7 +4316,7 @@ func TestStatusBarViewNowPlayingWithIndicators(t *testing.T) {
 		Position: 1 * time.Minute,
 		Playing:  true,
 	}
-	got := sb.ViewNowPlaying(track, true, source.RepeatTrack)
+	got := sb.ViewNowPlaying(track, true, source.RepeatTrack, false)
 	if got == "" {
 		t.Fatal("ViewNowPlaying with indicators should be non-empty")
 	}
