@@ -30,6 +30,7 @@ var spotifyScopes = []string{
 	"playlist-read-private",
 	"playlist-read-collaborative",
 	"user-library-read",
+	"user-library-modify",
 	"user-read-recently-played",
 }
 
