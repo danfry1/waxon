@@ -157,6 +157,35 @@ func (m Model) fetchDevices() tea.Cmd {
 	}
 }
 
+func (m Model) toggleLike(trackID string, currentlyLiked bool) tea.Cmd {
+	src := m.source
+	ctx := m.ctx
+	return func() tea.Msg {
+		var err error
+		if currentlyLiked {
+			err = src.RemoveTrack(ctx, trackID)
+		} else {
+			err = src.SaveTrack(ctx, trackID)
+		}
+		if err != nil {
+			return trackErrorMsg{err}
+		}
+		return trackLikedMsg{trackID: trackID, liked: !currentlyLiked}
+	}
+}
+
+func (m Model) checkLikeStatus(trackID string) tea.Cmd {
+	src := m.source
+	ctx := m.ctx
+	return func() tea.Msg {
+		saved, err := src.IsTrackSaved(ctx, trackID)
+		if err != nil {
+			return trackErrorMsg{err}
+		}
+		return trackLikeStatusMsg{trackID: trackID, liked: saved}
+	}
+}
+
 func (m Model) doSearch(query string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
@@ -441,7 +470,8 @@ func (m Model) openActions() (Model, tea.Cmd) {
 			m.tracklist.SetLoading(track.Name)
 			return m, m.fetchAlbumPage(track.AlbumID)
 		}
-		popup := NewTrackActions(track.Name, track.Artist, track.URI, track.ArtistID, track.AlbumID, m.width, m.height)
+		liked := m.liked && m.track != nil && m.track.ID == track.ID
+		popup := NewTrackActions(track.Name, track.Artist, track.URI, track.ArtistID, track.AlbumID, liked, m.width, m.height)
 		m.actions = &popup
 		m.mode = ModeActions
 		return m, nil
@@ -468,6 +498,14 @@ func (m Model) executeAction(action ActionItem, uri, artistID, albumID string) (
 		}
 	case ActionQueue:
 		return m.handleAddQueue()
+	case ActionLike:
+		track := m.tracklist.SelectedTrack()
+		if track == nil || track.IsSeparator || track.IsAlbumRow {
+			m.toast.Show("No track selected", "", ToastError)
+			return m, scheduleAutoDismiss()
+		}
+		liked := m.liked && m.track != nil && m.track.ID == track.ID
+		return m, m.toggleLike(track.ID, liked)
 	case ActionGoArtist:
 		if artistID == "" {
 			m.toast.Show("No artist info available", "", ToastError)

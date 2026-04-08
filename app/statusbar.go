@@ -23,7 +23,7 @@ func (s *StatusBar) Resize(width int) {
 }
 
 // ViewNowPlaying renders the now-playing row.
-func (s StatusBar) ViewNowPlaying(track *source.Track, shuffleOn bool, repeatMode source.RepeatMode) string {
+func (s StatusBar) ViewNowPlaying(track *source.Track, shuffleOn bool, repeatMode source.RepeatMode, liked bool) string {
 	if s.width == 0 {
 		return ""
 	}
@@ -39,7 +39,11 @@ func (s StatusBar) ViewNowPlaying(track *source.Track, shuffleOn bool, repeatMod
 	if track.Playing {
 		icon = "▶"
 	}
-	info := fmt.Sprintf(" %s %s · %s · %s", icon, track.Name, track.Artist, track.Album)
+	heart := ""
+	if liked {
+		heart = " ♥"
+	}
+	info := fmt.Sprintf(" %s %s%s · %s · %s", icon, track.Name, heart, track.Artist, track.Album)
 
 	// Right: progress + indicators
 	var indicators []string
@@ -127,7 +131,7 @@ func (s StatusBar) ViewModeLine(mode Mode, cmdInput string, filterInput string, 
 }
 
 // ViewNowPlayingWithArt renders the now-playing panel with album art on the left.
-func (s StatusBar) ViewNowPlayingWithArt(track *source.Track, shuffleOn bool, repeatMode source.RepeatMode, artBlock string, volume int, deviceName string, mode Mode, cmdInput string, filterInput string, filterActive string) string {
+func (s StatusBar) ViewNowPlayingWithArt(track *source.Track, shuffleOn bool, repeatMode source.RepeatMode, liked bool, artBlock string, volume int, deviceName string, mode Mode, cmdInput string, filterInput string, filterActive string) string {
 	if s.width == 0 {
 		return ""
 	}
@@ -150,7 +154,11 @@ func (s StatusBar) ViewNowPlayingWithArt(track *source.Track, shuffleOn bool, re
 	}
 
 	nowPlayStyle := lipgloss.NewStyle().Foreground(CurrentAccent()).Bold(true)
-	titleLine := nowPlayStyle.Render(fmt.Sprintf(" %s %s", icon, track.Name))
+	heart := ""
+	if liked {
+		heart = " ♥"
+	}
+	titleLine := nowPlayStyle.Render(fmt.Sprintf(" %s %s%s", icon, track.Name, heart))
 	artistLine := StyleDimText.Render(fmt.Sprintf("   %s — %s", track.Artist, track.Album))
 
 	// Progress bar

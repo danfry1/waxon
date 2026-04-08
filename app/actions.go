@@ -12,6 +12,7 @@ type ActionType int
 const (
 	ActionPlay ActionType = iota
 	ActionQueue
+	ActionLike
 	ActionGoArtist
 	ActionGoAlbum
 	ActionOpenSpotify
@@ -41,15 +42,24 @@ type ActionsPopup struct {
 }
 
 // NewTrackActions returns an ActionsPopup configured for a track.
-func NewTrackActions(trackName, artistName, uri, artistID, albumID string, width, height int) ActionsPopup {
+func NewTrackActions(trackName, artistName, uri, artistID, albumID string, liked bool, width, height int) ActionsPopup {
 	title := trackName
 	if artistName != "" {
 		title = fmt.Sprintf("%s — %s", trackName, artistName)
 	}
+
+	likeLabel := "Save to Liked Songs"
+	likeIcon := "♡"
+	if liked {
+		likeLabel = "Remove from Liked Songs"
+		likeIcon = "♥"
+	}
+
 	return ActionsPopup{
 		items: []ActionItem{
 			{Type: ActionPlay, Label: "Play", Icon: "▶"},
 			{Type: ActionQueue, Label: "Add to Queue", Icon: "♫"},
+			{Type: ActionLike, Label: likeLabel, Icon: likeIcon},
 			{Type: ActionGoArtist, Label: "Go to Artist", Icon: "→"},
 			{Type: ActionGoAlbum, Label: "Go to Album", Icon: "→"},
 			{Type: ActionOpenSpotify, Label: "Open in Spotify", Icon: "◎"},

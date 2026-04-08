@@ -458,3 +458,22 @@ func (p *PlayerSource) GetAlbum(ctx context.Context, albumID string) (*source.Al
 		Tracks:   tracks,
 	}, nil
 }
+
+func (p *PlayerSource) SaveTrack(ctx context.Context, trackID string) error {
+	return p.client.AddTracksToLibrary(ctx, spotifyapi.ID(trackID))
+}
+
+func (p *PlayerSource) RemoveTrack(ctx context.Context, trackID string) error {
+	return p.client.RemoveTracksFromLibrary(ctx, spotifyapi.ID(trackID))
+}
+
+func (p *PlayerSource) IsTrackSaved(ctx context.Context, trackID string) (bool, error) {
+	results, err := p.client.UserHasTracks(ctx, spotifyapi.ID(trackID))
+	if err != nil {
+		return false, err
+	}
+	if len(results) == 0 {
+		return false, nil
+	}
+	return results[0], nil
+}

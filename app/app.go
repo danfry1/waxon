@@ -68,6 +68,16 @@ type (
 	}
 )
 
+type trackLikedMsg struct {
+	trackID string
+	liked   bool
+}
+
+type trackLikeStatusMsg struct {
+	trackID string
+	liked   bool
+}
+
 type playlistArtLoadedMsg struct {
 	url string
 	img image.Image
@@ -112,6 +122,7 @@ type Model struct {
 	volume     int
 	shuffleOn  bool
 	repeatMode source.RepeatMode
+	liked      bool // whether the currently playing track is liked
 	deviceName string
 	toast      Toast
 	navStack   []NavState                // browser-like back navigation history
@@ -220,9 +231,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.track.ID != prevTrackID && m.sidebar.Section() == SectionQueue {
 				cmds = append(cmds, m.fetchQueue())
 			}
+			// Check liked status when track changes
+			if msg.track.ID != prevTrackID {
+				cmds = append(cmds, m.checkLikeStatus(msg.track.ID))
+			}
 		} else {
 			m.albumart.Clear()
 			m.deviceName = ""
+			m.liked = false
 		}
 		if len(cmds) > 0 {
 			return m, tea.Batch(cmds...)
@@ -417,6 +433,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toast.Show(msg.text, "", ToastInfo)
 		return m, scheduleAutoDismiss()
 
+	case trackLikedMsg:
+		if m.track != nil && m.track.ID == msg.trackID {
+			m.liked = msg.liked
+		}
+		// Invalidate cached Liked Songs so navigating there shows fresh data
+		delete(m.trackCache, "liked")
+		if msg.liked {
+			m.toast.Show("Saved to Liked Songs", "", ToastSuccess)
+		} else {
+			m.toast.Show("Removed from Liked Songs", "", ToastInfo)
+		}
+		return m, scheduleAutoDismiss()
+
+	case trackLikeStatusMsg:
+		if m.track != nil && m.track.ID == msg.trackID {
+			m.liked = msg.liked
+		}
+		return m, nil
+
 	case trackErrorMsg:
 		m.consecutiveErrors++
 		if m.pagination != nil {
@@ -510,6 +545,10 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.SeekBack):
 		if m.track != nil {
 			return m, m.seekRelative(-5 * time.Second)
+		}
+	case key.Matches(msg, m.keys.Like):
+		if m.track != nil {
+			return m, m.toggleLike(m.track.ID, m.liked)
 		}
 	}
 	return m, nil
@@ -807,6 +846,23 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.AddQueue):
 		return m.handleAddQueue()
 
+	case key.Matches(msg, m.keys.Like):
+		if m.focusPane == PaneTrackList {
+			track := m.tracklist.SelectedTrack()
+			if track == nil || track.IsSeparator || track.IsAlbumRow {
+				m.toast.Show("No track selected", "", ToastError)
+				return m, scheduleAutoDismiss()
+			}
+			liked := m.liked && m.track != nil && m.track.ID == track.ID
+			return m, m.toggleLike(track.ID, liked)
+		}
+		// From sidebar, like the currently playing track
+		if m.track != nil {
+			return m, m.toggleLike(m.track.ID, m.liked)
+		}
+		m.toast.Show("No track playing", "", ToastError)
+		return m, scheduleAutoDismiss()
+
 	case key.Matches(msg, m.keys.Actions):
 		m.gtracker.Reset()
 		return m.openActions()
@@ -1087,7 +1143,7 @@ func (m Model) View() string {
 		if artBlock == "" {
 			artBlock = m.albumart.View()
 		}
-		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.width, m.height)
+		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.liked, m.width, m.height)
 	}
 
 	// Two-pane layout
@@ -1102,10 +1158,10 @@ func (m Model) View() string {
 		if artView == "" {
 			artView = PlaceholderArt(ArtWidth, ArtHeight)
 		}
-		nowPlayingArea := m.statusbar.ViewNowPlayingWithArt(m.track, m.shuffleOn, m.repeatMode, artView, m.volume, m.deviceName, m.mode, m.cmdInput, m.filterInput, m.tracklist.FilterText())
+		nowPlayingArea := m.statusbar.ViewNowPlayingWithArt(m.track, m.shuffleOn, m.repeatMode, m.liked, artView, m.volume, m.deviceName, m.mode, m.cmdInput, m.filterInput, m.tracklist.FilterText())
 		view = lipgloss.JoinVertical(lipgloss.Left, panes, nowPlayingArea)
 	} else {
-		nowPlaying := m.statusbar.ViewNowPlaying(m.track, m.shuffleOn, m.repeatMode)
+		nowPlaying := m.statusbar.ViewNowPlaying(m.track, m.shuffleOn, m.repeatMode, m.liked)
 		modeLine := m.statusbar.ViewModeLine(m.mode, m.cmdInput, m.filterInput, m.tracklist.FilterText(), m.volume, m.deviceName)
 		view = lipgloss.JoinVertical(lipgloss.Left, panes, nowPlaying, modeLine)
 	}
