@@ -26,6 +26,7 @@ type KeyMap struct {
 
 	// Actions
 	AddQueue key.Binding
+	Like     key.Binding
 	Actions  key.Binding
 	Devices  key.Binding
 
@@ -67,6 +68,7 @@ func DefaultKeyMap() KeyMap {
 		SeekBack:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "seek -5s")),
 
 		AddQueue: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add to queue")),
+		Like:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "favourite")),
 		Actions:  key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "actions")),
 		Devices:  key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "devices")),
 
@@ -94,7 +96,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Top, k.Bottom, k.HalfUp, k.HalfDown},
 		{k.FocusLeft, k.FocusRight, k.CyclePane, k.Section1, k.Section2, k.Back},
 		{k.Enter, k.PlayPause, k.Next, k.Prev, k.SeekFwd, k.SeekBack},
-		{k.AddQueue, k.Actions, k.Devices, k.Filter, k.Search, k.Command, k.Help, k.NowPlaying, k.Quit},
+		{k.AddQueue, k.Like, k.Actions, k.Devices, k.Filter, k.Search, k.Command, k.Help, k.NowPlaying, k.Quit},
 	}
 }
 

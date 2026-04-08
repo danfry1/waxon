@@ -12,6 +12,7 @@ type ActionType int
 const (
 	ActionPlay ActionType = iota
 	ActionQueue
+	ActionLike
 	ActionGoArtist
 	ActionGoAlbum
 	ActionOpenSpotify

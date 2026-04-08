@@ -57,6 +57,7 @@ func helpColumns() ([]helpCategory, []helpCategory) {
 			Bindings: []helpBinding{
 				{"o", "context actions"},
 				{"a", "add to queue"},
+				{"f", "favourite"},
 				{"/", "filter view"},
 				{"s", "search"},
 				{"D", "devices"},
