@@ -61,10 +61,11 @@ func challengeFromVerifier(verifier string) string {
 
 // callbackHandler builds the HTTP handler used by the OAuth callback server.
 // It validates the state parameter, extracts the authorization code, and sends
-// results on the provided channels.
-func callbackHandler(expectedState string, codeCh chan<- string, errCh chan<- error) http.Handler {
+// results on the provided channels. The path parameter sets which URL path the
+// handler listens on (e.g. "/login" or "/callback").
+func callbackHandler(path, expectedState string, codeCh chan<- string, errCh chan<- error) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("state") != expectedState {
 			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
 			select {
@@ -97,13 +98,24 @@ func callbackHandler(expectedState string, codeCh chan<- string, errCh chan<- er
 // http://127.0.0.1:27228/callback as a redirect URI.
 const DefaultCallbackPort = 27228
 
+// callbackPath returns the OAuth redirect path for the given client ID.
+// The default ncspot client ID has "/login" registered in Spotify's dashboard,
+// while custom client IDs use "/callback" (matching waxon's documented setup).
+func callbackPath(clientID string) string {
+	if clientID == DefaultClientID {
+		return "/login"
+	}
+	return "/callback"
+}
+
 func Authenticate(clientID string) (*oauth2.Token, error) {
 	addr := fmt.Sprintf("127.0.0.1:%d", DefaultCallbackPort)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w (is another instance running?)", addr, err)
 	}
-	redirectURL := fmt.Sprintf("http://127.0.0.1:%d/callback", DefaultCallbackPort)
+	path := callbackPath(clientID)
+	redirectURL := fmt.Sprintf("http://127.0.0.1:%d%s", DefaultCallbackPort, path)
 
 	cfg := SpotifyOAuthConfig(clientID, redirectURL)
 	verifier, err := generateVerifier()
@@ -131,7 +143,7 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	server := &http.Server{Handler: callbackHandler(state, codeCh, errCh)}
+	server := &http.Server{Handler: callbackHandler(path, state, codeCh, errCh)}
 	go func() { _ = server.Serve(listener) }()
 
 	var code string
