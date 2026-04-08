@@ -21,6 +21,9 @@ type LibrarySource interface {
 	PlaylistTracksPage(ctx context.Context, id string, offset, limit int) ([]Track, int, error)
 	LikedTracksPage(ctx context.Context, offset, limit int) ([]Track, int, error)
 	RecentlyPlayed(ctx context.Context) ([]Track, error)
+	SaveTrack(ctx context.Context, trackID string) error
+	RemoveTrack(ctx context.Context, trackID string) error
+	IsTrackSaved(ctx context.Context, trackID string) (bool, error)
 }
 
 // SearchSource provides search and browse capabilities.

@@ -34,6 +34,9 @@ type StubSource struct {
 	AddToQueueFn         func(context.Context, string) error
 	GetArtistFn          func(context.Context, string) (*source.ArtistPage, error)
 	GetAlbumFn           func(context.Context, string) (*source.AlbumPage, error)
+	SaveTrackFn          func(context.Context, string) error
+	RemoveTrackFn        func(context.Context, string) error
+	IsTrackSavedFn       func(context.Context, string) (bool, error)
 }
 
 func (s *StubSource) CurrentPlayback(ctx context.Context) (*source.PlaybackState, error) {
@@ -195,6 +198,27 @@ func (s *StubSource) GetAlbum(ctx context.Context, albumID string) (*source.Albu
 		return s.GetAlbumFn(ctx, albumID)
 	}
 	return nil, nil
+}
+
+func (s *StubSource) SaveTrack(ctx context.Context, trackID string) error {
+	if s.SaveTrackFn != nil {
+		return s.SaveTrackFn(ctx, trackID)
+	}
+	return nil
+}
+
+func (s *StubSource) RemoveTrack(ctx context.Context, trackID string) error {
+	if s.RemoveTrackFn != nil {
+		return s.RemoveTrackFn(ctx, trackID)
+	}
+	return nil
+}
+
+func (s *StubSource) IsTrackSaved(ctx context.Context, trackID string) (bool, error) {
+	if s.IsTrackSavedFn != nil {
+		return s.IsTrackSavedFn(ctx, trackID)
+	}
+	return false, nil
 }
 
 // Compile-time check that StubSource satisfies RichSource.
