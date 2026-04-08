@@ -851,7 +851,7 @@ func TestDominantColorSolidColor(t *testing.T) {
 
 func TestRenderNowPlayingNilTrack(t *testing.T) {
 	// Should not panic and should contain "No track playing".
-	got := RenderNowPlaying(nil, "", nil, false, 0, 80, 40)
+	got := RenderNowPlaying(nil, "", nil, false, 0, false, 80, 40)
 	if got == "" {
 		t.Fatal("RenderNowPlaying with nil track should return non-empty")
 	}
@@ -868,7 +868,7 @@ func TestRenderNowPlayingValidTrack(t *testing.T) {
 		Duration: 3 * time.Minute,
 		Position: 1 * time.Minute,
 	}
-	got := RenderNowPlaying(track, "", nil, false, 0, 80, 40)
+	got := RenderNowPlaying(track, "", nil, false, 0, false, 80, 40)
 	if got == "" {
 		t.Fatal("RenderNowPlaying with valid track should return non-empty")
 	}
@@ -876,7 +876,7 @@ func TestRenderNowPlayingValidTrack(t *testing.T) {
 
 func TestRenderNowPlayingZeroSize(t *testing.T) {
 	// Zero terminal size should return empty.
-	got := RenderNowPlaying(nil, "", nil, false, 0, 0, 0)
+	got := RenderNowPlaying(nil, "", nil, false, 0, false, 0, 0)
 	if got != "" {
 		t.Errorf("RenderNowPlaying with zero size = %q, want empty", got)
 	}

@@ -17,7 +17,7 @@ const (
 
 // RenderNowPlaying renders the full-screen now playing overlay with
 // a blurred, darkened album art background.
-func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image, vinylMode bool, vinylAngle float64, width, height int) string {
+func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image, vinylMode bool, vinylAngle float64, liked bool, width, height int) string {
 	if width == 0 || height == 0 {
 		return ""
 	}
@@ -69,7 +69,11 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 	sections = append(sections, "")
 
 	if track != nil {
-		sections = append(sections, titleStyle.Render(track.Name))
+		heart := ""
+		if liked {
+			heart = " ♥"
+		}
+		sections = append(sections, titleStyle.Render(track.Name+heart))
 		sections = append(sections, subtitleStyle.Render(track.Artist+" — "+track.Album))
 	} else {
 		sections = append(sections, dimStyle.Render("No track playing"))
