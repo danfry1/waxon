@@ -544,6 +544,10 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.track != nil {
 			return m, m.seekRelative(-5 * time.Second)
 		}
+	case key.Matches(msg, m.keys.Like):
+		if m.track != nil {
+			return m, m.toggleLike(m.track.ID, m.liked)
+		}
 	}
 	return m, nil
 }
@@ -839,6 +843,23 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.AddQueue):
 		return m.handleAddQueue()
+
+	case key.Matches(msg, m.keys.Like):
+		if m.focusPane == PaneTrackList {
+			track := m.tracklist.SelectedTrack()
+			if track == nil || track.IsSeparator || track.IsAlbumRow {
+				m.toast.Show("No track selected", "", ToastError)
+				return m, scheduleAutoDismiss()
+			}
+			liked := m.liked && m.track != nil && m.track.ID == track.ID
+			return m, m.toggleLike(track.ID, liked)
+		}
+		// From sidebar, like the currently playing track
+		if m.track != nil {
+			return m, m.toggleLike(m.track.ID, m.liked)
+		}
+		m.toast.Show("No track playing", "", ToastError)
+		return m, scheduleAutoDismiss()
 
 	case key.Matches(msg, m.keys.Actions):
 		m.gtracker.Reset()
