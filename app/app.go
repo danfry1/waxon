@@ -437,6 +437,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.track != nil && m.track.ID == msg.trackID {
 			m.liked = msg.liked
 		}
+		// Invalidate cached Liked Songs so navigating there shows fresh data
+		delete(m.trackCache, "liked")
 		if msg.liked {
 			m.toast.Show("Saved to Liked Songs", "", ToastSuccess)
 		} else {
