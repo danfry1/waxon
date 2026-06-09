@@ -3,13 +3,16 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/danfry1/waxon/source"
+	"golang.org/x/oauth2"
 )
 
 // ---------------------------------------------------------------------------
@@ -777,7 +780,7 @@ func TestBuildArtistTrackListNoDiscography(t *testing.T) {
 // ===========================================================================
 
 func TestNewTrackActions(t *testing.T) {
-	popup := NewTrackActions("MySong", "MyArtist", "spotify:track:123", "artist1", "album1", false, 80, 40)
+	popup := NewTrackActions("MySong", "MyArtist", "spotify:track:123", "", "artist1", "album1", false, 80, 40)
 	if popup.title != "MySong — MyArtist" {
 		t.Errorf("title = %q, want %q", popup.title, "MySong — MyArtist")
 	}
@@ -799,7 +802,7 @@ func TestNewTrackActions(t *testing.T) {
 }
 
 func TestNewTrackActionsNoArtist(t *testing.T) {
-	popup := NewTrackActions("MySong", "", "uri", "", "", false, 80, 40)
+	popup := NewTrackActions("MySong", "", "uri", "", "", "", false, 80, 40)
 	if popup.title != "MySong" {
 		t.Errorf("title = %q, want %q", popup.title, "MySong")
 	}
@@ -822,7 +825,7 @@ func TestNewPlaylistActions(t *testing.T) {
 }
 
 func TestActionsMoveDownUp(t *testing.T) {
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, 80, 40)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", "", false, 80, 40)
 
 	// MoveDown
 	popup.MoveDown()
@@ -854,7 +857,7 @@ func TestActionsMoveDownUp(t *testing.T) {
 }
 
 func TestActionsSelected(t *testing.T) {
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, 80, 40)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", "", false, 80, 40)
 
 	sel := popup.Selected()
 	if sel.Type != ActionPlay {
@@ -882,7 +885,7 @@ func TestActionsSelected(t *testing.T) {
 }
 
 func TestActionsGetters(t *testing.T) {
-	popup := NewTrackActions("Song", "Artist", "spotify:track:x", "art1", "alb1", false, 80, 40)
+	popup := NewTrackActions("Song", "Artist", "spotify:track:x", "", "art1", "alb1", false, 80, 40)
 	if popup.URI() != "spotify:track:x" {
 		t.Errorf("URI() = %q", popup.URI())
 	}
@@ -1079,7 +1082,7 @@ func TestViewModeSearch(t *testing.T) {
 func TestViewModeActions(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, m.width, m.height)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
@@ -1177,7 +1180,7 @@ func TestHandleKeySearchNilSearch(t *testing.T) {
 func TestHandleKeyActionsNavigation(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, m.width, m.height)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
@@ -1201,7 +1204,7 @@ func TestHandleKeyActionsNavigation(t *testing.T) {
 func TestHandleKeyActionsEscape(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, m.width, m.height)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
@@ -1220,7 +1223,7 @@ func TestHandleKeyActionsEscape(t *testing.T) {
 func TestHandleKeyActionsQuit(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
-	popup := NewTrackActions("Song", "Artist", "uri", "", "", false, m.width, m.height)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
@@ -1855,6 +1858,113 @@ func TestJumpToCurrentTrackNotInView(t *testing.T) {
 	}
 }
 
+func TestJumpToCurrentTrackNavigatesToContext(t *testing.T) {
+	var fetchedID string
+	stub := &StubSource{
+		PlaylistTracksPageFn: func(_ context.Context, id string, _, _ int) ([]source.Track, int, error) {
+			fetchedID = id
+			return []source.Track{
+				{ID: "t1", Name: "Song A"},
+				{ID: "cur", Name: "Current"},
+			}, 2, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur", Name: "Current"}
+	m.playbackContextURI = "spotify:playlist:abc"
+	m.playlists = []source.Playlist{{ID: "abc", URI: "spotify:playlist:abc", Name: "My PL"}}
+	// Current view shows a different playlist that doesn't contain the track.
+	m.tracklist.SetTracks([]source.Track{{ID: "other", Name: "Other"}}, "Other", "spotify:playlist:other")
+
+	result, cmd := m.jumpToCurrentTrack()
+	if cmd == nil {
+		t.Fatal("expected a cmd to load the playback context")
+	}
+	if result.pendingJumpTrackID != "cur" {
+		t.Errorf("pendingJumpTrackID = %q, want %q", result.pendingJumpTrackID, "cur")
+	}
+	if result.focusPane != PaneTrackList {
+		t.Errorf("focusPane = %v, want PaneTrackList", result.focusPane)
+	}
+
+	// Running the command loads the context; feeding it back jumps the cursor.
+	msg := cmd()
+	if fetchedID != "abc" {
+		t.Errorf("fetched playlist ID = %q, want %q", fetchedID, "abc")
+	}
+	tlMsg, ok := msg.(tracksLoadedMsg)
+	if !ok {
+		t.Fatalf("expected tracksLoadedMsg, got %T", msg)
+	}
+	updated, _ := result.Update(tlMsg)
+	model := updated.(Model)
+	if model.pendingJumpTrackID != "" {
+		t.Error("pendingJumpTrackID should be cleared once the context loads")
+	}
+	if got := model.tracklist.SelectedTrack(); got == nil || got.ID != "cur" {
+		t.Errorf("cursor not on current track after navigating to context; got %+v", got)
+	}
+}
+
+func TestExecuteActionLikeUsesSubjectNotCursor(t *testing.T) {
+	var savedID string
+	stub := &StubSource{
+		SaveTrackFn: func(_ context.Context, id string) error { savedID = id; return nil },
+	}
+	m := newTestModel(stub)
+	// Cursor is on a different track than the action's subject.
+	m.tracklist.SetTracks([]source.Track{{ID: "cursorTrack", Name: "Cursor"}}, "T", "uri")
+	m.focusPane = PaneTrackList
+
+	action := ActionItem{Type: ActionLike, Label: "Like"}
+	_, cmd := m.executeAction(action, actionSubject{trackID: "subjectTrack", uri: "spotify:track:subjectTrack"})
+	if cmd == nil {
+		t.Fatal("expected a cmd")
+	}
+	if _, ok := cmd().(trackLikedMsg); !ok {
+		t.Fatal("expected trackLikedMsg")
+	}
+	if savedID != "subjectTrack" {
+		t.Errorf("liked %q, want the subject track, not the cursor track", savedID)
+	}
+}
+
+func TestNowPlayingActionsTargetCurrentTrack(t *testing.T) {
+	stub := &StubSource{}
+	m := newTestModel(stub)
+	m.mode = ModeNowPlaying
+	m.track = &source.Track{ID: "cur", Name: "Current", Artist: "Art", URI: "spotify:track:cur", ArtistID: "a1", AlbumID: "al1"}
+	m.playbackContextURI = "spotify:playlist:abc"
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	model := updated.(Model)
+	if model.mode != ModeActions {
+		t.Fatalf("mode = %v, want ModeActions", model.mode)
+	}
+	if model.actions == nil {
+		t.Fatal("actions popup should be open")
+	}
+	if got := model.actions.TrackID(); got != "cur" {
+		t.Errorf("actions subject trackID = %q, want %q", got, "cur")
+	}
+	if got := model.actions.ContextURI(); got != "spotify:playlist:abc" {
+		t.Errorf("actions contextURI = %q, want %q", got, "spotify:playlist:abc")
+	}
+	if model.actionsReturn != ModeNowPlaying {
+		t.Errorf("actionsReturn = %v, want ModeNowPlaying", model.actionsReturn)
+	}
+
+	// Closing the popup returns to Now Playing, not the normal two-pane view.
+	closed, _ := model.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	cm := closed.(Model)
+	if cm.mode != ModeNowPlaying {
+		t.Errorf("mode after Esc = %v, want ModeNowPlaying", cm.mode)
+	}
+	if cm.actions != nil {
+		t.Error("actions popup should be closed after Esc")
+	}
+}
+
 // ===========================================================================
 // Group 6: Fetch commands
 // ===========================================================================
@@ -2368,7 +2478,7 @@ func TestUpdateWindowSizeMsg(t *testing.T) {
 // ===========================================================================
 
 func TestActionsView(t *testing.T) {
-	popup := NewTrackActions("Song", "Artist", "uri", "art1", "alb1", false, 80, 40)
+	popup := NewTrackActions("Song", "Artist", "uri", "", "art1", "alb1", false, 80, 40)
 	got := popup.View()
 	if got == "" {
 		t.Fatal("ActionsPopup.View() should be non-empty")
@@ -2791,7 +2901,7 @@ func TestHandleKeyActionsEnterPlay(t *testing.T) {
 	m.tracklist.SetTracks(tracks, "Test", "spotify:playlist:abc")
 	m.focusPane = PaneTrackList
 
-	popup := NewTrackActions("Song A", "Artist", "spotify:track:t1", "", "", false, m.width, m.height)
+	popup := NewTrackActions("Song A", "Artist", "spotify:track:t1", "", "", "", false, m.width, m.height)
 	m.actions = &popup
 	m.mode = ModeActions
 
@@ -3177,7 +3287,7 @@ func TestExecuteActionPlay(t *testing.T) {
 	m.focusPane = PaneTrackList
 
 	action := ActionItem{Type: ActionPlay, Label: "Play"}
-	_, cmd := m.executeAction(action, "spotify:track:t1", "", "")
+	_, cmd := m.executeAction(action, actionSubject{trackID: "t1", name: "Song A", uri: "spotify:track:t1", contextURI: "spotify:playlist:abc"})
 	if cmd == nil {
 		t.Fatal("executeAction Play should return a cmd")
 	}
@@ -3206,7 +3316,7 @@ func TestExecuteActionQueue(t *testing.T) {
 	m.focusPane = PaneTrackList
 
 	action := ActionItem{Type: ActionQueue, Label: "Add to Queue"}
-	_, cmd := m.executeAction(action, "spotify:track:t1", "", "")
+	_, cmd := m.executeAction(action, actionSubject{trackID: "t1", name: "Song A", uri: "spotify:track:t1"})
 	if cmd == nil {
 		t.Fatal("executeAction Queue should return a cmd")
 	}
@@ -3232,7 +3342,7 @@ func TestExecuteActionGoArtistValid(t *testing.T) {
 	m.tracklist.SetTracks([]source.Track{{ID: "t1", Name: "Song"}}, "Test", "uri")
 
 	action := ActionItem{Type: ActionGoArtist, Label: "Go to Artist"}
-	result, cmd := m.executeAction(action, "", "artist1", "")
+	result, cmd := m.executeAction(action, actionSubject{artistID: "artist1"})
 	if cmd == nil {
 		t.Fatal("executeAction GoArtist should return a cmd")
 	}
@@ -3251,7 +3361,7 @@ func TestExecuteActionGoArtistEmpty(t *testing.T) {
 	m := newTestModel(stub)
 
 	action := ActionItem{Type: ActionGoArtist, Label: "Go to Artist"}
-	result, _ := m.executeAction(action, "", "", "")
+	result, _ := m.executeAction(action, actionSubject{})
 	if !result.toast.Visible() {
 		t.Error("executeAction GoArtist with empty ID should show toast error")
 	}
@@ -3269,7 +3379,7 @@ func TestExecuteActionGoAlbumValid(t *testing.T) {
 	m.tracklist.SetTracks([]source.Track{{ID: "t1", Name: "Song"}}, "Test", "uri")
 
 	action := ActionItem{Type: ActionGoAlbum, Label: "Go to Album"}
-	_, cmd := m.executeAction(action, "", "", "album1")
+	_, cmd := m.executeAction(action, actionSubject{albumID: "album1"})
 	if cmd == nil {
 		t.Fatal("executeAction GoAlbum should return a cmd")
 	}
@@ -3287,7 +3397,7 @@ func TestExecuteActionGoAlbumEmpty(t *testing.T) {
 	m := newTestModel(stub)
 
 	action := ActionItem{Type: ActionGoAlbum, Label: "Go to Album"}
-	result, _ := m.executeAction(action, "", "", "")
+	result, _ := m.executeAction(action, actionSubject{})
 	if !result.toast.Visible() {
 		t.Error("executeAction GoAlbum with empty ID should show toast error")
 	}
@@ -3308,7 +3418,7 @@ func TestExecuteActionPlayPlaylist(t *testing.T) {
 	})
 
 	action := ActionItem{Type: ActionPlayPlaylist, Label: "Play Playlist"}
-	_, cmd := m.executeAction(action, "spotify:playlist:pl1", "", "")
+	_, cmd := m.executeAction(action, actionSubject{uri: "spotify:playlist:pl1"})
 	if cmd == nil {
 		t.Fatal("executeAction PlayPlaylist should return a cmd")
 	}
@@ -3336,7 +3446,7 @@ func TestExecuteActionLoadTracks(t *testing.T) {
 	})
 
 	action := ActionItem{Type: ActionLoadTracks, Label: "Load Tracks"}
-	_, cmd := m.executeAction(action, "spotify:playlist:pl1", "", "")
+	_, cmd := m.executeAction(action, actionSubject{uri: "spotify:playlist:pl1"})
 	if cmd == nil {
 		t.Fatal("executeAction LoadTracks should return a cmd")
 	}
@@ -4069,6 +4179,31 @@ func TestIsAuthErrorHTTP403(t *testing.T) {
 	}
 }
 
+func TestIsAuthErrorRefreshInvalidGrant(t *testing.T) {
+	// A revoked/expired refresh token surfaces as *oauth2.RetrieveError with
+	// invalid_grant — even when wrapped by the spotify layer.
+	rErr := &oauth2.RetrieveError{
+		Response:  &http.Response{StatusCode: http.StatusBadRequest},
+		ErrorCode: "invalid_grant",
+	}
+	if !isAuthError(rErr) {
+		t.Error("isAuthError should be true for invalid_grant refresh failure")
+	}
+	if !isAuthError(fmt.Errorf("player state: %w", rErr)) {
+		t.Error("isAuthError should unwrap a wrapped RetrieveError")
+	}
+}
+
+func TestIsAuthErrorRefreshTransient(t *testing.T) {
+	// A 5xx from the token endpoint is transient — not a re-auth situation.
+	rErr := &oauth2.RetrieveError{
+		Response: &http.Response{StatusCode: http.StatusInternalServerError},
+	}
+	if isAuthError(rErr) {
+		t.Error("isAuthError should be false for a transient 5xx refresh error")
+	}
+}
+
 // ===========================================================================
 // 13. StatusBar.ViewNowPlayingWithArt nil track
 // ===========================================================================
@@ -4676,5 +4811,35 @@ func TestLikeInNowPlayingMode(t *testing.T) {
 
 	if !saved {
 		t.Error("expected SaveTrack to be called from now playing mode")
+	}
+}
+
+// ===========================================================================
+// Render verification for Now Playing + actions surfaces
+// ===========================================================================
+
+func TestRenderNowPlayingShowsActionHints(t *testing.T) {
+	track := &source.Track{Name: "Let It Happen", Artist: "Tame Impala", Album: "Currents", Duration: 466 * time.Second}
+	// The NP view stacks tall album art above the controls, so it needs a tall
+	// terminal for the bottom hint row to be visible (same as the time row).
+	// lipgloss styles the hint as a single run, so the text stays contiguous.
+	out := RenderNowPlaying(track, "", nil, false, 0, true, 120, 50)
+	for _, want := range []string{"f like", "a queue", "o actions", "N close"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Now Playing hint missing %q", want)
+		}
+	}
+}
+
+func TestRenderActionsForCurrentTrack(t *testing.T) {
+	popup := NewTrackActions("Let It Happen", "Tame Impala", "spotify:track:t56", "spotify:playlist:liked", "artist-ti", "album-currents", true, 120, 40)
+	out := popup.View()
+	for _, want := range []string{"Let It Happen", "Add to Queue", "Go to Artist", "Remove from Liked Songs"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("actions popup missing %q", want)
+		}
+	}
+	if popup.TrackID() != "t56" {
+		t.Errorf("TrackID() = %q, want t56", popup.TrackID())
 	}
 }

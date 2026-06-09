@@ -101,6 +101,20 @@ func TestLoadTokenInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestLoadTokenEmptyAccessToken(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token.json")
+
+	// Valid JSON but no access token (e.g. an interrupted/partial write).
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	if _, err := LoadToken(path); err == nil {
+		t.Fatal("expected error for token with empty access token, got nil")
+	}
+}
+
 func TestSaveTokenPermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "token.json")

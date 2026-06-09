@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/danfry1/waxon/source"
 	spotifyapi "github.com/zmb3/spotify/v2"
+	"golang.org/x/oauth2"
 )
 
 const (
@@ -32,6 +33,7 @@ type (
 		volume     int
 		shuffleOn  bool
 		repeatMode source.RepeatMode
+		contextURI string
 	}
 )
 
@@ -117,17 +119,20 @@ type Model struct {
 	cmdInput        string
 	filterInput     string
 
-	track      *source.Track
-	playlists  []source.Playlist
-	volume     int
-	shuffleOn  bool
-	repeatMode source.RepeatMode
-	liked      bool // whether the currently playing track is liked
-	deviceName string
-	toast      Toast
-	navStack   []NavState                // browser-like back navigation history
-	trackCache map[string]cachedPlaylist // playlist ID → cached tracks
-	pagination *paginationState          // non-nil while a playlist is being lazily loaded
+	track              *source.Track
+	playbackContextURI string // URI of the playlist/album the current track plays from
+	pendingJumpTrackID string // track to jump to once its context finishes loading
+	playlists          []source.Playlist
+	volume             int
+	shuffleOn          bool
+	repeatMode         source.RepeatMode
+	liked              bool // whether the currently playing track is liked
+	deviceName         string
+	toast              Toast
+	actionsReturn      Mode                      // mode to return to when the actions popup closes
+	navStack           []NavState                // browser-like back navigation history
+	trackCache         map[string]cachedPlaylist // playlist ID → cached tracks
+	pagination         *paginationState          // non-nil while a playlist is being lazily loaded
 
 	npArt       string      // large rendered art for now playing view
 	npArtURL    string      // URL of the art currently rendered for NP
@@ -157,7 +162,7 @@ func NewModel(src source.RichSource) Model {
 	if provider, ok := src.(ArtworkProvider); ok {
 		ap = provider
 	}
-	return Model{
+	m := Model{
 		ctx:             ctx,
 		cancel:          cancel,
 		source:          src,
@@ -170,6 +175,15 @@ func NewModel(src source.RichSource) Model {
 		repeatMode:      source.RepeatOff,
 		trackCache:      make(map[string]cachedPlaylist),
 	}
+	// Pre-create the panes at a default size so data arriving before the first
+	// WindowSizeMsg (instant demo data, or a fast initial load) has a valid
+	// layout to render into — otherwise the tracklist table has no columns and
+	// panics on render. width/height stay 0 so View defers painting until the
+	// real terminal size is known; the first WindowSizeMsg then resizes in place.
+	m.width, m.height = 80, 24
+	m.layoutResize()
+	m.width, m.height = 0, 0
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -208,6 +222,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prevTrackID = m.track.ID
 		}
 		m.track = msg.track
+		m.playbackContextURI = msg.contextURI
 		m.volume = msg.volume
 		m.shuffleOn = msg.shuffleOn
 		m.repeatMode = msg.repeatMode
@@ -297,6 +312,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.track != nil {
 			m.tracklist.SetNowPlaying(m.track.ID)
 		}
+		m.applyPendingJump()
 		if msg.imageURL != "" {
 			return m, m.fetchPlaylistArt(msg.imageURL)
 		}
@@ -343,6 +359,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.track != nil {
 				m.tracklist.SetNowPlaying(m.track.ID)
 			}
+			m.applyPendingJump()
 			if msg.page.ImageURL != "" {
 				return m, m.fetchPlaylistArt(msg.page.ImageURL)
 			}
@@ -364,6 +381,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.track != nil {
 				m.tracklist.SetNowPlaying(m.track.ID)
 			}
+			m.applyPendingJump()
 			if msg.page.ImageURL != "" {
 				return m, m.fetchPlaylistArt(msg.page.ImageURL)
 			}
@@ -406,6 +424,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.track != nil {
 			m.tracklist.SetNowPlaying(m.track.ID)
 		}
+		m.applyPendingJump()
 		return m, nil
 
 	case devicesLoadedMsg:
@@ -550,6 +569,19 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.track != nil {
 			return m, m.toggleLike(m.track.ID, m.liked)
 		}
+	case key.Matches(msg, m.keys.AddQueue):
+		if m.track != nil {
+			return m, m.queueTrack(m.track.ID, m.track.Name)
+		}
+	case key.Matches(msg, m.keys.Actions):
+		if m.track != nil {
+			popup := NewTrackActions(m.track.Name, m.track.Artist, m.track.URI,
+				m.playbackContextURI, m.track.ArtistID, m.track.AlbumID, m.liked, m.width, m.height)
+			m.actions = &popup
+			m.actionsReturn = ModeNowPlaying
+			m.mode = ModeActions
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -597,16 +629,21 @@ func (m Model) handleKeyActions(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
 		m.actions = nil
-		m.mode = ModeNormal
+		m.mode = m.actionsReturn
 		return m, nil
 	case tea.KeyEnter:
+		subj := actionSubject{
+			trackID:    m.actions.TrackID(),
+			name:       m.actions.Name(),
+			uri:        m.actions.URI(),
+			contextURI: m.actions.ContextURI(),
+			artistID:   m.actions.ArtistID(),
+			albumID:    m.actions.AlbumID(),
+		}
 		action := m.actions.Selected()
-		uri := m.actions.URI()
-		artistID := m.actions.ArtistID()
-		albumID := m.actions.AlbumID()
 		m.actions = nil
 		m.mode = ModeNormal
-		return m.executeAction(action, uri, artistID, albumID)
+		return m.executeAction(action, subj)
 	}
 	switch msg.String() {
 	case "j", "down":
@@ -615,7 +652,7 @@ func (m Model) handleKeyActions(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.actions.MoveUp()
 	case "q":
 		m.actions = nil
-		m.mode = ModeNormal
+		m.mode = m.actionsReturn
 	}
 	return m, nil
 }
@@ -1084,8 +1121,10 @@ type httpStatusError interface {
 	HTTPStatus() int
 }
 
-// isAuthError checks whether an error is an HTTP 401 Unauthorized from the
-// Spotify API, indicating an expired or revoked token.
+// isAuthError reports whether an error indicates the session needs re-auth —
+// either a 401 from the Spotify API (token revoked server-side) or a failed
+// token refresh (refresh token expired/revoked), so the UI can prompt the user
+// to run 'waxon auth' instead of showing a cryptic error.
 func isAuthError(err error) bool {
 	var sErr spotifyapi.Error
 	if errors.As(err, &sErr) {
@@ -1095,6 +1134,20 @@ func isAuthError(err error) bool {
 	var hse httpStatusError
 	if errors.As(err, &hse) {
 		return hse.HTTPStatus() == http.StatusUnauthorized
+	}
+	// A failed token refresh surfaces as *oauth2.RetrieveError. Spotify returns
+	// 400 invalid_grant when the refresh token is no longer valid; treat that
+	// (and a 401) as needing re-auth. 5xx responses are transient and left to
+	// normal error backoff.
+	var rErr *oauth2.RetrieveError
+	if errors.As(err, &rErr) {
+		if rErr.ErrorCode == "invalid_grant" {
+			return true
+		}
+		if rErr.Response != nil {
+			return rErr.Response.StatusCode == http.StatusBadRequest ||
+				rErr.Response.StatusCode == http.StatusUnauthorized
+		}
 	}
 	return false
 }

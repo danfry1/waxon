@@ -55,6 +55,18 @@ func (m *Model) pushNav() {
 	}
 }
 
+// applyPendingJump moves the cursor to a track that was requested before its
+// view finished loading (see jumpToCurrentTrack). No-op when nothing is pending.
+func (m *Model) applyPendingJump() {
+	if m.pendingJumpTrackID == "" {
+		return
+	}
+	id := m.pendingJumpTrackID
+	m.pendingJumpTrackID = ""
+	m.focusPane = PaneTrackList
+	m.tracklist.JumpToTrack(id)
+}
+
 // popNav restores the previous tracklist state from the navigation stack.
 func (m *Model) popNav() bool {
 	if len(m.navStack) == 0 {

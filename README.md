@@ -111,7 +111,7 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 |-------|-----------------------------|
 | `gl`  | Go to library               |
 | `gq`  | Go to queue                 |
-| `gc`  | Jump to currently playing track |
+| `gc`  | Jump to currently playing track (loads its playlist/album if you've navigated away) |
 | `gr`  | Recently played             |
 
 ### Playback
@@ -139,6 +139,7 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | Key              | Action              |
 |------------------|---------------------|
 | `N`              | Now Playing view    |
+| `f` / `a` / `o`  | Like / queue / actions for the **playing** track (in Now Playing) |
 | `V`              | Toggle vinyl mode (in Now Playing) |
 | `Backspace` / `b` | Go back           |
 | `?`              | Toggle help overlay |

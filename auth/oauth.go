@@ -143,7 +143,10 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	server := &http.Server{Handler: callbackHandler(path, state, codeCh, errCh)}
+	server := &http.Server{
+		Handler:           callbackHandler(path, state, codeCh, errCh),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	go func() { _ = server.Serve(listener) }()
 
 	var code string
@@ -159,7 +162,11 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 
 	_ = server.Shutdown(context.Background())
 
-	token, err := cfg.Exchange(context.Background(), code,
+	// Bound the token exchange so a stalled token endpoint can't hang the
+	// auth command indefinitely.
+	exchangeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	token, err := cfg.Exchange(exchangeCtx, code,
 		oauth2.SetAuthURLParam("code_verifier", verifier),
 	)
 	if err != nil {

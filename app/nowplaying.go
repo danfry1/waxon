@@ -89,6 +89,8 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 		sections = append(sections, renderNPProgressBarBg(track, barW, textAccent, textBg))
 		timeStr := fmt.Sprintf("%s / %s", fmtDur(track.Position), fmtDur(track.Duration))
 		sections = append(sections, dimStyle.Render(timeStr))
+		sections = append(sections, "")
+		sections = append(sections, dimStyle.Render("space play · n/p skip · f like · a queue · o actions · N close"))
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Center, sections...)

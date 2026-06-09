@@ -36,7 +36,7 @@ func helpColumns() ([]helpCategory, []helpCategory) {
 			Bindings: []helpBinding{
 				{"gl", "library"},
 				{"gq", "queue"},
-				{"gc", "current track"},
+				{"gc", "jump to playing"},
 				{"gr", "recently played"},
 			},
 		},

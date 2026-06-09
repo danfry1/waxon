@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,6 +42,12 @@ func LoadToken(path string) (*oauth2.Token, error) {
 	if err := json.Unmarshal(data, &token); err != nil {
 		return nil, fmt.Errorf("unmarshal token: %w", err)
 	}
+	// An empty access token means the file is incomplete or corrupted — treat
+	// it as unusable so the caller prompts for re-auth rather than launching
+	// into a session that will only ever return 401s.
+	if token.AccessToken == "" {
+		return nil, errors.New("token file has no access token (incomplete or corrupted)")
+	}
 	return &token, nil
 }
 
@@ -54,12 +61,17 @@ type PersistingTokenSource struct {
 }
 
 // NewPersistingTokenSource wraps base so that any refreshed token is
-// automatically written to path.
+// automatically written to path. current may be nil (treated as no prior
+// access token, so the first token produced is persisted).
 func NewPersistingTokenSource(base oauth2.TokenSource, path string, current *oauth2.Token) *PersistingTokenSource {
+	lastSaved := ""
+	if current != nil {
+		lastSaved = current.AccessToken
+	}
 	return &PersistingTokenSource{
 		base:      base,
 		path:      path,
-		lastSaved: current.AccessToken,
+		lastSaved: lastSaved,
 	}
 }
 
