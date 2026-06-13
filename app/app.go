@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"log/slog"
 	"math"
 	"net/http"
 	"strings"
@@ -457,6 +458,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lyricsLoading = false
 			m.lyrics = nil
 			m.lyricsErr = msg.err
+			// Clear the attempted-track marker so the failure is retryable:
+			// toggling the lyrics view (or the next track change) refetches.
+			// A transient lrclib error shouldn't pin "Couldn't load lyrics"
+			// for the life of the track. (A successful "no lyrics found"
+			// result keeps its marker and stays cached — only errors retry.)
+			m.lyricsTrackID = ""
+			slog.Warn("lyrics fetch failed", "track", msg.trackID, "error", msg.err)
 		}
 		return m, nil
 

@@ -85,24 +85,27 @@ func (c *Client) Get(ctx context.Context, track source.Track) (*source.Lyrics, e
 	c.inflight[key] = cl
 	c.mu.Unlock()
 
-	lyr, err := c.fetch(ctx, track)
-
-	c.mu.Lock()
-	delete(c.inflight, key)
-	if err == nil {
-		c.cache[key] = lyr
-		c.order = append(c.order, key)
-		for len(c.order) > maxCacheSize {
-			oldest := c.order[0]
-			c.order = c.order[1:]
-			delete(c.cache, oldest)
+	// Release waiters and clear the inflight entry even if fetch panics, so a
+	// panic fails loudly (it still propagates) instead of wedging every caller
+	// for this key on wg.Wait() forever. Only successful results are cached.
+	defer func() {
+		c.mu.Lock()
+		delete(c.inflight, key)
+		if cl.err == nil {
+			c.cache[key] = cl.val
+			c.order = append(c.order, key)
+			for len(c.order) > maxCacheSize {
+				oldest := c.order[0]
+				c.order = c.order[1:]
+				delete(c.cache, oldest)
+			}
 		}
-	}
-	c.mu.Unlock()
+		c.mu.Unlock()
+		cl.wg.Done()
+	}()
 
-	cl.val, cl.err = lyr, err
-	cl.wg.Done()
-	return lyr, err
+	cl.val, cl.err = c.fetch(ctx, track)
+	return cl.val, cl.err
 }
 
 func (c *Client) fetch(ctx context.Context, track source.Track) (*source.Lyrics, error) {

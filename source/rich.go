@@ -134,7 +134,12 @@ type LyricLine struct {
 
 // Lyrics holds the lyrics for a track. Synced reports whether Lines carry real
 // timestamps (enabling auto-scroll/highlight); when false, Lines are plain text
-// with zero timestamps. Plain always holds the unsynced text for copy/fallback.
+// with zero timestamps. Plain holds the unsynced text for copy/fallback when
+// available (empty for instrumentals). Lines is always the field to render;
+// Synced only selects the highlight behavior.
+//
+// Invariant: Lyrics is constructed solely by the lyrics package (fromResponse),
+// which keeps Synced consistent with Lines — callers should not build it ad hoc.
 type Lyrics struct {
 	Synced bool
 	Lines  []LyricLine

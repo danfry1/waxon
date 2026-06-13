@@ -5247,6 +5247,75 @@ func TestEnsureLyricsNoRefetchSameTrack(t *testing.T) {
 	}
 }
 
+func TestLyricsErrorIsRetryable(t *testing.T) {
+	calls := 0
+	stub := &StubSource{
+		LyricsFn: func(_ context.Context, _ source.Track) (*source.Lyrics, error) {
+			calls++
+			if calls == 1 {
+				return nil, errors.New("lrclib timeout")
+			}
+			return &source.Lyrics{Lines: []source.LyricLine{{Text: "ok"}}}, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur", Name: "Song", Artist: "Band"}
+
+	// First attempt fails.
+	cmd := m.ensureLyrics()
+	if cmd == nil {
+		t.Fatal("expected first fetch")
+	}
+	errMsg := cmd().(lyricsErrorMsg)
+	updated, _ := m.Update(errMsg)
+	model := updated.(Model)
+	if model.lyricsErr == nil {
+		t.Error("expected lyricsErr to be set after failure")
+	}
+	if model.lyricsTrackID != "" {
+		t.Errorf("lyricsTrackID should be cleared after error to allow retry, got %q", model.lyricsTrackID)
+	}
+
+	// A retry (e.g. user re-toggles) must actually refetch, not short-circuit.
+	retry := model.ensureLyrics()
+	if retry == nil {
+		t.Fatal("error should be retryable: ensureLyrics must refetch after a failure")
+	}
+	loaded := retry().(lyricsLoadedMsg)
+	final, _ := model.Update(loaded)
+	if final.(Model).lyrics == nil {
+		t.Error("retry should load lyrics")
+	}
+	if calls != 2 {
+		t.Errorf("expected 2 fetch attempts (fail then retry), got %d", calls)
+	}
+}
+
+func TestLyricsNotFoundStaysCached(t *testing.T) {
+	calls := 0
+	stub := &StubSource{
+		LyricsFn: func(_ context.Context, _ source.Track) (*source.Lyrics, error) {
+			calls++
+			return nil, nil // no lyrics found (not an error)
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur", Name: "Song", Artist: "Band"}
+
+	cmd := m.ensureLyrics()
+	loaded := cmd().(lyricsLoadedMsg)
+	updated, _ := m.Update(loaded)
+	model := updated.(Model)
+
+	// A successful "not found" must NOT refetch — it's negatively cached.
+	if c := model.ensureLyrics(); c != nil {
+		t.Error("a not-found result should stay cached, not refetch")
+	}
+	if calls != 1 {
+		t.Errorf("expected 1 fetch for a cached not-found, got %d", calls)
+	}
+}
+
 func TestLyricsViewRendersLine(t *testing.T) {
 	track := &source.Track{ID: "cur", Name: "Song", Artist: "Band", Duration: time.Minute}
 	lyr := npLyrics{
