@@ -24,8 +24,13 @@
 **Homebrew:**
 
 ```
+brew trust danfry1/tap        # one-time: trust the third-party tap
 brew install danfry1/tap/waxon
 ```
+
+> Recent Homebrew versions refuse to load formulae from third-party taps until
+> they're trusted. If you see `Error: Refusing to load formula ... from
+> untrusted tap`, run the `brew trust danfry1/tap` line above (once) and retry.
 
 **Go:**
 
