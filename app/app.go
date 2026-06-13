@@ -22,6 +22,17 @@ const (
 	progressTickInterval = 500 * time.Millisecond
 )
 
+// playbackRefreshDelays are the delays after a control action (play/next/prev/
+// seek) at which we re-poll playback, so the UI — and the lyrics view — pick up
+// the change without waiting for the next regular poll tick. Spotify's API can
+// lag a skip by several hundred ms, so a few staggered polls reliably catch the
+// new track quickly across that variability.
+var playbackRefreshDelays = []time.Duration{
+	250 * time.Millisecond,
+	700 * time.Millisecond,
+	1400 * time.Millisecond,
+}
+
 // Messages — all tea.Msg types used by the Update loop are defined here.
 type (
 	pollTickMsg     time.Time
@@ -38,12 +49,21 @@ type (
 )
 
 type (
-	trackErrorMsg       struct{ err error }
+	trackErrorMsg struct{ err error }
+	// pollErrorMsg is a failure of the background playback poll, which retries
+	// automatically with backoff. Kept separate from trackErrorMsg so transient
+	// blips (timeouts, brief Spotify hiccups around track changes) don't pop a
+	// toast on every tick — only auth failures and persistent outages surface.
+	pollErrorMsg        struct{ err error }
 	moreTracksLoadedMsg struct {
 		tracks     []source.Track
 		playlistID string
 	}
 )
+
+// pollErrorToastThreshold is the number of consecutive poll failures before we
+// surface a connection-issue toast, so a real outage still informs the user.
+const pollErrorToastThreshold = 3
 
 type (
 	playlistsLoadedMsg struct{ playlists []source.Playlist }
@@ -61,10 +81,11 @@ type recentTracksLoadedMsg struct {
 	tracks []source.Track
 }
 type (
-	queueLoadedMsg   struct{ tracks []source.Track }
-	devicesLoadedMsg struct{ devices []source.Device }
-	controlDoneMsg   struct{}
-	artworkLoadedMsg struct {
+	queueLoadedMsg     struct{ tracks []source.Track }
+	devicesLoadedMsg   struct{ devices []source.Device }
+	controlDoneMsg     struct{}
+	playbackRefreshMsg struct{} // fired shortly after a control action to re-poll
+	artworkLoadedMsg   struct {
 		url string
 		img image.Image
 	}
@@ -481,7 +502,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case controlDoneMsg:
-		return m, nil
+		// A successful control action proves connectivity, so drop any error
+		// backoff and re-poll (a few staggered times) so the UI and lyrics
+		// reflect the change quickly instead of waiting for the next regular
+		// poll — and so a skip is caught even when Spotify's API lags it.
+		m.consecutiveErrors = 0
+		cmds := make([]tea.Cmd, len(playbackRefreshDelays))
+		for i, d := range playbackRefreshDelays {
+			cmds[i] = tea.Tick(d, func(time.Time) tea.Msg { return playbackRefreshMsg{} })
+		}
+		return m, tea.Batch(cmds...)
+
+	case playbackRefreshMsg:
+		return m, m.fetchCurrentTrack()
 
 	case queueDoneMsg:
 		m.toast.Show("Added to queue", msg.trackName, ToastSuccess)
@@ -533,6 +566,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast.Show(msg.err.Error(), "", ToastError)
 		}
 		return m, scheduleAutoDismiss()
+
+	case pollErrorMsg:
+		m.consecutiveErrors++
+		// A dead/expired token is worth surfacing immediately.
+		if isAuthError(msg.err) {
+			m.toast.Show("Session expired", "Run 'waxon auth' to reconnect", ToastError)
+			return m, scheduleAutoDismiss()
+		}
+		// Otherwise the poll self-heals on the next tick (with backoff); only
+		// flag it once failures persist, and only once, to avoid nagging.
+		if m.consecutiveErrors == pollErrorToastThreshold {
+			m.toast.Show("Spotify connection issue", "Retrying…", ToastInfo)
+			return m, scheduleAutoDismiss()
+		}
+		return m, nil
 
 	case clearToastMsg:
 		m.toast.Hide()

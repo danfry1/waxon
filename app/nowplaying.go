@@ -232,9 +232,11 @@ func activeLyricLine(lines []source.LyricLine, pos time.Duration) int {
 }
 
 // renderLyricsBlock renders the lyrics into a w×h region for the Now Playing
-// overlay: a vertically-centered window around the focus line, with the active
-// line highlighted in the accent color when lyrics are synced. Loading, error,
-// and not-found states render as a single centered message.
+// overlay: a vertically-centered window around the focus line. For synced
+// lyrics the active line is spotlit in the accent color and surrounding lines
+// fade toward the background with distance (an Apple/Spotify-style focus
+// effect); plain lyrics render evenly. Loading, error, and not-found states
+// render as a single centered message.
 func renderLyricsBlock(lyr npLyrics, w, h int, accent lipgloss.Color, dim lipgloss.Style, bg lipgloss.Color) string {
 	switch {
 	case lyr.loading:
@@ -248,7 +250,7 @@ func renderLyricsBlock(lyr npLyrics, w, h int, accent lipgloss.Color, dim lipglo
 	lines := lyr.lyrics.Lines
 	focus := clampInt(lyr.line, 0, len(lines)-1)
 	start := focus - h/2 // center the focus line vertically
-	activeStyle := lipgloss.NewStyle().Foreground(accent).Bold(true).Background(bg)
+	baseText := lipgloss.Color("#FFFFFF")
 
 	rows := make([]string, h)
 	for row := range h {
@@ -257,13 +259,47 @@ func renderLyricsBlock(lyr npLyrics, w, h int, accent lipgloss.Color, dim lipglo
 			continue // leave blank; the composer pads with background
 		}
 		text := truncate(lines[idx].Text, w)
-		if lyr.lyrics.Synced && idx == focus {
-			rows[row] = activeStyle.Render(text)
-		} else {
-			rows[row] = dim.Render(text)
+		if text == "" {
+			continue // preserve verse gaps as blank rows
 		}
+		var style lipgloss.Style
+		switch {
+		case lyr.lyrics.Synced && idx == focus:
+			style = lipgloss.NewStyle().Foreground(accent).Bold(true).Background(bg)
+		case lyr.lyrics.Synced:
+			// Fade non-active lines toward the background with distance so the
+			// current line stands out.
+			d := idx - focus
+			if d < 0 {
+				d = -d
+			}
+			t := math.Min(0.82, 0.22*float64(d))
+			style = lipgloss.NewStyle().Foreground(blendColor(baseText, bg, t)).Background(bg)
+		default:
+			// Plain lyrics have no active line; render evenly and readable.
+			style = lipgloss.NewStyle().Foreground(blendColor(baseText, bg, 0.30)).Background(bg)
+		}
+		rows[row] = style.Render(text)
 	}
 	return strings.Join(rows, "\n")
+}
+
+// blendColor linearly interpolates from→to by t in [0,1] (t=0 returns from,
+// t=1 returns to). Non-hex inputs return from unchanged.
+func blendColor(from, to lipgloss.Color, t float64) lipgloss.Color {
+	fr, fg, fb, ok1 := parseHexColor(from)
+	tr, tg, tb, ok2 := parseHexColor(to)
+	if !ok1 || !ok2 {
+		return from
+	}
+	t = math.Max(0, math.Min(1, t))
+	lerp := func(a, b uint8) uint8 { return uint8(float64(a) + (float64(b)-float64(a))*t) }
+	return lipgloss.Color(rgbHex(lerp(fr, tr), lerp(fg, tg), lerp(fb, tb)))
+}
+
+func parseHexColor(c lipgloss.Color) (r, g, b uint8, ok bool) {
+	n, _ := fmt.Sscanf(string(c), "#%02x%02x%02x", &r, &g, &b)
+	return r, g, b, n == 3
 }
 
 // centeredMessageBlock renders msg on the middle row of an otherwise-blank

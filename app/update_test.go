@@ -105,6 +105,77 @@ func TestUpdateTrackError(t *testing.T) {
 	}
 }
 
+func TestControlDoneResetsBackoffAndRefreshes(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.consecutiveErrors = 5 // simulate backed-off polling
+
+	updated, cmd := m.Update(controlDoneMsg{})
+	model := updated.(Model)
+	if model.consecutiveErrors != 0 {
+		t.Errorf("consecutiveErrors = %d, want 0 after a successful control action", model.consecutiveErrors)
+	}
+	if cmd == nil {
+		t.Fatal("controlDoneMsg should schedule a playback refresh")
+	}
+}
+
+func TestPlaybackRefreshFetchesPlayback(t *testing.T) {
+	fetched := false
+	stub := &StubSource{
+		CurrentPlaybackFn: func(_ context.Context) (*source.PlaybackState, error) {
+			fetched = true
+			return &source.PlaybackState{Track: &source.Track{ID: "cur"}}, nil
+		},
+	}
+	m := newTestModel(stub)
+	_, cmd := m.Update(playbackRefreshMsg{})
+	if cmd == nil {
+		t.Fatal("playbackRefreshMsg should trigger a fetch")
+	}
+	if _, ok := cmd().(trackUpdateMsg); !ok {
+		t.Errorf("expected trackUpdateMsg from refresh, got %T", cmd())
+	}
+	if !fetched {
+		t.Error("refresh should call CurrentPlayback")
+	}
+}
+
+func TestPollErrorTransientNoToast(t *testing.T) {
+	m := newTestModel(&StubSource{})
+
+	// A single transient poll failure self-heals and must not pop a toast.
+	updated, _ := m.Update(pollErrorMsg{err: errors.New("network timeout")})
+	model := updated.(Model)
+	if model.consecutiveErrors != 1 {
+		t.Errorf("consecutiveErrors = %d, want 1", model.consecutiveErrors)
+	}
+	if model.toast.Visible() {
+		t.Error("a single transient poll error should not show a toast")
+	}
+}
+
+func TestPollErrorSurfacesWhenPersistent(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	var model Model = m
+	for i := 0; i < pollErrorToastThreshold; i++ {
+		updated, _ := model.Update(pollErrorMsg{err: errors.New("network timeout")})
+		model = updated.(Model)
+	}
+	if !model.toast.Visible() {
+		t.Errorf("a toast should appear once failures reach %d", pollErrorToastThreshold)
+	}
+}
+
+func TestPollErrorAuthShowsSessionExpired(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	authErr := &oauth2.RetrieveError{ErrorCode: "invalid_grant"}
+	updated, _ := m.Update(pollErrorMsg{err: authErr})
+	model := updated.(Model)
+	if !model.toast.Visible() {
+		t.Error("an auth error should surface immediately, even from the poll")
+	}
+}
+
 func TestUpdateTrackErrorResetsPaginationLoading(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
@@ -2248,8 +2319,8 @@ func TestFetchCurrentTrackError(t *testing.T) {
 
 	cmd := m.fetchCurrentTrack()
 	msg := cmd()
-	if _, ok := msg.(trackErrorMsg); !ok {
-		t.Errorf("expected trackErrorMsg, got %T", msg)
+	if _, ok := msg.(pollErrorMsg); !ok {
+		t.Errorf("expected pollErrorMsg, got %T", msg)
 	}
 }
 

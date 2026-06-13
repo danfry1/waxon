@@ -24,7 +24,7 @@ func (m Model) fetchCurrentTrack() tea.Cmd {
 	return func() tea.Msg {
 		ps, err := src.CurrentPlayback(ctx)
 		if err != nil {
-			return trackErrorMsg{err}
+			return pollErrorMsg{err}
 		}
 		if ps == nil {
 			return trackUpdateMsg{}
