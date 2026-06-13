@@ -105,6 +105,77 @@ func TestUpdateTrackError(t *testing.T) {
 	}
 }
 
+func TestControlDoneResetsBackoffAndRefreshes(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.consecutiveErrors = 5 // simulate backed-off polling
+
+	updated, cmd := m.Update(controlDoneMsg{})
+	model := updated.(Model)
+	if model.consecutiveErrors != 0 {
+		t.Errorf("consecutiveErrors = %d, want 0 after a successful control action", model.consecutiveErrors)
+	}
+	if cmd == nil {
+		t.Fatal("controlDoneMsg should schedule a playback refresh")
+	}
+}
+
+func TestPlaybackRefreshFetchesPlayback(t *testing.T) {
+	fetched := false
+	stub := &StubSource{
+		CurrentPlaybackFn: func(_ context.Context) (*source.PlaybackState, error) {
+			fetched = true
+			return &source.PlaybackState{Track: &source.Track{ID: "cur"}}, nil
+		},
+	}
+	m := newTestModel(stub)
+	_, cmd := m.Update(playbackRefreshMsg{})
+	if cmd == nil {
+		t.Fatal("playbackRefreshMsg should trigger a fetch")
+	}
+	if _, ok := cmd().(trackUpdateMsg); !ok {
+		t.Errorf("expected trackUpdateMsg from refresh, got %T", cmd())
+	}
+	if !fetched {
+		t.Error("refresh should call CurrentPlayback")
+	}
+}
+
+func TestPollErrorTransientNoToast(t *testing.T) {
+	m := newTestModel(&StubSource{})
+
+	// A single transient poll failure self-heals and must not pop a toast.
+	updated, _ := m.Update(pollErrorMsg{err: errors.New("network timeout")})
+	model := updated.(Model)
+	if model.consecutiveErrors != 1 {
+		t.Errorf("consecutiveErrors = %d, want 1", model.consecutiveErrors)
+	}
+	if model.toast.Visible() {
+		t.Error("a single transient poll error should not show a toast")
+	}
+}
+
+func TestPollErrorSurfacesWhenPersistent(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	var model Model = m
+	for i := 0; i < pollErrorToastThreshold; i++ {
+		updated, _ := model.Update(pollErrorMsg{err: errors.New("network timeout")})
+		model = updated.(Model)
+	}
+	if !model.toast.Visible() {
+		t.Errorf("a toast should appear once failures reach %d", pollErrorToastThreshold)
+	}
+}
+
+func TestPollErrorAuthShowsSessionExpired(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	authErr := &oauth2.RetrieveError{ErrorCode: "invalid_grant"}
+	updated, _ := m.Update(pollErrorMsg{err: authErr})
+	model := updated.(Model)
+	if !model.toast.Visible() {
+		t.Error("an auth error should surface immediately, even from the poll")
+	}
+}
+
 func TestUpdateTrackErrorResetsPaginationLoading(t *testing.T) {
 	stub := &StubSource{}
 	m := newTestModel(stub)
@@ -2248,8 +2319,8 @@ func TestFetchCurrentTrackError(t *testing.T) {
 
 	cmd := m.fetchCurrentTrack()
 	msg := cmd()
-	if _, ok := msg.(trackErrorMsg); !ok {
-		t.Errorf("expected trackErrorMsg, got %T", msg)
+	if _, ok := msg.(pollErrorMsg); !ok {
+		t.Errorf("expected pollErrorMsg, got %T", msg)
 	}
 }
 
@@ -5040,7 +5111,7 @@ func TestRenderNowPlayingShowsActionHints(t *testing.T) {
 	// The NP view stacks tall album art above the controls, so it needs a tall
 	// terminal for the bottom hint row to be visible (same as the time row).
 	// lipgloss styles the hint as a single run, so the text stays contiguous.
-	out := RenderNowPlaying(track, "", nil, false, 0, true, 120, 50)
+	out := RenderNowPlaying(track, "", nil, false, 0, true, npLyrics{}, 120, 50)
 	for _, want := range []string{"f like", "a queue", "o actions", "N close"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("Now Playing hint missing %q", want)
@@ -5058,5 +5129,214 @@ func TestRenderActionsForCurrentTrack(t *testing.T) {
 	}
 	if popup.TrackID() != "t56" {
 		t.Errorf("TrackID() = %q, want t56", popup.TrackID())
+	}
+}
+
+// ===========================================================================
+// Group: Lyrics (Now Playing)
+// ===========================================================================
+
+func TestActiveLyricLine(t *testing.T) {
+	lines := []source.LyricLine{
+		{Time: 0, Text: "a"},
+		{Time: 2 * time.Second, Text: "b"},
+		{Time: 5 * time.Second, Text: "c"},
+	}
+	cases := []struct {
+		pos  time.Duration
+		want int
+	}{
+		{0, 0},
+		{1 * time.Second, 0},
+		{2 * time.Second, 1},
+		{4 * time.Second, 1},
+		{5 * time.Second, 2},
+		{60 * time.Second, 2},
+	}
+	for _, c := range cases {
+		if got := activeLyricLine(lines, c.pos); got != c.want {
+			t.Errorf("activeLyricLine(pos=%v) = %d, want %d", c.pos, got, c.want)
+		}
+	}
+}
+
+func TestLyricsToggleFetchesAndStores(t *testing.T) {
+	var asked source.Track
+	stub := &StubSource{
+		LyricsFn: func(_ context.Context, tr source.Track) (*source.Lyrics, error) {
+			asked = tr
+			return &source.Lyrics{Synced: true, Lines: []source.LyricLine{{Text: "la"}}}, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.mode = ModeNowPlaying
+	m.track = &source.Track{ID: "cur", Name: "Song", Artist: "Band"}
+
+	// Press "l" — toggles the lyrics view on and fires a fetch.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	model := updated.(Model)
+	if !model.lyricsView {
+		t.Fatal("pressing l should enable lyricsView")
+	}
+	if !model.lyricsLoading {
+		t.Error("lyricsLoading should be true while the fetch is in flight")
+	}
+	if cmd == nil {
+		t.Fatal("expected a lyrics fetch cmd")
+	}
+
+	// Run the fetch and feed the result back.
+	msg := cmd()
+	if asked.ID != "cur" {
+		t.Errorf("fetched lyrics for %q, want cur", asked.ID)
+	}
+	loaded, ok := msg.(lyricsLoadedMsg)
+	if !ok {
+		t.Fatalf("expected lyricsLoadedMsg, got %T", msg)
+	}
+	final, _ := model.Update(loaded)
+	fm := final.(Model)
+	if fm.lyricsLoading {
+		t.Error("lyricsLoading should clear once lyrics load")
+	}
+	if fm.lyrics == nil || len(fm.lyrics.Lines) != 1 {
+		t.Errorf("lyrics not stored: %+v", fm.lyrics)
+	}
+
+	// Pressing "l" again toggles the view off without refetching.
+	off, _ := fm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	if off.(Model).lyricsView {
+		t.Error("second l press should disable lyricsView")
+	}
+}
+
+func TestLyricsLoadedIgnoredWhenStale(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.track = &source.Track{ID: "current"}
+
+	// A response for a track we've moved on from must be ignored.
+	stale := lyricsLoadedMsg{trackID: "old", lyrics: &source.Lyrics{Lines: []source.LyricLine{{Text: "x"}}}}
+	updated, _ := m.Update(stale)
+	if updated.(Model).lyrics != nil {
+		t.Error("stale lyrics response should be ignored")
+	}
+}
+
+func TestEnsureLyricsNoRefetchSameTrack(t *testing.T) {
+	calls := 0
+	stub := &StubSource{
+		LyricsFn: func(_ context.Context, _ source.Track) (*source.Lyrics, error) {
+			calls++
+			return nil, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur"}
+
+	if cmd := m.ensureLyrics(); cmd != nil {
+		cmd() // first fetch
+	}
+	// Mark the attempt as resolved (no lyrics found) as the Update loop would.
+	m.lyricsLoading = false
+	// A second ensureLyrics for the same track must not fetch again.
+	if cmd := m.ensureLyrics(); cmd != nil {
+		t.Error("ensureLyrics should not refetch for the same track")
+	}
+	if calls != 1 {
+		t.Errorf("Lyrics fetched %d times, want 1", calls)
+	}
+}
+
+func TestLyricsErrorIsRetryable(t *testing.T) {
+	calls := 0
+	stub := &StubSource{
+		LyricsFn: func(_ context.Context, _ source.Track) (*source.Lyrics, error) {
+			calls++
+			if calls == 1 {
+				return nil, errors.New("lrclib timeout")
+			}
+			return &source.Lyrics{Lines: []source.LyricLine{{Text: "ok"}}}, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur", Name: "Song", Artist: "Band"}
+
+	// First attempt fails.
+	cmd := m.ensureLyrics()
+	if cmd == nil {
+		t.Fatal("expected first fetch")
+	}
+	errMsg := cmd().(lyricsErrorMsg)
+	updated, _ := m.Update(errMsg)
+	model := updated.(Model)
+	if model.lyricsErr == nil {
+		t.Error("expected lyricsErr to be set after failure")
+	}
+	if model.lyricsTrackID != "" {
+		t.Errorf("lyricsTrackID should be cleared after error to allow retry, got %q", model.lyricsTrackID)
+	}
+
+	// A retry (e.g. user re-toggles) must actually refetch, not short-circuit.
+	retry := model.ensureLyrics()
+	if retry == nil {
+		t.Fatal("error should be retryable: ensureLyrics must refetch after a failure")
+	}
+	loaded := retry().(lyricsLoadedMsg)
+	final, _ := model.Update(loaded)
+	if final.(Model).lyrics == nil {
+		t.Error("retry should load lyrics")
+	}
+	if calls != 2 {
+		t.Errorf("expected 2 fetch attempts (fail then retry), got %d", calls)
+	}
+}
+
+func TestLyricsNotFoundStaysCached(t *testing.T) {
+	calls := 0
+	stub := &StubSource{
+		LyricsFn: func(_ context.Context, _ source.Track) (*source.Lyrics, error) {
+			calls++
+			return nil, nil // no lyrics found (not an error)
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur", Name: "Song", Artist: "Band"}
+
+	cmd := m.ensureLyrics()
+	loaded := cmd().(lyricsLoadedMsg)
+	updated, _ := m.Update(loaded)
+	model := updated.(Model)
+
+	// A successful "not found" must NOT refetch — it's negatively cached.
+	if c := model.ensureLyrics(); c != nil {
+		t.Error("a not-found result should stay cached, not refetch")
+	}
+	if calls != 1 {
+		t.Errorf("expected 1 fetch for a cached not-found, got %d", calls)
+	}
+}
+
+func TestLyricsViewRendersLine(t *testing.T) {
+	track := &source.Track{ID: "cur", Name: "Song", Artist: "Band", Duration: time.Minute}
+	lyr := npLyrics{
+		active: true,
+		lyrics: &source.Lyrics{Synced: true, Lines: []source.LyricLine{
+			{Time: 0, Text: "VISIBLE_LYRIC_LINE"},
+		}},
+	}
+	out := RenderNowPlaying(track, "", nil, false, 0, false, lyr, 120, 50)
+	if !strings.Contains(out, "VISIBLE_LYRIC_LINE") {
+		t.Error("lyrics view should render the lyric text")
+	}
+	if !strings.Contains(out, "lyrics") {
+		t.Error("now playing hints should mention the lyrics toggle")
+	}
+}
+
+func TestLyricsViewEmptyState(t *testing.T) {
+	track := &source.Track{ID: "cur", Name: "Song", Artist: "Band"}
+	out := RenderNowPlaying(track, "", nil, false, 0, false, npLyrics{active: true, lyrics: nil}, 120, 50)
+	if !strings.Contains(out, "No lyrics found") {
+		t.Error("empty lyrics should render a 'No lyrics found' state")
 	}
 }

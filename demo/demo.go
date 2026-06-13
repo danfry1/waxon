@@ -437,6 +437,25 @@ func (d *DemoSource) AudioFeatures(_ context.Context, _ string) (*source.AudioFe
 	}, nil
 }
 
+func (d *DemoSource) Lyrics(_ context.Context, _ source.Track) (*source.Lyrics, error) {
+	return &source.Lyrics{
+		Synced: true,
+		Lines: []source.LyricLine{
+			{Time: 0, Text: "♪"},
+			{Time: 2 * time.Second, Text: "Lyrics, right here in your terminal"},
+			{Time: 4 * time.Second, Text: "synced line by line to the beat"},
+			{Time: 6 * time.Second, Text: "The line you're on lights up"},
+			{Time: 8 * time.Second, Text: "while the rest gently fade away"},
+			{Time: 10 * time.Second, Text: "Powered by lrclib — no account,"},
+			{Time: 12 * time.Second, Text: "no API key, nothing to set up"},
+			{Time: 14 * time.Second, Text: "Press l to flip back to the art"},
+			{Time: 16 * time.Second, Text: "Just press play and sing along"},
+			{Time: 18 * time.Second, Text: "♪"},
+		},
+		Plain: "Lyrics, right here in your terminal\nsynced line by line to the beat",
+	}, nil
+}
+
 func (d *DemoSource) GetArtist(_ context.Context, artistID string) (*source.ArtistPage, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

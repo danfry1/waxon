@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"log/slog"
 	"math"
 	"net/http"
 	"strings"
@@ -22,6 +23,17 @@ const (
 	progressTickInterval = 500 * time.Millisecond
 )
 
+// playbackRefreshDelays are the delays after a control action (play/next/prev/
+// seek) at which we re-poll playback, so the UI — and the lyrics view — pick up
+// the change without waiting for the next regular poll tick. Spotify's API can
+// lag a skip by several hundred ms, so a few staggered polls reliably catch the
+// new track quickly across that variability.
+var playbackRefreshDelays = []time.Duration{
+	250 * time.Millisecond,
+	700 * time.Millisecond,
+	1400 * time.Millisecond,
+}
+
 // Messages — all tea.Msg types used by the Update loop are defined here.
 type (
 	pollTickMsg     time.Time
@@ -38,12 +50,21 @@ type (
 )
 
 type (
-	trackErrorMsg       struct{ err error }
+	trackErrorMsg struct{ err error }
+	// pollErrorMsg is a failure of the background playback poll, which retries
+	// automatically with backoff. Kept separate from trackErrorMsg so transient
+	// blips (timeouts, brief Spotify hiccups around track changes) don't pop a
+	// toast on every tick — only auth failures and persistent outages surface.
+	pollErrorMsg        struct{ err error }
 	moreTracksLoadedMsg struct {
 		tracks     []source.Track
 		playlistID string
 	}
 )
+
+// pollErrorToastThreshold is the number of consecutive poll failures before we
+// surface a connection-issue toast, so a real outage still informs the user.
+const pollErrorToastThreshold = 3
 
 type (
 	playlistsLoadedMsg struct{ playlists []source.Playlist }
@@ -61,10 +82,11 @@ type recentTracksLoadedMsg struct {
 	tracks []source.Track
 }
 type (
-	queueLoadedMsg   struct{ tracks []source.Track }
-	devicesLoadedMsg struct{ devices []source.Device }
-	controlDoneMsg   struct{}
-	artworkLoadedMsg struct {
+	queueLoadedMsg     struct{ tracks []source.Track }
+	devicesLoadedMsg   struct{ devices []source.Device }
+	controlDoneMsg     struct{}
+	playbackRefreshMsg struct{} // fired shortly after a control action to re-poll
+	artworkLoadedMsg   struct {
 		url string
 		img image.Image
 	}
@@ -97,6 +119,16 @@ type albumPageLoadedMsg struct {
 type npArtLoadedMsg struct {
 	url string
 	img image.Image
+}
+
+type lyricsLoadedMsg struct {
+	trackID string
+	lyrics  *source.Lyrics
+}
+
+type lyricsErrorMsg struct {
+	trackID string
+	err     error
 }
 
 // Model is the root Bubbletea model for waxon.
@@ -139,6 +171,14 @@ type Model struct {
 	npSourceImg image.Image // source image for vinyl rendering
 	vinylAngle  float64     // current rotation angle in radians
 	vinylMode   bool        // easter egg: vinyl spinning mode
+
+	// Lyrics (Now Playing overlay, toggled with "l")
+	lyricsView    bool           // true when the NP art region shows lyrics
+	lyrics        *source.Lyrics // loaded lyrics for lyricsTrackID (nil = none)
+	lyricsTrackID string         // track the current lyrics state belongs to
+	lyricsLoading bool           // true while a lyrics fetch is in flight
+	lyricsErr     error          // non-nil when the last lyrics fetch failed
+	lyricsLine    int            // active synced-lyric line index
 
 	// Progress interpolation state
 	lastPollTime time.Time     // when we last received a track update
@@ -240,6 +280,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == ModeNowPlaying {
 				if msg.track.ArtworkURL != "" && m.npArtURL != msg.track.ArtworkURL {
 					cmds = append(cmds, m.fetchNPArt(msg.track.ArtworkURL))
+				}
+				// Follow track changes with fresh lyrics while the view is open.
+				if m.lyricsView && msg.track.ID != prevTrackID {
+					if c := m.ensureLyrics(); c != nil {
+						cmds = append(cmds, c)
+					}
 				}
 			}
 			// Refresh queue when track changes (queue shifts forward)
@@ -397,6 +443,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vinylAngle = 0
 		return m, nil
 
+	case lyricsLoadedMsg:
+		// Ignore stale responses for a track we've since moved on from.
+		if m.track != nil && msg.trackID == m.track.ID {
+			m.lyricsLoading = false
+			m.lyrics = msg.lyrics
+			m.lyricsErr = nil
+			m.lyricsLine = 0
+		}
+		return m, nil
+
+	case lyricsErrorMsg:
+		if m.track != nil && msg.trackID == m.track.ID {
+			m.lyricsLoading = false
+			m.lyrics = nil
+			m.lyricsErr = msg.err
+			// Clear the attempted-track marker so the failure is retryable:
+			// toggling the lyrics view (or the next track change) refetches.
+			// A transient lrclib error shouldn't pin "Couldn't load lyrics"
+			// for the life of the track. (A successful "no lyrics found"
+			// result keeps its marker and stays cached — only errors retry.)
+			m.lyricsTrackID = ""
+			slog.Warn("lyrics fetch failed", "track", msg.trackID, "error", msg.err)
+		}
+		return m, nil
+
 	case queueLoadedMsg:
 		// Only update the live list if we're still on the queue section;
 		// otherwise the async response would clobber the library view.
@@ -439,7 +510,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case controlDoneMsg:
-		return m, nil
+		// A successful control action proves connectivity, so drop any error
+		// backoff and re-poll (a few staggered times) so the UI and lyrics
+		// reflect the change quickly instead of waiting for the next regular
+		// poll — and so a skip is caught even when Spotify's API lags it.
+		m.consecutiveErrors = 0
+		cmds := make([]tea.Cmd, len(playbackRefreshDelays))
+		for i, d := range playbackRefreshDelays {
+			cmds[i] = tea.Tick(d, func(time.Time) tea.Msg { return playbackRefreshMsg{} })
+		}
+		return m, tea.Batch(cmds...)
+
+	case playbackRefreshMsg:
+		return m, m.fetchCurrentTrack()
 
 	case queueDoneMsg:
 		m.toast.Show("Added to queue", msg.trackName, ToastSuccess)
@@ -492,6 +575,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, scheduleAutoDismiss()
 
+	case pollErrorMsg:
+		m.consecutiveErrors++
+		// A dead/expired token is worth surfacing immediately.
+		if isAuthError(msg.err) {
+			m.toast.Show("Session expired", "Run 'waxon auth' to reconnect", ToastError)
+			return m, scheduleAutoDismiss()
+		}
+		// Otherwise the poll self-heals on the next tick (with backoff); only
+		// flag it once failures persist, and only once, to avoid nagging.
+		if m.consecutiveErrors == pollErrorToastThreshold {
+			m.toast.Show("Spotify connection issue", "Retrying…", ToastInfo)
+			return m, scheduleAutoDismiss()
+		}
+		return m, nil
+
 	case clearToastMsg:
 		m.toast.Hide()
 		return m, nil
@@ -508,6 +606,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Spin vinyl in now playing mode
 		if m.mode == ModeNowPlaying && m.vinylMode && m.track != nil && m.track.Playing {
 			m.vinylAngle = math.Mod(m.vinylAngle+0.057, 2*math.Pi)
+		}
+		// Track the focus lyric line against the (interpolated) position: by
+		// timestamp for synced lyrics, by progress ratio for plain ones.
+		if m.mode == ModeNowPlaying && m.lyricsView && m.track != nil &&
+			m.lyrics != nil && len(m.lyrics.Lines) > 0 {
+			if m.lyrics.Synced {
+				m.lyricsLine = activeLyricLine(m.lyrics.Lines, m.track.Position)
+			} else if m.track.Duration > 0 {
+				ratio := float64(m.track.Position) / float64(m.track.Duration)
+				m.lyricsLine = clampInt(int(ratio*float64(len(m.lyrics.Lines)-1)), 0, len(m.lyrics.Lines)-1)
+			}
 		}
 		// Animate loading spinner
 		m.tracklist.TickSpinner()
@@ -545,16 +654,42 @@ func (m Model) handleKeyHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// ensureLyrics starts a lyrics fetch for the current track unless one is
+// already loaded, attempted, or in flight for it. Returns nil when nothing to do.
+func (m *Model) ensureLyrics() tea.Cmd {
+	if m.track == nil {
+		return nil
+	}
+	if m.lyricsTrackID == m.track.ID {
+		return nil // already loaded/attempted/in-flight for this track
+	}
+	m.lyricsLoading = true
+	m.lyrics = nil
+	m.lyricsErr = nil
+	m.lyricsLine = 0
+	m.lyricsTrackID = m.track.ID
+	return m.fetchLyrics(*m.track)
+}
+
 func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case msg.String() == "N", msg.Type == tea.KeyEscape, msg.String() == "q":
 		m.mode = ModeNormal
 		m.vinylMode = false
+		m.lyricsView = false
 		return m, nil
 	case msg.String() == "V":
 		m.vinylMode = !m.vinylMode
 		if m.vinylMode {
 			m.vinylAngle = 0
+			m.lyricsView = false // vinyl and lyrics share the art region
+		}
+		return m, nil
+	case msg.String() == "l":
+		m.lyricsView = !m.lyricsView
+		if m.lyricsView {
+			m.vinylMode = false
+			return m, m.ensureLyrics()
 		}
 		return m, nil
 	case key.Matches(msg, m.keys.PlayPause):
@@ -1208,7 +1343,14 @@ func (m Model) View() string {
 		if artBlock == "" {
 			artBlock = m.albumart.View()
 		}
-		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.liked, m.width, m.height)
+		lyr := npLyrics{
+			active:  m.lyricsView,
+			lyrics:  m.lyrics,
+			line:    m.lyricsLine,
+			loading: m.lyricsLoading,
+			err:     m.lyricsErr != nil,
+		}
+		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.liked, lyr, m.width, m.height)
 	}
 
 	// Two-pane layout
