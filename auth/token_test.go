@@ -220,6 +220,38 @@ func TestPersistingTokenSource_RefreshSaves(t *testing.T) {
 	}
 }
 
+func TestPersistingTokenSource_NilCurrent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token.json")
+
+	tok := &oauth2.Token{
+		AccessToken:  "first-token",
+		RefreshToken: "refresh-1",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(time.Hour),
+	}
+
+	// current is nil — must not panic, and the first token must be persisted
+	// since there is no prior access token to compare against.
+	pts := NewPersistingTokenSource(&staticTokenSource{token: tok}, path, nil)
+
+	got, err := pts.Token()
+	if err != nil {
+		t.Fatalf("Token(): %v", err)
+	}
+	if got.AccessToken != "first-token" {
+		t.Errorf("AccessToken = %q, want %q", got.AccessToken, "first-token")
+	}
+
+	loaded, err := LoadToken(path)
+	if err != nil {
+		t.Fatalf("LoadToken: %v", err)
+	}
+	if loaded.AccessToken != "first-token" {
+		t.Errorf("saved AccessToken = %q, want %q", loaded.AccessToken, "first-token")
+	}
+}
+
 func TestPersistingTokenSource_BaseError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "token.json")

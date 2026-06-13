@@ -3,6 +3,8 @@ package app
 import (
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/danfry1/waxon/source"
 )
 
@@ -56,15 +58,36 @@ func (m *Model) pushNav() {
 }
 
 // applyPendingJump moves the cursor to a track that was requested before its
-// view finished loading (see jumpToCurrentTrack). No-op when nothing is pending.
-func (m *Model) applyPendingJump() {
+// view finished loading (see jumpToCurrentTrack). It is a no-op when nothing is
+// pending. When the track isn't on the loaded page yet but more pages are still
+// arriving, it keeps the jump pending and pulls the next page so a later load
+// can complete it. Once the view is fully loaded and the track still isn't
+// present, it clears the pending state and reports that the track is absent.
+func (m *Model) applyPendingJump() tea.Cmd {
 	if m.pendingJumpTrackID == "" {
-		return
+		return nil
 	}
-	id := m.pendingJumpTrackID
-	m.pendingJumpTrackID = ""
 	m.focusPane = PaneTrackList
-	m.tracklist.JumpToTrack(id)
+	if m.tracklist.JumpToTrack(m.pendingJumpTrackID) {
+		m.pendingJumpTrackID = ""
+		return nil
+	}
+	// Not on the loaded page yet — keep waiting while more pages stream in.
+	if m.pagination != nil && m.pagination.loaded < m.pagination.total {
+		if m.pagination.loadingMore {
+			return nil
+		}
+		m.pagination.loadingMore = true
+		return m.fetchMoreTracks()
+	}
+	// Fully loaded and still missing — the track isn't in this context.
+	m.pendingJumpTrackID = ""
+	name := ""
+	if m.track != nil {
+		name = m.track.Name
+	}
+	m.toast.Show("Track not in current view", name, ToastInfo)
+	return scheduleAutoDismiss()
 }
 
 // popNav restores the previous tracklist state from the navigation stack.

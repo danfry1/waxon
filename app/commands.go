@@ -506,10 +506,12 @@ type actionSubject struct {
 }
 
 func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.Cmd) {
+	// m.mode is already set to the popup's return mode by the caller; the
+	// navigation actions below override it with ModeNormal so they land on the
+	// loaded tracklist rather than re-opening the view the popup came from.
 	switch action.Type {
 	case ActionPlay:
 		if subj.uri != "" {
-			m.mode = m.actionsReturn
 			return m, m.playTrack(subj.uri, subj.contextURI)
 		}
 	case ActionQueue:
@@ -517,7 +519,6 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 			m.toast.Show("No track to queue", "", ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		m.mode = m.actionsReturn
 		return m, m.queueTrack(subj.trackID, subj.name)
 	case ActionLike:
 		if subj.trackID == "" {
@@ -525,13 +526,13 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 			return m, scheduleAutoDismiss()
 		}
 		liked := m.liked && m.track != nil && m.track.ID == subj.trackID
-		m.mode = m.actionsReturn
 		return m, m.toggleLike(subj.trackID, liked)
 	case ActionGoArtist:
 		if subj.artistID == "" {
 			m.toast.Show("No artist info available", "", ToastError)
 			return m, scheduleAutoDismiss()
 		}
+		m.mode = ModeNormal
 		m.pushNav()
 		m.tracklist.SetLoading("Loading artist...")
 		return m, m.fetchArtistPage(subj.artistID)
@@ -540,6 +541,7 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 			m.toast.Show("No album info available", "", ToastError)
 			return m, scheduleAutoDismiss()
 		}
+		m.mode = ModeNormal
 		m.pushNav()
 		m.tracklist.SetLoading("Loading album...")
 		return m, m.fetchAlbumPage(subj.albumID)
@@ -552,7 +554,6 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 			m.toast.Show("Failed to open Spotify", err.Error(), ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		m.mode = m.actionsReturn
 		m.toast.Show("Opened in Spotify", "", ToastSuccess)
 		return m, scheduleAutoDismiss()
 	case ActionCopyURI:
@@ -560,7 +561,6 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 			m.toast.Show("Copy failed", err.Error(), ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		m.mode = m.actionsReturn
 		m.toast.Show("Copied to clipboard", subj.uri, ToastSuccess)
 		return m, scheduleAutoDismiss()
 	case ActionPlayPlaylist:
@@ -624,7 +624,13 @@ func (m Model) jumpToCurrentTrack() (Model, tea.Cmd) {
 	// Not in the current view — navigate to the context the track plays from.
 	cmd, ok := m.navigateToPlaybackContext()
 	if !ok {
-		m.toast.Show("Track not in current view", m.track.Name, ToastInfo)
+		// A non-empty context URI we couldn't resolve is an unsupported type
+		// (e.g. a podcast show/episode), not merely an absent track.
+		title := "Track not in current view"
+		if m.playbackContextURI != "" {
+			title = "Can't jump to this context"
+		}
+		m.toast.Show(title, m.track.Name, ToastInfo)
 		return m, scheduleAutoDismiss()
 	}
 	m.pushNav()
@@ -665,12 +671,14 @@ func (m Model) navigateToPlaybackContext() (tea.Cmd, bool) {
 }
 
 // trackIDFromURI extracts the bare ID from a Spotify track URI
-// ("spotify:track:abc" → "abc"). Returns "" when there is no ID segment.
+// ("spotify:track:abc" → "abc"). Returns "" for any non-track or malformed URI
+// so a wrong-type ID can never flow into queue/like calls.
 func trackIDFromURI(uri string) string {
-	if i := strings.LastIndex(uri, ":"); i >= 0 && i < len(uri)-1 {
-		return uri[i+1:]
+	const prefix = "spotify:track:"
+	if !strings.HasPrefix(uri, prefix) {
+		return ""
 	}
-	return ""
+	return uri[len(prefix):]
 }
 
 // openInSpotify opens a Spotify URI in the Spotify desktop app.

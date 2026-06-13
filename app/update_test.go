@@ -1965,6 +1965,223 @@ func TestNowPlayingActionsTargetCurrentTrack(t *testing.T) {
 	}
 }
 
+func TestJumpToCurrentTrackPaginatesUntilFound(t *testing.T) {
+	stub := &StubSource{
+		PlaylistTracksPageFn: func(_ context.Context, _ string, offset, _ int) ([]source.Track, int, error) {
+			if offset == 0 {
+				return []source.Track{{ID: "t1"}, {ID: "t2"}}, 4, nil
+			}
+			return []source.Track{{ID: "t3"}, {ID: "cur", Name: "Current"}}, 4, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur", Name: "Current"}
+	m.playbackContextURI = "spotify:playlist:abc"
+	m.playlists = []source.Playlist{{ID: "abc", URI: "spotify:playlist:abc", Name: "My PL"}}
+	m.tracklist.SetTracks([]source.Track{{ID: "other"}}, "Other", "spotify:playlist:other")
+
+	// Not in current view → load the playback context (page 1).
+	result, cmd := m.jumpToCurrentTrack()
+	if cmd == nil {
+		t.Fatal("expected a cmd to load the playback context")
+	}
+	page1, ok := cmd().(tracksLoadedMsg)
+	if !ok {
+		t.Fatalf("expected tracksLoadedMsg, got %T", cmd())
+	}
+
+	// "cur" is on page 2, so the jump stays pending and a follow-up page fetch
+	// is issued rather than silently failing.
+	updated, cmd2 := result.Update(page1)
+	model := updated.(Model)
+	if model.pendingJumpTrackID != "cur" {
+		t.Fatalf("pendingJumpTrackID = %q, want it to stay pending until page 2 loads", model.pendingJumpTrackID)
+	}
+	if cmd2 == nil {
+		t.Fatal("expected a cmd to fetch the next page")
+	}
+
+	// Page 2 arrives with the track; the jump completes.
+	page2, ok := cmd2().(moreTracksLoadedMsg)
+	if !ok {
+		t.Fatalf("expected moreTracksLoadedMsg, got %T", cmd2())
+	}
+	final, _ := model.Update(page2)
+	fm := final.(Model)
+	if fm.pendingJumpTrackID != "" {
+		t.Errorf("pendingJumpTrackID = %q, want cleared after page 2 loads", fm.pendingJumpTrackID)
+	}
+	if got := fm.tracklist.SelectedTrack(); got == nil || got.ID != "cur" {
+		t.Errorf("cursor not on current track after paginating; got %+v", got)
+	}
+}
+
+func TestJumpToCurrentTrackContextMissingTrackShowsToast(t *testing.T) {
+	stub := &StubSource{
+		PlaylistTracksPageFn: func(_ context.Context, _ string, _, _ int) ([]source.Track, int, error) {
+			return []source.Track{{ID: "t1"}, {ID: "t2"}}, 2, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur", Name: "Current"}
+	m.playbackContextURI = "spotify:playlist:abc"
+	m.playlists = []source.Playlist{{ID: "abc", URI: "spotify:playlist:abc", Name: "My PL"}}
+	m.tracklist.SetTracks([]source.Track{{ID: "other"}}, "Other", "spotify:playlist:other")
+
+	result, cmd := m.jumpToCurrentTrack()
+	msg := cmd().(tracksLoadedMsg)
+	updated, _ := result.Update(msg)
+	model := updated.(Model)
+	if model.pendingJumpTrackID != "" {
+		t.Errorf("pendingJumpTrackID should clear when track absent from fully-loaded context; got %q", model.pendingJumpTrackID)
+	}
+	if !model.toast.Visible() {
+		t.Error("expected a toast when the track isn't in the loaded context")
+	}
+}
+
+func TestTrackErrorClearsPendingJump(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.track = &source.Track{ID: "cur", Name: "Current"}
+	// Simulate an in-flight jump: prior view saved, loading shown, jump armed.
+	m.tracklist.SetTracks([]source.Track{{ID: "prev"}}, "Prev", "spotify:playlist:prev")
+	m.pushNav()
+	m.pendingJumpTrackID = "cur"
+	m.tracklist.SetLoading("Current")
+
+	updated, _ := m.Update(trackErrorMsg{err: errors.New("boom")})
+	model := updated.(Model)
+	if model.pendingJumpTrackID != "" {
+		t.Errorf("pendingJumpTrackID = %q, want cleared after load failure", model.pendingJumpTrackID)
+	}
+	if model.tracklist.loading {
+		t.Error("tracklist should not be stuck loading after a failed jump")
+	}
+	if got := model.tracklist.title; got != "Prev" {
+		t.Errorf("expected prior view restored (title=Prev), got %q", got)
+	}
+}
+
+func TestJumpToCurrentTrackNavigatesToAlbum(t *testing.T) {
+	var gotID string
+	stub := &StubSource{
+		GetAlbumFn: func(_ context.Context, id string) (*source.AlbumPage, error) {
+			gotID = id
+			return &source.AlbumPage{ID: id, Name: "Alb", Tracks: []source.Track{{ID: "t1"}, {ID: "cur", Name: "Current"}}}, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur", Name: "Current"}
+	m.playbackContextURI = "spotify:album:al1"
+	m.tracklist.SetTracks([]source.Track{{ID: "other"}}, "Other", "")
+
+	result, cmd := m.jumpToCurrentTrack()
+	if cmd == nil {
+		t.Fatal("expected a cmd")
+	}
+	msg := cmd()
+	if gotID != "al1" {
+		t.Errorf("fetched album ID = %q, want al1", gotID)
+	}
+	apMsg, ok := msg.(albumPageLoadedMsg)
+	if !ok {
+		t.Fatalf("expected albumPageLoadedMsg, got %T", msg)
+	}
+	updated, _ := result.Update(apMsg)
+	model := updated.(Model)
+	if got := model.tracklist.SelectedTrack(); got == nil || got.ID != "cur" {
+		t.Errorf("cursor not on current track after navigating to album; got %+v", got)
+	}
+}
+
+func TestJumpToCurrentTrackNavigatesToArtist(t *testing.T) {
+	var gotID string
+	stub := &StubSource{
+		GetArtistFn: func(_ context.Context, id string) (*source.ArtistPage, error) {
+			gotID = id
+			return &source.ArtistPage{Name: "Art", Tracks: []source.Track{{ID: "t1"}, {ID: "cur", Name: "Current"}}}, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "cur", Name: "Current"}
+	m.playbackContextURI = "spotify:artist:ar1"
+	m.tracklist.SetTracks([]source.Track{{ID: "other"}}, "Other", "")
+
+	result, cmd := m.jumpToCurrentTrack()
+	if cmd == nil {
+		t.Fatal("expected a cmd")
+	}
+	msg := cmd()
+	if gotID != "ar1" {
+		t.Errorf("fetched artist ID = %q, want ar1", gotID)
+	}
+	apMsg, ok := msg.(artistPageLoadedMsg)
+	if !ok {
+		t.Fatalf("expected artistPageLoadedMsg, got %T", msg)
+	}
+	updated, _ := result.Update(apMsg)
+	model := updated.(Model)
+	if got := model.tracklist.SelectedTrack(); got == nil || got.ID != "cur" {
+		t.Errorf("cursor not on current track after navigating to artist; got %+v", got)
+	}
+}
+
+func TestJumpToUnsupportedContextShowsMessage(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.track = &source.Track{ID: "cur", Name: "Current"}
+	m.playbackContextURI = "spotify:show:podcast1" // not navigable
+	m.tracklist.SetTracks([]source.Track{{ID: "other"}}, "Other", "")
+
+	result, cmd := m.jumpToCurrentTrack()
+	if result.pendingJumpTrackID != "" {
+		t.Errorf("pendingJumpTrackID should be empty for unsupported context; got %q", result.pendingJumpTrackID)
+	}
+	if !result.toast.Visible() {
+		t.Error("expected an informational toast for an unsupported context")
+	}
+	if cmd == nil {
+		t.Error("expected the auto-dismiss cmd")
+	}
+}
+
+func TestNowPlayingQueueCurrentTrack(t *testing.T) {
+	var queuedID string
+	stub := &StubSource{
+		AddToQueueFn: func(_ context.Context, id string) error { queuedID = id; return nil },
+	}
+	m := newTestModel(stub)
+	m.mode = ModeNowPlaying
+	m.track = &source.Track{ID: "cur", Name: "Current"}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if cmd == nil {
+		t.Fatal("expected a cmd from queueing the current track")
+	}
+	if _, ok := cmd().(queueDoneMsg); !ok {
+		t.Fatalf("expected queueDoneMsg, got %T", cmd())
+	}
+	if queuedID != "cur" {
+		t.Errorf("queued %q, want the current track", queuedID)
+	}
+	_ = updated
+}
+
+func TestTrackIDFromURI(t *testing.T) {
+	cases := []struct{ uri, want string }{
+		{"spotify:track:abc123", "abc123"},
+		{"spotify:track:", ""},        // no ID segment
+		{"spotify:album:abc123", ""},  // wrong type
+		{"spotify:artist:abc123", ""}, // wrong type
+		{"abc123", ""},                // not a URI
+		{"", ""},                      // empty
+	}
+	for _, c := range cases {
+		if got := trackIDFromURI(c.uri); got != c.want {
+			t.Errorf("trackIDFromURI(%q) = %q, want %q", c.uri, got, c.want)
+		}
+	}
+}
+
 // ===========================================================================
 // Group 6: Fetch commands
 // ===========================================================================

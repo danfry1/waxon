@@ -312,11 +312,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.track != nil {
 			m.tracklist.SetNowPlaying(m.track.ID)
 		}
-		m.applyPendingJump()
+		jumpCmd := m.applyPendingJump()
 		if msg.imageURL != "" {
-			return m, m.fetchPlaylistArt(msg.imageURL)
+			return m, tea.Batch(jumpCmd, m.fetchPlaylistArt(msg.imageURL))
 		}
-		return m, nil
+		return m, jumpCmd
 
 	case moreTracksLoadedMsg:
 		if m.pagination != nil && m.pagination.playlistID == msg.playlistID {
@@ -338,7 +338,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tracklist.SetHeaderInfo(FormatPartialTrackListInfo(m.pagination.loaded, m.pagination.total))
 			}
 		}
-		return m, nil
+		return m, m.applyPendingJump()
 
 	case playlistArtLoadedMsg:
 		rendered := renderHalfBlocks(msg.img, HeaderArtW, HeaderArtH)
@@ -359,10 +359,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.track != nil {
 				m.tracklist.SetNowPlaying(m.track.ID)
 			}
-			m.applyPendingJump()
+			jumpCmd := m.applyPendingJump()
 			if msg.page.ImageURL != "" {
-				return m, m.fetchPlaylistArt(msg.page.ImageURL)
+				return m, tea.Batch(jumpCmd, m.fetchPlaylistArt(msg.page.ImageURL))
 			}
+			return m, jumpCmd
 		}
 		return m, nil
 
@@ -381,10 +382,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.track != nil {
 				m.tracklist.SetNowPlaying(m.track.ID)
 			}
-			m.applyPendingJump()
+			jumpCmd := m.applyPendingJump()
 			if msg.page.ImageURL != "" {
-				return m, m.fetchPlaylistArt(msg.page.ImageURL)
+				return m, tea.Batch(jumpCmd, m.fetchPlaylistArt(msg.page.ImageURL))
 			}
+			return m, jumpCmd
 		}
 		return m, nil
 
@@ -424,8 +426,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.track != nil {
 			m.tracklist.SetNowPlaying(m.track.ID)
 		}
-		m.applyPendingJump()
-		return m, nil
+		return m, m.applyPendingJump()
 
 	case devicesLoadedMsg:
 		if len(msg.devices) == 0 {
@@ -475,6 +476,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.consecutiveErrors++
 		if m.pagination != nil {
 			m.pagination.loadingMore = false
+		}
+		// A failed context load must not leave the jump-to-current-track
+		// workflow armed, or a later unrelated load would yank the cursor to a
+		// stale track. Drop the pending jump and restore the view we came from
+		// so the user isn't stranded on a permanent loading spinner.
+		if m.pendingJumpTrackID != "" {
+			m.pendingJumpTrackID = ""
+			m.popNav()
 		}
 		if isAuthError(msg.err) {
 			m.toast.Show("Session expired", "Run 'waxon auth' to reconnect", ToastError)
@@ -642,7 +651,10 @@ func (m Model) handleKeyActions(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		action := m.actions.Selected()
 		m.actions = nil
-		m.mode = ModeNormal
+		// Default to returning to wherever the popup was opened from (e.g. Now
+		// Playing). Actions that navigate to a new tracklist override this with
+		// ModeNormal. This keeps error paths consistent with success paths.
+		m.mode = m.actionsReturn
 		return m.executeAction(action, subj)
 	}
 	switch msg.String() {
