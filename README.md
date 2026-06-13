@@ -61,10 +61,18 @@ Navigate everything without leaving the home row — `j`/`k` to move, `gg`/`G` t
 
 ### Now Playing
 
-Full-screen album art rendered with Unicode half-blocks, gradient backgrounds, and a vinyl spinning mode. Press `l` for time-synced lyrics (via [lrclib](https://lrclib.net), no setup required) that scroll and highlight in time with playback.
+Full-screen album art rendered with Unicode half-blocks, gradient backgrounds, and a vinyl spinning mode.
 
 <p align="center">
   <img src="demo/recordings/nowplaying.gif" alt="now playing view" width="800">
+</p>
+
+### Synced Lyrics
+
+Press `l` in Now Playing for time-synced lyrics (via [lrclib](https://lrclib.net) — no account, no API key, nothing to set up). The current line lights up and the rest gently fade as the song plays.
+
+<p align="center">
+  <img src="demo/recordings/lyrics.gif" alt="time-synced lyrics" width="800">
 </p>
 
 ### Search
