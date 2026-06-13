@@ -468,6 +468,25 @@ func TestCallbackPath_CustomClientID(t *testing.T) {
 	}
 }
 
+// TestRedirectURI_Default locks the exact redirect URI sent to Spotify for the
+// shared ncspot client ID. This is the string Spotify matches against ncspot's
+// port-less "http://127.0.0.1/login" registration; a regression here (wrong
+// path, "localhost" instead of the IP literal, or a changed port shape) brings
+// back issue #5 ("redirect_uri: Not matching configuration").
+func TestRedirectURI_Default(t *testing.T) {
+	want := "http://127.0.0.1:27228/login"
+	if got := redirectURI(DefaultClientID); got != want {
+		t.Errorf("redirectURI(DefaultClientID) = %q, want %q", got, want)
+	}
+}
+
+func TestRedirectURI_Custom(t *testing.T) {
+	want := "http://127.0.0.1:27228/callback"
+	if got := redirectURI("my-custom-client-id"); got != want {
+		t.Errorf("redirectURI(custom) = %q, want %q", got, want)
+	}
+}
+
 func TestCallbackHandler_CustomPath(t *testing.T) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
