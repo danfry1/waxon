@@ -101,6 +101,21 @@ func (m Model) fetchMoreTracks() tea.Cmd {
 	}
 }
 
+// fetchLyrics loads lyrics for the given track off the main loop. A nil result
+// (no lyrics found) is reported as a successful lyricsLoadedMsg with nil lyrics,
+// not an error, so the UI can show an empty state.
+func (m Model) fetchLyrics(track source.Track) tea.Cmd {
+	ctx := m.ctx
+	src := m.source
+	return func() tea.Msg {
+		lyr, err := src.Lyrics(ctx, track)
+		if err != nil {
+			return lyricsErrorMsg{trackID: track.ID, err: err}
+		}
+		return lyricsLoadedMsg{trackID: track.ID, lyrics: lyr}
+	}
+}
+
 func (m Model) fetchNPArt(url string) tea.Cmd {
 	ctx := m.ctx
 	ap := m.artworkProvider

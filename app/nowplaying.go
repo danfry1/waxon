@@ -5,6 +5,7 @@ import (
 	"image"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/danfry1/waxon/source"
@@ -15,9 +16,18 @@ const (
 	npArtH = 35 // terminal rows for large album art (same as original)
 )
 
+// npLyrics carries the lyrics view state into the Now Playing renderer.
+type npLyrics struct {
+	active  bool           // lyrics view toggled on (replaces the art region)
+	lyrics  *source.Lyrics // loaded lyrics, or nil
+	line    int            // focus line index (highlighted when synced)
+	loading bool           // fetch in flight
+	err     bool           // last fetch failed
+}
+
 // RenderNowPlaying renders the full-screen now playing overlay with
 // a blurred, darkened album art background.
-func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image, vinylMode bool, vinylAngle float64, liked bool, width, height int) string {
+func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image, vinylMode bool, vinylAngle float64, liked bool, lyr npLyrics, width, height int) string {
 	if width == 0 || height == 0 {
 		return ""
 	}
@@ -60,7 +70,9 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 
 	var sections []string
 
-	if artBlock != "" {
+	if lyr.active {
+		sections = append(sections, renderLyricsBlock(lyr, npArtW, npArtH, textAccent, dimStyle, textBg))
+	} else if artBlock != "" {
 		sections = append(sections, artBlock)
 	} else {
 		sections = append(sections, PlaceholderArt(npArtW, npArtH))
@@ -90,7 +102,7 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 		timeStr := fmt.Sprintf("%s / %s", fmtDur(track.Position), fmtDur(track.Duration))
 		sections = append(sections, dimStyle.Render(timeStr))
 		sections = append(sections, "")
-		sections = append(sections, dimStyle.Render("space play · n/p skip · f like · a queue · o actions · N close"))
+		sections = append(sections, dimStyle.Render("space play · n/p skip · f like · a queue · l lyrics · o actions · N close"))
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Center, sections...)
@@ -203,6 +215,63 @@ func lightenColor(c lipgloss.Color) lipgloss.Color {
 	lg := uint8(float64(g) + (255-float64(g))*blend)
 	lb := uint8(float64(b) + (255-float64(b))*blend)
 	return lipgloss.Color(rgbHex(lr, lg, lb))
+}
+
+// activeLyricLine returns the index of the last synced line whose timestamp has
+// been reached at pos. Returns 0 when nothing has started yet.
+func activeLyricLine(lines []source.LyricLine, pos time.Duration) int {
+	idx := 0
+	for i, l := range lines {
+		if l.Time <= pos {
+			idx = i
+		} else {
+			break
+		}
+	}
+	return idx
+}
+
+// renderLyricsBlock renders the lyrics into a w×h region for the Now Playing
+// overlay: a vertically-centered window around the focus line, with the active
+// line highlighted in the accent color when lyrics are synced. Loading, error,
+// and not-found states render as a single centered message.
+func renderLyricsBlock(lyr npLyrics, w, h int, accent lipgloss.Color, dim lipgloss.Style, bg lipgloss.Color) string {
+	switch {
+	case lyr.loading:
+		return centeredMessageBlock("Loading lyrics…", w, h, dim)
+	case lyr.err:
+		return centeredMessageBlock("Couldn't load lyrics", w, h, dim)
+	case lyr.lyrics == nil || len(lyr.lyrics.Lines) == 0:
+		return centeredMessageBlock("No lyrics found", w, h, dim)
+	}
+
+	lines := lyr.lyrics.Lines
+	focus := clampInt(lyr.line, 0, len(lines)-1)
+	start := focus - h/2 // center the focus line vertically
+	activeStyle := lipgloss.NewStyle().Foreground(accent).Bold(true).Background(bg)
+
+	rows := make([]string, h)
+	for row := range h {
+		idx := start + row
+		if idx < 0 || idx >= len(lines) {
+			continue // leave blank; the composer pads with background
+		}
+		text := truncate(lines[idx].Text, w)
+		if lyr.lyrics.Synced && idx == focus {
+			rows[row] = activeStyle.Render(text)
+		} else {
+			rows[row] = dim.Render(text)
+		}
+	}
+	return strings.Join(rows, "\n")
+}
+
+// centeredMessageBlock renders msg on the middle row of an otherwise-blank
+// h-row block.
+func centeredMessageBlock(msg string, w, h int, dim lipgloss.Style) string {
+	rows := make([]string, h)
+	rows[h/2] = dim.Render(truncate(msg, w))
+	return strings.Join(rows, "\n")
 }
 
 func renderNPProgressBarBg(track *source.Track, width int, accent lipgloss.Color, bg lipgloss.Color) string {

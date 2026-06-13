@@ -1,6 +1,9 @@
 package source
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // PlaybackSource provides playback control beyond basic TrackSource operations.
 type PlaybackSource interface {
@@ -34,13 +37,21 @@ type SearchSource interface {
 	GetAlbum(ctx context.Context, albumID string) (*AlbumPage, error)
 }
 
+// LyricsSource provides lyrics for a track. Returns (nil, nil) when no lyrics
+// are available so callers can show an empty state without treating it as an
+// error.
+type LyricsSource interface {
+	Lyrics(ctx context.Context, track Track) (*Lyrics, error)
+}
+
 // RichSource combines all source capabilities. Implementations must satisfy
-// TrackSource, PlaybackSource, LibrarySource, and SearchSource.
+// TrackSource, PlaybackSource, LibrarySource, SearchSource, and LyricsSource.
 type RichSource interface {
 	TrackSource
 	PlaybackSource
 	LibrarySource
 	SearchSource
+	LyricsSource
 }
 
 // ArtistAlbum represents a simplified album in an artist's discography.
@@ -111,6 +122,23 @@ type AudioFeatures struct {
 	Danceability float64
 	Tempo        float64
 	Acousticness float64
+}
+
+// LyricLine is a single line of lyrics. For synced lyrics, Time is the offset
+// from the start of the track at which the line should become active; for plain
+// lyrics, Time is zero.
+type LyricLine struct {
+	Time time.Duration
+	Text string
+}
+
+// Lyrics holds the lyrics for a track. Synced reports whether Lines carry real
+// timestamps (enabling auto-scroll/highlight); when false, Lines are plain text
+// with zero timestamps. Plain always holds the unsynced text for copy/fallback.
+type Lyrics struct {
+	Synced bool
+	Lines  []LyricLine
+	Plain  string
 }
 
 type RepeatMode string

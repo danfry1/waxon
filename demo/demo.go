@@ -437,6 +437,20 @@ func (d *DemoSource) AudioFeatures(_ context.Context, _ string) (*source.AudioFe
 	}, nil
 }
 
+func (d *DemoSource) Lyrics(_ context.Context, _ source.Track) (*source.Lyrics, error) {
+	return &source.Lyrics{
+		Synced: true,
+		Lines: []source.LyricLine{
+			{Time: 0, Text: "Now playing in demo mode"},
+			{Time: 3 * time.Second, Text: "These lyrics are synced to the clock"},
+			{Time: 7 * time.Second, Text: "Press l to toggle this view"},
+			{Time: 11 * time.Second, Text: "♪"},
+			{Time: 14 * time.Second, Text: "Real lyrics come from lrclib.net"},
+		},
+		Plain: "Now playing in demo mode\nThese lyrics are synced to the clock",
+	}, nil
+}
+
 func (d *DemoSource) GetArtist(_ context.Context, artistID string) (*source.ArtistPage, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

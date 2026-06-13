@@ -99,6 +99,16 @@ type npArtLoadedMsg struct {
 	img image.Image
 }
 
+type lyricsLoadedMsg struct {
+	trackID string
+	lyrics  *source.Lyrics
+}
+
+type lyricsErrorMsg struct {
+	trackID string
+	err     error
+}
+
 // Model is the root Bubbletea model for waxon.
 type Model struct {
 	ctx             context.Context
@@ -139,6 +149,14 @@ type Model struct {
 	npSourceImg image.Image // source image for vinyl rendering
 	vinylAngle  float64     // current rotation angle in radians
 	vinylMode   bool        // easter egg: vinyl spinning mode
+
+	// Lyrics (Now Playing overlay, toggled with "l")
+	lyricsView    bool           // true when the NP art region shows lyrics
+	lyrics        *source.Lyrics // loaded lyrics for lyricsTrackID (nil = none)
+	lyricsTrackID string         // track the current lyrics state belongs to
+	lyricsLoading bool           // true while a lyrics fetch is in flight
+	lyricsErr     error          // non-nil when the last lyrics fetch failed
+	lyricsLine    int            // active synced-lyric line index
 
 	// Progress interpolation state
 	lastPollTime time.Time     // when we last received a track update
@@ -240,6 +258,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == ModeNowPlaying {
 				if msg.track.ArtworkURL != "" && m.npArtURL != msg.track.ArtworkURL {
 					cmds = append(cmds, m.fetchNPArt(msg.track.ArtworkURL))
+				}
+				// Follow track changes with fresh lyrics while the view is open.
+				if m.lyricsView && msg.track.ID != prevTrackID {
+					if c := m.ensureLyrics(); c != nil {
+						cmds = append(cmds, c)
+					}
 				}
 			}
 			// Refresh queue when track changes (queue shifts forward)
@@ -397,6 +421,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vinylAngle = 0
 		return m, nil
 
+	case lyricsLoadedMsg:
+		// Ignore stale responses for a track we've since moved on from.
+		if m.track != nil && msg.trackID == m.track.ID {
+			m.lyricsLoading = false
+			m.lyrics = msg.lyrics
+			m.lyricsErr = nil
+			m.lyricsLine = 0
+		}
+		return m, nil
+
+	case lyricsErrorMsg:
+		if m.track != nil && msg.trackID == m.track.ID {
+			m.lyricsLoading = false
+			m.lyrics = nil
+			m.lyricsErr = msg.err
+		}
+		return m, nil
+
 	case queueLoadedMsg:
 		// Only update the live list if we're still on the queue section;
 		// otherwise the async response would clobber the library view.
@@ -509,6 +551,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == ModeNowPlaying && m.vinylMode && m.track != nil && m.track.Playing {
 			m.vinylAngle = math.Mod(m.vinylAngle+0.057, 2*math.Pi)
 		}
+		// Track the focus lyric line against the (interpolated) position: by
+		// timestamp for synced lyrics, by progress ratio for plain ones.
+		if m.mode == ModeNowPlaying && m.lyricsView && m.track != nil &&
+			m.lyrics != nil && len(m.lyrics.Lines) > 0 {
+			if m.lyrics.Synced {
+				m.lyricsLine = activeLyricLine(m.lyrics.Lines, m.track.Position)
+			} else if m.track.Duration > 0 {
+				ratio := float64(m.track.Position) / float64(m.track.Duration)
+				m.lyricsLine = clampInt(int(ratio*float64(len(m.lyrics.Lines)-1)), 0, len(m.lyrics.Lines)-1)
+			}
+		}
 		// Animate loading spinner
 		m.tracklist.TickSpinner()
 		return m, tea.Tick(progressTickInterval, func(t time.Time) tea.Msg { return progressTickMsg(t) })
@@ -545,16 +598,42 @@ func (m Model) handleKeyHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// ensureLyrics starts a lyrics fetch for the current track unless one is
+// already loaded, attempted, or in flight for it. Returns nil when nothing to do.
+func (m *Model) ensureLyrics() tea.Cmd {
+	if m.track == nil {
+		return nil
+	}
+	if m.lyricsTrackID == m.track.ID {
+		return nil // already loaded/attempted/in-flight for this track
+	}
+	m.lyricsLoading = true
+	m.lyrics = nil
+	m.lyricsErr = nil
+	m.lyricsLine = 0
+	m.lyricsTrackID = m.track.ID
+	return m.fetchLyrics(*m.track)
+}
+
 func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case msg.String() == "N", msg.Type == tea.KeyEscape, msg.String() == "q":
 		m.mode = ModeNormal
 		m.vinylMode = false
+		m.lyricsView = false
 		return m, nil
 	case msg.String() == "V":
 		m.vinylMode = !m.vinylMode
 		if m.vinylMode {
 			m.vinylAngle = 0
+			m.lyricsView = false // vinyl and lyrics share the art region
+		}
+		return m, nil
+	case msg.String() == "l":
+		m.lyricsView = !m.lyricsView
+		if m.lyricsView {
+			m.vinylMode = false
+			return m, m.ensureLyrics()
 		}
 		return m, nil
 	case key.Matches(msg, m.keys.PlayPause):
@@ -1208,7 +1287,14 @@ func (m Model) View() string {
 		if artBlock == "" {
 			artBlock = m.albumart.View()
 		}
-		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.liked, m.width, m.height)
+		lyr := npLyrics{
+			active:  m.lyricsView,
+			lyrics:  m.lyrics,
+			line:    m.lyricsLine,
+			loading: m.lyricsLoading,
+			err:     m.lyricsErr != nil,
+		}
+		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.liked, lyr, m.width, m.height)
 	}
 
 	// Two-pane layout

@@ -61,7 +61,7 @@ Navigate everything without leaving the home row — `j`/`k` to move, `gg`/`G` t
 
 ### Now Playing
 
-Full-screen album art rendered with Unicode half-blocks, gradient backgrounds, and a vinyl spinning mode.
+Full-screen album art rendered with Unicode half-blocks, gradient backgrounds, and a vinyl spinning mode. Press `l` for time-synced lyrics (via [lrclib](https://lrclib.net), no setup required) that scroll and highlight in time with playback.
 
 <p align="center">
   <img src="demo/recordings/nowplaying.gif" alt="now playing view" width="800">
@@ -146,6 +146,7 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `N`              | Now Playing view    |
 | `f` / `a` / `o`  | Like / queue / actions for the **playing** track (in Now Playing) |
 | `V`              | Toggle vinyl mode (in Now Playing) |
+| `l`              | Toggle synced lyrics (in Now Playing) |
 | `Backspace` / `b` | Go back           |
 | `?`              | Toggle help overlay |
 | `q`              | Quit               |

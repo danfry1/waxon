@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/danfry1/waxon/lyrics"
 	"github.com/danfry1/waxon/source"
 	spotifyapi "github.com/zmb3/spotify/v2"
 )
@@ -39,6 +40,7 @@ type PlayerSource struct {
 	client     *spotifyapi.Client
 	httpClient *http.Client
 	features   *FeatureCache
+	lyrics     *lyrics.Client
 }
 
 func NewPlayerSource(cp ClientPair) *PlayerSource {
@@ -46,6 +48,7 @@ func NewPlayerSource(cp ClientPair) *PlayerSource {
 		client:     cp.Spotify,
 		httpClient: cp.HTTP,
 		features:   NewFeatureCache(cp.Spotify),
+		lyrics:     lyrics.New(),
 	}
 }
 
@@ -189,4 +192,8 @@ func (p *PlayerSource) RecentlyPlayed(ctx context.Context) ([]source.Track, erro
 
 func (p *PlayerSource) AudioFeatures(ctx context.Context, trackID string) (*source.AudioFeatures, error) {
 	return p.features.Get(ctx, trackID)
+}
+
+func (p *PlayerSource) Lyrics(ctx context.Context, track source.Track) (*source.Lyrics, error) {
+	return p.lyrics.Get(ctx, track)
 }
