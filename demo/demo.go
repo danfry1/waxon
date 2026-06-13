@@ -34,6 +34,7 @@ type DemoSource struct {
 	artists    map[string]*source.ArtistPage
 	albums     map[string]*source.AlbumPage
 	allTracks  []source.Track
+	liked      map[string]bool // track ID → saved to Liked Songs
 
 	// Current context
 	currentPLID string
@@ -62,6 +63,7 @@ func NewDemoSource() *DemoSource {
 		devices:     devices,
 		artists:     artists,
 		albums:      albums,
+		liked:       make(map[string]bool),
 		currentPLID: firstPL,
 	}
 	return ds
@@ -138,11 +140,24 @@ func (d *DemoSource) CurrentPlayback(_ context.Context) (*source.PlaybackState, 
 	t.Playing = d.playing
 	t.DeviceName = d.devices[0].Name
 
+	// Surface the playlist the track is playing from (unless it came from the
+	// user queue, which has no context) so "jump to current" can navigate back.
+	contextURI := ""
+	if d.playingQueued == nil {
+		for _, pl := range d.playlists {
+			if pl.ID == d.currentPLID {
+				contextURI = pl.URI
+				break
+			}
+		}
+	}
+
 	return &source.PlaybackState{
 		Track:      &t,
 		Volume:     d.volume,
 		ShuffleOn:  d.shuffleOn,
 		RepeatMode: d.repeatMode,
+		ContextURI: contextURI,
 	}, nil
 }
 
@@ -438,6 +453,26 @@ func (d *DemoSource) GetAlbum(_ context.Context, albumID string) (*source.AlbumP
 		return page, nil
 	}
 	return &source.AlbumPage{Name: "Unknown Album"}, nil
+}
+
+func (d *DemoSource) SaveTrack(_ context.Context, trackID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.liked[trackID] = true
+	return nil
+}
+
+func (d *DemoSource) RemoveTrack(_ context.Context, trackID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.liked, trackID)
+	return nil
+}
+
+func (d *DemoSource) IsTrackSaved(_ context.Context, trackID string) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.liked[trackID], nil
 }
 
 // Compile-time interface check.

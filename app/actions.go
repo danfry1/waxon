@@ -31,18 +31,24 @@ type ActionItem struct {
 
 // ActionsPopup is a floating overlay listing context actions for the selected item.
 type ActionsPopup struct {
-	items    []ActionItem
-	cursor   int
-	title    string
-	uri      string // track or playlist URI for copy action
-	artistID string // first artist's Spotify ID for "Go to Artist"
-	albumID  string // album's Spotify ID for "Go to Album"
-	width    int
-	height   int
+	items      []ActionItem
+	cursor     int
+	title      string
+	name       string // bare track/playlist name (for toasts)
+	trackID    string // track ID the actions apply to (for like/queue)
+	uri        string // track or playlist URI for play/copy actions
+	contextURI string // playlist/album URI to play the track within
+	artistID   string // first artist's Spotify ID for "Go to Artist"
+	albumID    string // album's Spotify ID for "Go to Album"
+	width      int
+	height     int
 }
 
-// NewTrackActions returns an ActionsPopup configured for a track.
-func NewTrackActions(trackName, artistName, uri, artistID, albumID string, liked bool, width, height int) ActionsPopup {
+// NewTrackActions returns an ActionsPopup configured for a track. contextURI is
+// the playlist/album the track should play within (may be empty). Actions
+// operate on this track explicitly, so the popup can target a track other than
+// the one under the cursor (e.g. the currently playing track from Now Playing).
+func NewTrackActions(trackName, artistName, uri, contextURI, artistID, albumID string, liked bool, width, height int) ActionsPopup {
 	title := trackName
 	if artistName != "" {
 		title = fmt.Sprintf("%s — %s", trackName, artistName)
@@ -65,12 +71,15 @@ func NewTrackActions(trackName, artistName, uri, artistID, albumID string, liked
 			{Type: ActionOpenSpotify, Label: "Open in Spotify", Icon: "◎"},
 			{Type: ActionCopyURI, Label: "Copy Track URI", Icon: "⎘"},
 		},
-		title:    title,
-		uri:      uri,
-		artistID: artistID,
-		albumID:  albumID,
-		width:    width,
-		height:   height,
+		title:      title,
+		name:       trackName,
+		trackID:    trackIDFromURI(uri),
+		uri:        uri,
+		contextURI: contextURI,
+		artistID:   artistID,
+		albumID:    albumID,
+		width:      width,
+		height:     height,
 	}
 }
 
@@ -116,6 +125,21 @@ func (a ActionsPopup) Selected() ActionItem {
 // URI returns the URI stored in the popup (for clipboard copy).
 func (a ActionsPopup) URI() string {
 	return a.uri
+}
+
+// Name returns the bare track/playlist name (for toast messages).
+func (a ActionsPopup) Name() string {
+	return a.name
+}
+
+// TrackID returns the track ID the actions apply to.
+func (a ActionsPopup) TrackID() string {
+	return a.trackID
+}
+
+// ContextURI returns the playlist/album URI to play the track within.
+func (a ActionsPopup) ContextURI() string {
+	return a.contextURI
 }
 
 // ArtistID returns the artist ID stored in the popup.

@@ -78,6 +78,7 @@ func (p *PlayerSource) CurrentPlayback(ctx context.Context) (*source.PlaybackSta
 		Volume:     int(state.Device.Volume),
 		ShuffleOn:  state.ShuffleState,
 		RepeatMode: repeatMode,
+		ContextURI: string(state.PlaybackContext.URI),
 	}, nil
 }
 

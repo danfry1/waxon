@@ -34,6 +34,11 @@ type PlaybackState struct {
 	Volume     int
 	ShuffleOn  bool
 	RepeatMode RepeatMode
+	// ContextURI is the Spotify URI of the playlist/album/artist the current
+	// track is playing from (e.g. "spotify:playlist:..."). Empty when the
+	// track is playing outside any context. Lets the UI navigate back to the
+	// source of the currently playing track.
+	ContextURI string
 }
 
 type TrackSource interface {

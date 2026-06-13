@@ -101,6 +101,20 @@ func TestLoadTokenInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestLoadTokenEmptyAccessToken(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token.json")
+
+	// Valid JSON but no access token (e.g. an interrupted/partial write).
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	if _, err := LoadToken(path); err == nil {
+		t.Fatal("expected error for token with empty access token, got nil")
+	}
+}
+
 func TestSaveTokenPermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "token.json")
@@ -203,6 +217,38 @@ func TestPersistingTokenSource_RefreshSaves(t *testing.T) {
 	}
 	if loaded.RefreshToken != "refresh-2" {
 		t.Errorf("saved RefreshToken = %q, want %q", loaded.RefreshToken, "refresh-2")
+	}
+}
+
+func TestPersistingTokenSource_NilCurrent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token.json")
+
+	tok := &oauth2.Token{
+		AccessToken:  "first-token",
+		RefreshToken: "refresh-1",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(time.Hour),
+	}
+
+	// current is nil — must not panic, and the first token must be persisted
+	// since there is no prior access token to compare against.
+	pts := NewPersistingTokenSource(&staticTokenSource{token: tok}, path, nil)
+
+	got, err := pts.Token()
+	if err != nil {
+		t.Fatalf("Token(): %v", err)
+	}
+	if got.AccessToken != "first-token" {
+		t.Errorf("AccessToken = %q, want %q", got.AccessToken, "first-token")
+	}
+
+	loaded, err := LoadToken(path)
+	if err != nil {
+		t.Fatalf("LoadToken: %v", err)
+	}
+	if loaded.AccessToken != "first-token" {
+		t.Errorf("saved AccessToken = %q, want %q", loaded.AccessToken, "first-token")
 	}
 }
 

@@ -34,6 +34,7 @@ func (m Model) fetchCurrentTrack() tea.Cmd {
 			volume:     ps.Volume,
 			shuffleOn:  ps.ShuffleOn,
 			repeatMode: ps.RepeatMode,
+			contextURI: ps.ContextURI,
 		}
 	}
 }
@@ -471,8 +472,9 @@ func (m Model) openActions() (Model, tea.Cmd) {
 			return m, m.fetchAlbumPage(track.AlbumID)
 		}
 		liked := m.liked && m.track != nil && m.track.ID == track.ID
-		popup := NewTrackActions(track.Name, track.Artist, track.URI, track.ArtistID, track.AlbumID, liked, m.width, m.height)
+		popup := NewTrackActions(track.Name, track.Artist, track.URI, m.tracklist.ContextURI(), track.ArtistID, track.AlbumID, liked, m.width, m.height)
 		m.actions = &popup
+		m.actionsReturn = ModeNormal
 		m.mode = ModeActions
 		return m, nil
 	}
@@ -485,60 +487,81 @@ func (m Model) openActions() (Model, tea.Cmd) {
 	}
 	popup := NewPlaylistActions(pl.Name, pl.URI, m.width, m.height)
 	m.actions = &popup
+	m.actionsReturn = ModeNormal
 	m.mode = ModeActions
 	return m, nil
 }
 
-func (m Model) executeAction(action ActionItem, uri, artistID, albumID string) (Model, tea.Cmd) {
+// actionSubject is the track an actions popup operates on. It is captured when
+// the popup opens so actions target that specific track — not whatever the
+// cursor happens to be over when the action runs (which lets the Now Playing
+// view act on the currently playing track).
+type actionSubject struct {
+	trackID    string
+	name       string
+	uri        string
+	contextURI string
+	artistID   string
+	albumID    string
+}
+
+func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.Cmd) {
+	// m.mode is already set to the popup's return mode by the caller; the
+	// navigation actions below override it with ModeNormal so they land on the
+	// loaded tracklist rather than re-opening the view the popup came from.
 	switch action.Type {
 	case ActionPlay:
-		track := m.tracklist.SelectedTrack()
-		if track != nil {
-			return m, m.playTrack(track.URI, m.tracklist.ContextURI())
+		if subj.uri != "" {
+			return m, m.playTrack(subj.uri, subj.contextURI)
 		}
 	case ActionQueue:
-		return m.handleAddQueue()
+		if subj.trackID == "" {
+			m.toast.Show("No track to queue", "", ToastError)
+			return m, scheduleAutoDismiss()
+		}
+		return m, m.queueTrack(subj.trackID, subj.name)
 	case ActionLike:
-		track := m.tracklist.SelectedTrack()
-		if track == nil || track.IsSeparator || track.IsAlbumRow {
+		if subj.trackID == "" {
 			m.toast.Show("No track selected", "", ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		liked := m.liked && m.track != nil && m.track.ID == track.ID
-		return m, m.toggleLike(track.ID, liked)
+		liked := m.liked && m.track != nil && m.track.ID == subj.trackID
+		return m, m.toggleLike(subj.trackID, liked)
 	case ActionGoArtist:
-		if artistID == "" {
+		if subj.artistID == "" {
 			m.toast.Show("No artist info available", "", ToastError)
 			return m, scheduleAutoDismiss()
 		}
+		m.mode = ModeNormal
 		m.pushNav()
 		m.tracklist.SetLoading("Loading artist...")
-		return m, m.fetchArtistPage(artistID)
+		return m, m.fetchArtistPage(subj.artistID)
 	case ActionGoAlbum:
-		if albumID == "" {
+		if subj.albumID == "" {
 			m.toast.Show("No album info available", "", ToastError)
 			return m, scheduleAutoDismiss()
 		}
+		m.mode = ModeNormal
 		m.pushNav()
 		m.tracklist.SetLoading("Loading album...")
-		return m, m.fetchAlbumPage(albumID)
+		return m, m.fetchAlbumPage(subj.albumID)
 	case ActionOpenSpotify:
-		if uri == "" {
+		if subj.uri == "" {
 			m.toast.Show("No URI available", "", ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		if err := openInSpotify(uri); err != nil {
+		if err := openInSpotify(subj.uri); err != nil {
 			m.toast.Show("Failed to open Spotify", err.Error(), ToastError)
 			return m, scheduleAutoDismiss()
 		}
 		m.toast.Show("Opened in Spotify", "", ToastSuccess)
 		return m, scheduleAutoDismiss()
 	case ActionCopyURI:
-		if err := copyToClipboard(uri); err != nil {
+		if err := copyToClipboard(subj.uri); err != nil {
 			m.toast.Show("Copy failed", err.Error(), ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		m.toast.Show("Copied to clipboard", uri, ToastSuccess)
+		m.toast.Show("Copied to clipboard", subj.uri, ToastSuccess)
 		return m, scheduleAutoDismiss()
 	case ActionPlayPlaylist:
 		pl := m.sidebar.SelectedPlaylist()
@@ -570,18 +593,24 @@ func (m Model) handleAddQueue() (Model, tea.Cmd) {
 		m.toast.Show("No track selected", "", ToastError)
 		return m, scheduleAutoDismiss()
 	}
-	id := track.ID
-	name := track.Name
+	return m, m.queueTrack(track.ID, track.Name)
+}
+
+// queueTrack adds the given track to the playback queue.
+func (m Model) queueTrack(trackID, name string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
-	return m, func() tea.Msg {
-		if err := src.AddToQueue(ctx, id); err != nil {
+	return func() tea.Msg {
+		if err := src.AddToQueue(ctx, trackID); err != nil {
 			return trackErrorMsg{err}
 		}
 		return queueDoneMsg{trackName: name}
 	}
 }
 
+// jumpToCurrentTrack focuses the currently playing track. If it is in the
+// current view, the cursor jumps to it. Otherwise the playback context
+// (playlist/album/etc.) is loaded and the cursor jumps once it arrives.
 func (m Model) jumpToCurrentTrack() (Model, tea.Cmd) {
 	if m.track == nil {
 		m.toast.Show("No track playing", "", ToastError)
@@ -590,10 +619,66 @@ func (m Model) jumpToCurrentTrack() (Model, tea.Cmd) {
 	m.focusPane = PaneTrackList
 	if m.tracklist.JumpToTrack(m.track.ID) {
 		m.toast.Show("Jumped to current track", m.track.Name, ToastSuccess)
-	} else {
-		m.toast.Show("Track not in current view", m.track.Name, ToastInfo)
+		return m, scheduleAutoDismiss()
 	}
-	return m, scheduleAutoDismiss()
+	// Not in the current view — navigate to the context the track plays from.
+	cmd, ok := m.navigateToPlaybackContext()
+	if !ok {
+		// A non-empty context URI we couldn't resolve is an unsupported type
+		// (e.g. a podcast show/episode), not merely an absent track.
+		title := "Track not in current view"
+		if m.playbackContextURI != "" {
+			title = "Can't jump to this context"
+		}
+		m.toast.Show(title, m.track.Name, ToastInfo)
+		return m, scheduleAutoDismiss()
+	}
+	m.pushNav()
+	m.pendingJumpTrackID = m.track.ID
+	m.tracklist.SetLoading(m.track.Name)
+	return m, cmd
+}
+
+// navigateToPlaybackContext returns a command that loads the playlist/album/
+// artist the current track is playing from, or (nil, false) when there is no
+// resolvable context.
+func (m Model) navigateToPlaybackContext() (tea.Cmd, bool) {
+	uri := m.playbackContextURI
+	if uri == "" {
+		return nil, false
+	}
+	// Playlists and Liked Songs live in the user's library — use that entry so
+	// the loaded view has the right name and artwork.
+	for _, pl := range m.playlists {
+		if pl.URI == uri {
+			return m.fetchPlaylistTracks(pl), true
+		}
+	}
+	// Otherwise resolve by URI type: spotify:<type>:<id>.
+	parts := strings.Split(uri, ":")
+	if len(parts) < 3 {
+		return nil, false
+	}
+	switch parts[1] {
+	case "album":
+		return m.fetchAlbumPage(parts[2]), true
+	case "artist":
+		return m.fetchArtistPage(parts[2]), true
+	case "playlist":
+		return m.fetchPlaylistTracks(source.Playlist{ID: parts[2], URI: uri}), true
+	}
+	return nil, false
+}
+
+// trackIDFromURI extracts the bare ID from a Spotify track URI
+// ("spotify:track:abc" → "abc"). Returns "" for any non-track or malformed URI
+// so a wrong-type ID can never flow into queue/like calls.
+func trackIDFromURI(uri string) string {
+	const prefix = "spotify:track:"
+	if !strings.HasPrefix(uri, prefix) {
+		return ""
+	}
+	return uri[len(prefix):]
 }
 
 // openInSpotify opens a Spotify URI in the Spotify desktop app.
