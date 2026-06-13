@@ -108,6 +108,16 @@ func callbackPath(clientID string) string {
 	return "/callback"
 }
 
+// redirectURI returns the exact redirect URI sent to Spotify for the given
+// client ID. Spotify matches this string against the dashboard registration;
+// for the ncspot client ID the registered URI is the port-less loopback
+// "http://127.0.0.1/login", so Spotify accepts our fixed port via RFC 8252
+// loopback port flexibility — but the host must be the 127.0.0.1 IP literal
+// (not "localhost") and the path must match exactly.
+func redirectURI(clientID string) string {
+	return fmt.Sprintf("http://127.0.0.1:%d%s", DefaultCallbackPort, callbackPath(clientID))
+}
+
 func Authenticate(clientID string) (*oauth2.Token, error) {
 	addr := fmt.Sprintf("127.0.0.1:%d", DefaultCallbackPort)
 	listener, err := net.Listen("tcp", addr)
@@ -115,7 +125,7 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 		return nil, fmt.Errorf("listen on %s: %w (is another instance running?)", addr, err)
 	}
 	path := callbackPath(clientID)
-	redirectURL := fmt.Sprintf("http://127.0.0.1:%d%s", DefaultCallbackPort, path)
+	redirectURL := redirectURI(clientID)
 
 	cfg := SpotifyOAuthConfig(clientID, redirectURL)
 	verifier, err := generateVerifier()
