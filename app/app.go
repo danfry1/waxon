@@ -917,7 +917,7 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			if m.focusPane == PaneSidebar {
 				m.sidebar, _ = m.sidebar.Update(tea.KeyMsg{Type: tea.KeyHome})
 			} else {
-				m.tracklist, _ = m.tracklist.Update(tea.KeyMsg{Type: tea.KeyHome})
+				m.tracklist.GotoTop()
 			}
 			return m, nil
 		case GActionLibrary:
@@ -948,7 +948,7 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.focusPane == PaneSidebar {
 			m.sidebar, _ = m.sidebar.Update(tea.KeyMsg{Type: tea.KeyEnd})
 		} else {
-			m.tracklist, _ = m.tracklist.Update(tea.KeyMsg{Type: tea.KeyEnd})
+			m.tracklist.GotoBottom()
 		}
 		return m, nil
 	}
@@ -1088,16 +1088,17 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.sidebar, cmd = m.sidebar.Update(msg)
 			return m, cmd
 		}
-		var cmd tea.Cmd
-		m.tracklist, cmd = m.tracklist.Update(msg)
-		// Lazy load: fetch more tracks when cursor nears the end
-		if m.pagination != nil && !m.pagination.loadingMore &&
-			m.pagination.loaded < m.pagination.total &&
-			m.tracklist.table.Cursor()+20 >= m.pagination.loaded {
-			m.pagination.loadingMore = true
-			return m, tea.Batch(cmd, m.fetchMoreTracks())
+		switch {
+		case key.Matches(msg, m.keys.Up):
+			m.tracklist.MoveUp(1)
+		case key.Matches(msg, m.keys.Down):
+			m.tracklist.MoveDown(1)
+		case key.Matches(msg, m.keys.HalfUp):
+			m.tracklist.HalfPageUp()
+		case key.Matches(msg, m.keys.HalfDown):
+			m.tracklist.HalfPageDown()
 		}
-		return m, cmd
+		return m, m.maybeLoadMore()
 	}
 
 	return m, nil
@@ -1105,13 +1106,35 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 const doubleClickThreshold = 400 * time.Millisecond
 
+// wheelScrollLines is how many rows a single mouse-wheel notch scrolls.
+const wheelScrollLines = 3
+
+// maybeLoadMore triggers lazy-loading of additional tracks when the
+// tracklist cursor approaches the end of the currently loaded set. Returns
+// nil if no fetch is needed (or one is already in flight).
+func (m Model) maybeLoadMore() tea.Cmd {
+	if m.pagination == nil || m.pagination.loadingMore ||
+		m.pagination.loaded >= m.pagination.total ||
+		m.tracklist.Cursor()+20 < m.pagination.loaded {
+		return nil
+	}
+	m.pagination.loadingMore = true
+	return m.fetchMoreTracks()
+}
+
+// paneAt returns which pane a given X column falls in.
+func (m Model) paneAt(x int) Pane {
+	if x < max(20, m.width/4) {
+		return PaneSidebar
+	}
+	return PaneTrackList
+}
+
 func (m Model) handleMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
-	// Only handle mouse in normal mode (not overlays)
 	if m.mode != ModeNormal {
-		return m, nil
+		return m.handleOverlayMouse(msg)
 	}
 
-	sidebarW := max(20, m.width/4)
 	statusRows := 2
 	if m.height >= MinTermRows {
 		statusRows = ArtHeight
@@ -1123,82 +1146,159 @@ func (m Model) handleMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 		if msg.Action != tea.MouseActionRelease {
 			return m, nil
 		}
-		// Determine which pane was clicked
+		// Clicks in the status bar area are ignored.
 		if msg.Y >= contentH {
-			// Click in status bar area — ignore
 			return m, nil
 		}
-		if msg.X < sidebarW {
-			// Click in sidebar — manually set cursor from click Y
-			m.focusPane = PaneSidebar
-			m.sidebar.SetCursorFromClick(msg.Y)
-
-			// Double-click to open playlist
-			now := time.Now()
-			if m.lastClickPane == PaneSidebar && now.Sub(m.lastClickTime) < doubleClickThreshold {
-				m.lastClickTime = time.Time{}
-				pl := m.sidebar.SelectedPlaylist()
-				if pl != nil {
-					if m.sidebar.Section() == SectionQueue {
-						return m, m.playTrack("spotify:track:"+pl.ID, "")
-					}
-					m.pushNav()
-					m.tracklist.SetLoading(pl.Name)
-					return m, m.fetchPlaylistTracks(*pl)
-				}
-			}
-			m.lastClickTime = now
-			m.lastClickPane = PaneSidebar
-			return m, nil
+		if m.paneAt(msg.X) == PaneSidebar {
+			return m.handleSidebarClick(msg.Y)
 		}
-		// Click in tracklist — manually set cursor from click Y
-		m.focusPane = PaneTrackList
-		m.tracklist.SetCursorFromClick(msg.Y)
-
-		// Double-click to play track
-		now := time.Now()
-		if m.lastClickPane == PaneTrackList && now.Sub(m.lastClickTime) < doubleClickThreshold {
-			m.lastClickTime = time.Time{}
-			track := m.tracklist.SelectedTrack()
-			if track != nil && !track.IsSeparator {
-				if track.IsAlbumRow && track.AlbumID != "" {
-					m.pushNav()
-					m.tracklist.SetLoading(track.Name)
-					return m, m.fetchAlbumPage(track.AlbumID)
-				}
-				return m, m.playTrack(track.URI, m.tracklist.ContextURI())
-			}
-		}
-		m.lastClickTime = now
-		m.lastClickPane = PaneTrackList
-		return m, nil
+		return m.handleTrackListClick(msg.Y)
 
 	case tea.MouseButtonWheelUp:
-		if m.focusPane == PaneSidebar {
-			m.sidebar, _ = m.sidebar.Update(tea.KeyMsg{Type: tea.KeyUp})
-		} else {
-			m.tracklist, _ = m.tracklist.Update(tea.KeyMsg{Type: tea.KeyUp})
-		}
-		return m, nil
+		return m.handleWheel(msg.X, -wheelScrollLines)
 
 	case tea.MouseButtonWheelDown:
-		if m.focusPane == PaneSidebar {
-			m.sidebar, _ = m.sidebar.Update(tea.KeyMsg{Type: tea.KeyDown})
-		} else {
-			var cmd tea.Cmd
-			m.tracklist, cmd = m.tracklist.Update(tea.KeyMsg{Type: tea.KeyDown})
-			// Lazy load on scroll too
-			if m.pagination != nil && !m.pagination.loadingMore &&
-				m.pagination.loaded < m.pagination.total &&
-				m.tracklist.table.Cursor()+20 >= m.pagination.loaded {
-				m.pagination.loadingMore = true
-				return m, tea.Batch(cmd, m.fetchMoreTracks())
-			}
-			return m, cmd
+		return m.handleWheel(msg.X, wheelScrollLines)
+	}
+
+	return m, nil
+}
+
+// handleWheel scrolls the pane under the cursor (not necessarily the focused
+// pane) by delta rows. A negative delta scrolls up.
+func (m Model) handleWheel(x, delta int) (Model, tea.Cmd) {
+	dir := tea.KeyDown
+	if delta < 0 {
+		dir = tea.KeyUp
+		delta = -delta
+	}
+	if m.paneAt(x) == PaneSidebar {
+		for range delta {
+			m.sidebar, _ = m.sidebar.Update(tea.KeyMsg{Type: dir})
 		}
 		return m, nil
 	}
+	if dir == tea.KeyUp {
+		m.tracklist.MoveUp(delta)
+	} else {
+		m.tracklist.MoveDown(delta)
+	}
+	return m, m.maybeLoadMore()
+}
 
+func (m Model) handleSidebarClick(y int) (Model, tea.Cmd) {
+	m.focusPane = PaneSidebar
+	m.sidebar.SetCursorFromClick(y)
+
+	now := time.Now()
+	if m.lastClickPane == PaneSidebar && now.Sub(m.lastClickTime) < doubleClickThreshold {
+		m.lastClickTime = time.Time{}
+		pl := m.sidebar.SelectedPlaylist()
+		if pl != nil {
+			if m.sidebar.Section() == SectionQueue {
+				return m, m.playTrack("spotify:track:"+pl.ID, "")
+			}
+			m.pushNav()
+			m.tracklist.SetLoading(pl.Name)
+			return m, m.fetchPlaylistTracks(*pl)
+		}
+	}
+	m.lastClickTime = now
+	m.lastClickPane = PaneSidebar
+	return m, nil
+}
+
+func (m Model) handleTrackListClick(y int) (Model, tea.Cmd) {
+	m.focusPane = PaneTrackList
+	// Ignore clicks on empty space below the last row.
+	if !m.tracklist.SetCursorFromClick(y) {
+		return m, nil
+	}
+
+	now := time.Now()
+	if m.lastClickPane == PaneTrackList && now.Sub(m.lastClickTime) < doubleClickThreshold {
+		m.lastClickTime = time.Time{}
+		track := m.tracklist.SelectedTrack()
+		if track != nil && !track.IsSeparator {
+			if track.IsAlbumRow && track.AlbumID != "" {
+				m.pushNav()
+				m.tracklist.SetLoading(track.Name)
+				return m, m.fetchAlbumPage(track.AlbumID)
+			}
+			return m, m.playTrack(track.URI, m.tracklist.ContextURI())
+		}
+	}
+	m.lastClickTime = now
+	m.lastClickPane = PaneTrackList
+	return m, nil
+}
+
+// handleOverlayMouse handles mouse input while an overlay is open: the wheel
+// scrolls the overlay's list and a left click closes the overlay (matching its
+// Escape behaviour). Per-row click selection is intentionally omitted — the
+// popups are centered with variable internal layouts, so pixel-accurate
+// hit-testing would couple to each overlay's rendering and be brittle.
+func (m Model) handleOverlayMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		return m.scrollOverlay(tea.KeyUp), nil
+	case tea.MouseButtonWheelDown:
+		return m.scrollOverlay(tea.KeyDown), nil
+	case tea.MouseButtonLeft:
+		if msg.Action == tea.MouseActionRelease {
+			return m.closeOverlay()
+		}
+	}
+	return m, nil
+}
+
+// scrollOverlay moves the active overlay's selection by wheelScrollLines in
+// the given direction.
+func (m Model) scrollOverlay(dir tea.KeyType) Model {
+	for range wheelScrollLines {
+		switch m.mode {
+		case ModeSearch:
+			if m.search != nil {
+				*m.search, _ = m.search.Update(tea.KeyMsg{Type: dir})
+			}
+		case ModeActions:
+			if m.actions != nil {
+				if dir == tea.KeyUp {
+					m.actions.MoveUp()
+				} else {
+					m.actions.MoveDown()
+				}
+			}
+		case ModeDevices:
+			if m.devices != nil {
+				if dir == tea.KeyUp {
+					m.devices.MoveUp()
+				} else {
+					m.devices.MoveDown()
+				}
+			}
+		}
+	}
+	return m
+}
+
+// closeOverlay dismisses the current overlay, mirroring its Escape handling.
+// Input modes (command/filter) are left untouched.
+func (m Model) closeOverlay() (Model, tea.Cmd) {
+	switch m.mode {
+	case ModeSearch:
+		m.search = nil
+		m.mode = ModeNormal
+	case ModeActions:
+		m.actions = nil
+		m.mode = m.actionsReturn
+	case ModeDevices:
+		m.devices = nil
+		m.mode = ModeNormal
+	case ModeHelp, ModeNowPlaying:
+		m.mode = ModeNormal
+	}
 	return m, nil
 }
 
