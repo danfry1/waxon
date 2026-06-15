@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/danfry1/waxon/source"
 )
@@ -15,11 +14,20 @@ import (
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // TrackList is the right pane model showing tracks in a table.
+//
+// Scrolling is owned by waxon rather than delegated to the bubbles table:
+// the table is fed only the currently visible window of rows (never more
+// than its viewport height), so it never scrolls internally. As a result
+// tl.offset is always the exact data index of the first visible row, which
+// is what makes click-to-row mapping reliable even when the list is scrolled.
 type TrackList struct {
 	table      table.Model
 	tracks     []source.Track
 	filtered   []source.Track // subset visible after filter; nil means no filter active
 	filterText string         // current active filter query
+	allRows    []table.Row    // full row set; the table sees only a window of these
+	cursor     int            // selected index into displayTracks (global, not windowed)
+	offset     int            // data index of the first visible row
 	title      string
 	subtitle   string // optional second line (e.g. genres, artist name)
 	headerInfo string // optional third line (e.g. "30 tracks · 1h 42m")
@@ -64,12 +72,17 @@ func NewTrackList(width, height int) TrackList {
 		Bold(true)
 	t.SetStyles(s)
 
-	return TrackList{
+	tl := TrackList{
 		table:  t,
 		title:  "Tracks",
 		width:  width,
 		height: height,
 	}
+	// Recompute the viewport height now that the bordered header style is
+	// applied, so the visible-row capacity is stable from the start (the
+	// header border adds a row that WithHeight alone doesn't account for).
+	tl.table.SetHeight(tl.tableHeight())
+	return tl
 }
 
 func (tl *TrackList) SetLoading(title string) {
@@ -77,6 +90,9 @@ func (tl *TrackList) SetLoading(title string) {
 	tl.title = title
 	tl.tracks = nil
 	tl.filtered = nil
+	tl.allRows = nil
+	tl.cursor = 0
+	tl.offset = 0
 	tl.table.SetRows(nil)
 }
 
@@ -91,6 +107,7 @@ func (tl *TrackList) SetSubtitle(s string) {
 func (tl *TrackList) SetHeaderInfo(info string) {
 	tl.headerInfo = info
 	tl.table.SetHeight(tl.tableHeight())
+	tl.syncViewport()
 }
 
 func (tl *TrackList) SetTracks(tracks []source.Track, title, contextURI string) {
@@ -180,8 +197,79 @@ func (tl *TrackList) rebuildRows() {
 			}
 		}
 	}
-	tl.table.SetRows(rows)
+	tl.allRows = rows
+	tl.syncViewport()
 }
+
+// capacity returns how many data rows the table viewport can display.
+func (tl *TrackList) capacity() int {
+	if c := tl.table.Height(); c > 0 {
+		return c
+	}
+	return 1
+}
+
+// syncViewport clamps the cursor, recomputes the scroll offset so the cursor
+// stays visible, and feeds the bubbles table only the visible window of rows.
+// Because the window never exceeds the viewport height, the table never
+// scrolls internally — so tl.offset is always the exact first visible row.
+func (tl *TrackList) syncViewport() {
+	n := len(tl.allRows)
+	if n == 0 {
+		tl.cursor = 0
+		tl.offset = 0
+		tl.table.SetRows(nil)
+		return
+	}
+	tl.cursor = clampInt(tl.cursor, 0, n-1)
+
+	visible := tl.capacity()
+	// Scroll just enough to keep the cursor within the visible window.
+	switch {
+	case tl.cursor < tl.offset:
+		tl.offset = tl.cursor
+	case tl.cursor >= tl.offset+visible:
+		tl.offset = tl.cursor - visible + 1
+	}
+	tl.offset = clampInt(tl.offset, 0, max(0, n-visible))
+
+	end := min(tl.offset+visible, n)
+	tl.table.SetRows(tl.allRows[tl.offset:end])
+	tl.table.SetCursor(tl.cursor - tl.offset)
+}
+
+// MoveUp moves the selection up by n rows.
+func (tl *TrackList) MoveUp(n int) {
+	tl.cursor -= n
+	tl.syncViewport()
+}
+
+// MoveDown moves the selection down by n rows.
+func (tl *TrackList) MoveDown(n int) {
+	tl.cursor += n
+	tl.syncViewport()
+}
+
+// HalfPageUp moves the selection up by half a viewport.
+func (tl *TrackList) HalfPageUp() { tl.MoveUp(max(1, tl.capacity()/2)) }
+
+// HalfPageDown moves the selection down by half a viewport.
+func (tl *TrackList) HalfPageDown() { tl.MoveDown(max(1, tl.capacity()/2)) }
+
+// GotoTop moves the selection to the first row.
+func (tl *TrackList) GotoTop() {
+	tl.cursor = 0
+	tl.syncViewport()
+}
+
+// GotoBottom moves the selection to the last row.
+func (tl *TrackList) GotoBottom() {
+	tl.cursor = len(tl.allRows) - 1
+	tl.syncViewport()
+}
+
+// Cursor returns the selected index into the display tracks.
+func (tl *TrackList) Cursor() int { return tl.cursor }
 
 // SetFilter applies a case-insensitive filter matching track name or artist.
 // An empty query clears the filter.
@@ -229,6 +317,7 @@ func (tl *TrackList) ContextURI() string {
 func (tl *TrackList) SetArt(artBlock string) {
 	tl.artBlock = artBlock
 	tl.table.SetHeight(tl.tableHeight())
+	tl.syncViewport()
 }
 
 func (tl *TrackList) SetNowPlaying(trackID string) {
@@ -244,7 +333,7 @@ func (tl *TrackList) SetNowPlaying(trackID string) {
 
 func (tl *TrackList) SelectedTrack() *source.Track {
 	display := tl.displayTracks()
-	idx := tl.table.Cursor()
+	idx := tl.cursor
 	if idx < 0 || idx >= len(display) {
 		return nil
 	}
@@ -257,7 +346,8 @@ func (tl *TrackList) JumpToTrack(trackID string) bool {
 	display := tl.displayTracks()
 	for i, t := range display {
 		if t.ID == trackID {
-			tl.table.SetCursor(i)
+			tl.cursor = i
+			tl.syncViewport()
 			return true
 		}
 	}
@@ -283,16 +373,12 @@ func (tl *TrackList) Resize(width, height int) {
 	tl.height = height
 	tl.table.SetHeight(tl.tableHeight())
 	tl.table.SetColumns(trackColumns(width))
-	// Re-render rows with new widths
+	// Re-render rows with new widths (also re-windows via syncViewport).
 	if len(tl.tracks) > 0 {
 		tl.rebuildRows()
+	} else {
+		tl.syncViewport()
 	}
-}
-
-func (tl TrackList) Update(msg tea.Msg) (TrackList, tea.Cmd) {
-	var cmd tea.Cmd
-	tl.table, cmd = tl.table.Update(msg)
-	return tl, cmd
 }
 
 func (tl TrackList) View(active bool) string {
@@ -375,18 +461,22 @@ func (tl TrackList) headerRows() int {
 	return rows
 }
 
-// SetCursorFromClick maps a Y coordinate (relative to the pane top)
-// to a table data row and moves the cursor there.
-func (tl *TrackList) SetCursorFromClick(y int) {
+// SetCursorFromClick maps a Y coordinate (relative to the pane top) to a
+// data row and moves the cursor there. The clicked row is offset by the
+// current scroll position, so clicks land correctly on a scrolled list.
+// Returns true if the click landed on a real row.
+func (tl *TrackList) SetCursorFromClick(y int) bool {
 	row := y - tl.headerRows()
-	if row < 0 {
-		return
+	if row < 0 || row >= tl.capacity() {
+		return false
 	}
-	display := tl.displayTracks()
-	if row >= len(display) {
-		return
+	target := tl.offset + row
+	if target >= len(tl.displayTracks()) {
+		return false
 	}
-	tl.table.SetCursor(row)
+	tl.cursor = target
+	tl.syncViewport()
+	return true
 }
 
 func (tl TrackList) columnWidth(idx int) int {
@@ -435,6 +525,7 @@ type NavState struct {
 	contextURI string
 	artBlock   string
 	cursor     int
+	offset     int
 	focusPane  Pane
 }
 
@@ -447,7 +538,8 @@ func (tl *TrackList) GetState(pane Pane) NavState {
 		headerInfo: tl.headerInfo,
 		contextURI: tl.contextURI,
 		artBlock:   tl.artBlock,
-		cursor:     tl.table.Cursor(),
+		cursor:     tl.cursor,
+		offset:     tl.offset,
 		focusPane:  pane,
 	}
 }
@@ -463,11 +555,10 @@ func (tl *TrackList) RestoreState(s NavState) {
 	tl.artBlock = s.artBlock
 	tl.filtered = nil
 	tl.filterText = ""
-	tl.rebuildRows()
 	tl.table.SetHeight(tl.tableHeight())
-	if s.cursor >= 0 && s.cursor < len(s.tracks) {
-		tl.table.SetCursor(s.cursor)
-	}
+	tl.cursor = s.cursor
+	tl.offset = s.offset
+	tl.rebuildRows()
 }
 
 // FormatTrackListInfo returns a summary string like "30 tracks · 1h 42m".

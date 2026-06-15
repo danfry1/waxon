@@ -4575,8 +4575,8 @@ func TestTrackListJumpToTrackFound(t *testing.T) {
 	if !found {
 		t.Error("JumpToTrack should return true for existing track")
 	}
-	if tl.table.Cursor() != 1 {
-		t.Errorf("cursor = %d, want 1", tl.table.Cursor())
+	if tl.Cursor() != 1 {
+		t.Errorf("cursor = %d, want 1", tl.Cursor())
 	}
 }
 
