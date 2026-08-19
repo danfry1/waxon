@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"strings"
@@ -813,6 +814,41 @@ func TestPollRateLimitPausesPollingWithoutCountingAsOutage(t *testing.T) {
 	result, _ = result.(Model).Update(trackUpdateMsg{track: &source.Track{ID: "x", Playing: true}})
 	if d := result.(Model).backoffInterval(); d != pollInterval {
 		t.Errorf("after a good poll the cadence should be back to %v, got %v", pollInterval, d)
+	}
+}
+
+func TestCooldownSuppressesInFlightTicks(t *testing.T) {
+	calls := 0
+	stub := &StubSource{CurrentPlaybackFn: func(context.Context) (*source.PlaybackState, error) {
+		calls++
+		return nil, nil
+	}}
+	m := newTestModel(stub)
+	m.rateLimitedUntil = time.Now().Add(time.Minute)
+	// A poll tick that was scheduled before the 429 must not fetch.
+	_, cmd := m.Update(pollTickMsg(time.Now()))
+	if cmd == nil {
+		t.Fatal("tick should still reschedule itself")
+	}
+	// The returned cmd is a single Tick (no batch with a fetch): running it
+	// would block for the interval, so just check no fetch happened yet.
+	if calls != 0 {
+		t.Errorf("fetch during cooldown: %d calls", calls)
+	}
+	// A pending control refresh is dropped too.
+	m.refreshPending = 1
+	_, cmd = m.Update(playbackRefreshMsg{})
+	if cmd != nil || calls != 0 {
+		t.Error("refresh during cooldown should be a no-op")
+	}
+	// Once the cooldown has passed, the tick fetches again.
+	m.rateLimitedUntil = time.Now().Add(-time.Second)
+	_, cmd = m.Update(pollTickMsg(time.Now()))
+	if cmd == nil {
+		t.Fatal("expected batch")
+	}
+	if batch, ok := cmd().(tea.BatchMsg); !ok || len(batch) != 2 {
+		t.Errorf("after cooldown the tick should fetch and reschedule, got %T", cmd())
 	}
 }
 

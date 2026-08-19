@@ -331,10 +331,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pollTickMsg:
 		interval := m.backoffInterval()
-		return m, tea.Batch(
-			m.fetchCurrentTrack(),
-			tea.Tick(interval, func(t time.Time) tea.Msg { return pollTickMsg(t) }),
-		)
+		next := tea.Tick(interval, func(t time.Time) tea.Msg { return pollTickMsg(t) })
+		if m.coolingDown() {
+			// A tick scheduled before the 429 landed: don't fetch, just wait.
+			return m, next
+		}
+		return m, tea.Batch(m.fetchCurrentTrack(), next)
 
 	case noPlaybackMsg:
 		m.consecutiveErrors = 0
@@ -635,6 +637,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case playbackRefreshMsg:
 		if m.refreshPending > 0 {
 			m.refreshPending--
+		}
+		if m.coolingDown() {
+			return m, nil
 		}
 		return m, m.fetchCurrentTrack()
 
@@ -1623,6 +1628,11 @@ func isRateLimitError(err error) bool {
 	}
 	var hse httpStatusError
 	return errors.As(err, &hse) && hse.HTTPStatus() == http.StatusTooManyRequests
+}
+
+// coolingDown reports whether a rate-limit cooldown is still in effect.
+func (m Model) coolingDown() bool {
+	return time.Now().Before(m.rateLimitedUntil)
 }
 
 // noteRateLimit records a rate-limit cooldown if err is a 429, honouring the
