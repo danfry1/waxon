@@ -64,3 +64,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           SCOOP_BUCKET_GITHUB_TOKEN: ${{ steps.scoop-token.outputs.token }}
+
+      - name: Verify the release notes were applied
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          body=$(gh release view "$TAG" --json body -q .body)
+          if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+            echo "release body is empty; setting it from CHANGELOG.md"
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
