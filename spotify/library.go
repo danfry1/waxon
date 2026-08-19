@@ -125,8 +125,7 @@ func apiTrackToSource(t apiTrack) source.Track {
 		artist = t.Artists[0].Name
 		artistID = t.Artists[0].ID
 	}
-	artworkURL := ""
-	artworkURL = pickImageURL(t.Album.Images, trackArtMinPx)
+	artworkURL := pickImageURL(t.Album.Images, trackArtMinPx)
 	return source.Track{
 		ID:         t.ID,
 		URI:        t.URI,
@@ -248,8 +247,7 @@ func (p *PlayerSource) Playlists(ctx context.Context) ([]source.Playlist, error)
 			if total == 0 {
 				total = pl.Tracks.Total // fallback for older API
 			}
-			imageURL := ""
-			imageURL = pickImageURL(pl.Images, thumbArtMinPx)
+			imageURL := pickImageURL(pl.Images, thumbArtMinPx)
 			playlists = append(playlists, source.Playlist{
 				ID:         pl.ID,
 				URI:        pl.URI,
@@ -387,8 +385,7 @@ func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.
 		tracks = append(tracks, apiTrackToSource(t))
 	}
 
-	imageURL := ""
-	imageURL = pickImageURL(artist.Images, thumbArtMinPx)
+	imageURL := pickImageURL(artist.Images, thumbArtMinPx)
 
 	// Fetch artist's albums (discography)
 	var albumsResp struct {
@@ -417,8 +414,7 @@ func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.
 			if a.AlbumType == "single" {
 				albumType = "Single"
 			}
-			imgURL := ""
-			imgURL = pickImageURL(a.Images, thumbArtMinPx)
+			imgURL := pickImageURL(a.Images, thumbArtMinPx)
 			albums = append(albums, source.ArtistAlbum{
 				ID:       a.ID,
 				Name:     a.Name,
@@ -463,8 +459,7 @@ func (p *PlayerSource) GetAlbum(ctx context.Context, albumID string) (*source.Al
 		artistName = album.Artists[0].Name
 	}
 
-	imageURL := ""
-	imageURL = pickImageURL(album.Images, thumbArtMinPx)
+	imageURL := pickImageURL(album.Images, thumbArtMinPx)
 
 	tracks := make([]source.Track, 0, len(album.Tracks.Items))
 	for _, t := range album.Tracks.Items {
