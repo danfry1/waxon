@@ -39,15 +39,26 @@ func wrapPlayerError(err error) error {
 	return err
 }
 
-// wrapScopeError maps a 403 "Insufficient client scope" onto
-// source.ErrInsufficientScope for non-player endpoints (playlist writes).
+// wrapScopeError maps 403s from non-player endpoints: "Insufficient client
+// scope" becomes source.ErrInsufficientScope (re-auth fixes it); any other
+// 403 becomes source.ErrForbidden (the endpoint isn't available to this app).
 func wrapScopeError(err error) error {
 	if err == nil {
 		return nil
 	}
 	var sErr spotifyapi.Error
-	if errors.As(err, &sErr) && sErr.Status == http.StatusForbidden && strings.Contains(strings.ToLower(sErr.Message), "scope") {
-		return fmt.Errorf("%w: %w", source.ErrInsufficientScope, err)
+	if errors.As(err, &sErr) && sErr.Status == http.StatusForbidden {
+		if strings.Contains(strings.ToLower(sErr.Message), "scope") {
+			return fmt.Errorf("%w: %w", source.ErrInsufficientScope, err)
+		}
+		return fmt.Errorf("%w: %w", source.ErrForbidden, err)
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden {
+		if strings.Contains(strings.ToLower(apiErr.Body), "scope") {
+			return fmt.Errorf("%w: %w", source.ErrInsufficientScope, err)
+		}
+		return fmt.Errorf("%w: %w", source.ErrForbidden, err)
 	}
 	return err
 }

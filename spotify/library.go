@@ -3,6 +3,7 @@ package spotify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -419,7 +420,14 @@ func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.
 		Tracks []apiTrack `json:"tracks"`
 	}
 	if err := p.apiGet(ctx, "/artists/"+artistID+"/top-tracks?market=from_token", &topTracks); err != nil {
-		return nil, fmt.Errorf("get artist top tracks: %w", err)
+		// Development-mode apps are refused this endpoint (403). The artist
+		// page is still useful with just the discography, so degrade rather
+		// than fail; anything else is a real error.
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+			return nil, fmt.Errorf("get artist top tracks: %w", err)
+		}
+		slog.Warn("artist top tracks not permitted for this app; showing discography only", "artist", artistID)
 	}
 
 	tracks := make([]source.Track, 0, len(topTracks.Tracks))
@@ -536,17 +544,17 @@ func (p *PlayerSource) GetAlbum(ctx context.Context, albumID string) (*source.Al
 }
 
 func (p *PlayerSource) SaveTrack(ctx context.Context, trackID string) error {
-	return p.client.AddTracksToLibrary(ctx, spotifyapi.ID(trackID))
+	return wrapScopeError(p.client.AddTracksToLibrary(ctx, spotifyapi.ID(trackID)))
 }
 
 func (p *PlayerSource) RemoveTrack(ctx context.Context, trackID string) error {
-	return p.client.RemoveTracksFromLibrary(ctx, spotifyapi.ID(trackID))
+	return wrapScopeError(p.client.RemoveTracksFromLibrary(ctx, spotifyapi.ID(trackID)))
 }
 
 func (p *PlayerSource) IsTrackSaved(ctx context.Context, trackID string) (bool, error) {
 	results, err := p.client.UserHasTracks(ctx, spotifyapi.ID(trackID))
 	if err != nil {
-		return false, err
+		return false, wrapScopeError(err)
 	}
 	if len(results) == 0 {
 		return false, nil

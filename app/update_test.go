@@ -6282,3 +6282,49 @@ func TestPlaylistPickerEscAndClickClose(t *testing.T) {
 		t.Error("overlay click should close the picker")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Development-mode app restrictions (403 on library endpoints)
+// ---------------------------------------------------------------------------
+
+func TestForbiddenLikeStatusDisablesChecksQuietly(t *testing.T) {
+	checks := 0
+	stub := &StubSource{IsTrackSavedFn: func(context.Context, string) (bool, error) {
+		checks++
+		return false, source.ErrForbidden
+	}}
+	m := newTestModel(stub)
+	// First track change: the check runs and fails with 403.
+	result, cmd := m.Update(trackUpdateMsg{track: &source.Track{ID: "a", Name: "A", Playing: true}})
+	m = result.(Model)
+	runCmdTree(cmd)
+	// Find and deliver the like-status error the batch produced.
+	result, cmd = m.Update(likeStatusErrorMsg{source.ErrForbidden})
+	m = result.(Model)
+	if !m.likeUnavailable {
+		t.Fatal("a 403 on the like check should disable like checks")
+	}
+	if cmd != nil || m.toast.Visible() {
+		t.Error("the background check must not toast on every track change")
+	}
+	// Subsequent track changes don't check again.
+	checks = 0
+	_, cmd = m.Update(trackUpdateMsg{track: &source.Track{ID: "b", Name: "B", Playing: true}})
+	runCmdTree(cmd)
+	if checks != 0 {
+		t.Errorf("like check should be skipped once unavailable, ran %d times", checks)
+	}
+	// An explicit like explains itself instead of a raw "Forbidden".
+	result, _ = m.Update(trackErrorMsg{source.ErrForbidden})
+	if v := result.(Model).toast.View(120); !strings.Contains(v, "Not available with this Spotify app") {
+		t.Errorf("toast = %q", v)
+	}
+}
+
+func TestOtherLikeStatusErrorsAreSilent(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	result, cmd := m.Update(likeStatusErrorMsg{errors.New("timeout")})
+	if cmd != nil || result.(Model).toast.Visible() || result.(Model).likeUnavailable {
+		t.Error("transient like-status failures should be logged only")
+	}
+}

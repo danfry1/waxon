@@ -341,7 +341,7 @@ func (m Model) checkLikeStatus(trackID string) tea.Cmd {
 	return func() tea.Msg {
 		saved, err := src.IsTrackSaved(ctx, trackID)
 		if err != nil {
-			return trackErrorMsg{err}
+			return likeStatusErrorMsg{err}
 		}
 		return trackLikeStatusMsg{trackID: trackID, liked: saved}
 	}
@@ -621,7 +621,7 @@ func (m Model) openActions() (Model, tea.Cmd) {
 		m.actions = &popup
 		m.actionsReturn = ModeNormal
 		m.mode = ModeActions
-		if !known && track.ID != "" {
+		if !known && track.ID != "" && !m.likeUnavailable {
 			// Look the state up so the popup's label is right; the action itself
 			// re-checks, so this is purely cosmetic.
 			return m, m.checkLikeStatus(track.ID)

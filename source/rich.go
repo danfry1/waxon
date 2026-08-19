@@ -174,6 +174,13 @@ var ErrNoActiveDevice = errors.New("no active Spotify device")
 // is to run 'waxon auth' again.
 var ErrInsufficientScope = errors.New("missing permission — run 'waxon auth' to grant it")
 
+// ErrForbidden is returned when Spotify refuses an endpoint for this app
+// outright (403 with no scope/premium reason). Spotify restricts
+// development-mode apps from some endpoints — notably library writes and
+// "contains" checks, and artist top tracks — so personal client IDs hit
+// this where the shared ID does not.
+var ErrForbidden = errors.New("not permitted for this Spotify app")
+
 // ErrPremiumRequired is returned by playback commands when the account is
 // not Spotify Premium; the Web API only permits playback control for Premium.
 var ErrPremiumRequired = errors.New("premium account required for playback control")

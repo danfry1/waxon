@@ -1512,3 +1512,41 @@ func TestCurrentPlaybackRateLimitCarriesRetryAfter(t *testing.T) {
 		t.Fatalf("expected 429 APIError with Retry-After 900, got %v", err)
 	}
 }
+
+func TestGetArtistWithoutTopTracksOn403(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/artists/a1", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":"a1","name":"Band","genres":["rock"],"images":[]}`)
+	})
+	mux.HandleFunc("/v1/artists/a1/top-tracks", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+		fmt.Fprint(w, `{"error":{"status":403,"message":"Forbidden"}}`)
+	})
+	mux.HandleFunc("/v1/artists/a1/albums", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"items":[{"id":"al1","name":"LP","release_date":"2001-01-01","album_type":"album","images":[]}]}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	page, err := newTestPlayerSource(srv.URL).GetArtist(context.Background(), "a1")
+	if err != nil {
+		t.Fatalf("a dev-mode 403 on top tracks should not fail the artist page: %v", err)
+	}
+	if page.Name != "Band" || len(page.Tracks) != 0 || len(page.Albums) != 1 {
+		t.Errorf("page = %+v", page)
+	}
+}
+
+func TestWrapScopeErrorMapsForbidden(t *testing.T) {
+	if err := wrapScopeError(spotifyapi.Error{Status: 403, Message: "Forbidden"}); !errors.Is(err, source.ErrForbidden) {
+		t.Errorf("plain 403 should be ErrForbidden, got %v", err)
+	}
+	if err := wrapScopeError(spotifyapi.Error{Status: 403, Message: "Insufficient client scope"}); !errors.Is(err, source.ErrInsufficientScope) {
+		t.Errorf("scope 403 should be ErrInsufficientScope, got %v", err)
+	}
+	if err := wrapScopeError(&APIError{StatusCode: 403, Body: `{"error":{"message":"Forbidden"}}`}); !errors.Is(err, source.ErrForbidden) {
+		t.Errorf("raw-path 403 should be ErrForbidden, got %v", err)
+	}
+	if err := wrapScopeError(spotifyapi.Error{Status: 404, Message: "x"}); errors.Is(err, source.ErrForbidden) {
+		t.Error("non-403 must pass through")
+	}
+}
