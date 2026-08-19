@@ -238,36 +238,56 @@ func (p *PlayerSource) currentUserID(ctx context.Context) (string, error) {
 // --- source.PlaylistSource ---
 
 func (p *PlayerSource) AddToPlaylist(ctx context.Context, playlistID, trackID string) error {
-	_, err := p.client.AddTracksToPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
+	body := map[string]any{"uris": []string{"spotify:track:" + trackID}}
+	err := p.apiWrite(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", body, nil)
+	if err != nil && isLegacyFallbackError(err) {
+		_, err = p.client.AddTracksToPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
+	}
 	return wrapScopeError(err)
 }
 
 func (p *PlayerSource) RemoveFromPlaylist(ctx context.Context, playlistID, trackID string, position int) error {
-	if position < 0 {
-		// Removes every occurrence; only used when the row position is unknown.
-		_, err := p.client.RemoveTracksFromPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
-		return wrapScopeError(err)
+	item := map[string]any{"uri": "spotify:track:" + trackID}
+	if position >= 0 {
+		// Position-based removal touches just the selected row, so duplicates
+		// of the same track elsewhere in the playlist are left alone.
+		item["positions"] = []int{position}
 	}
-	// Position-based removal touches just the selected row, so duplicates of
-	// the same track elsewhere in the playlist are left alone.
-	tracks := []spotifyapi.TrackToRemove{{URI: "spotify:track:" + trackID, Positions: []int{position}}}
-	_, err := p.client.RemoveTracksFromPlaylistOpt(ctx, spotifyapi.ID(playlistID), tracks, "")
+	body := map[string]any{"items": []map[string]any{item}}
+	err := p.apiWrite(ctx, http.MethodDelete, "/playlists/"+playlistID+"/items", body, nil)
+	if err != nil && isLegacyFallbackError(err) {
+		if position < 0 {
+			_, err = p.client.RemoveTracksFromPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
+		} else {
+			tracks := []spotifyapi.TrackToRemove{{URI: "spotify:track:" + trackID, Positions: []int{position}}}
+			_, err = p.client.RemoveTracksFromPlaylistOpt(ctx, spotifyapi.ID(playlistID), tracks, "")
+		}
+	}
 	return wrapScopeError(err)
 }
 
 func (p *PlayerSource) CreatePlaylist(ctx context.Context, name string) (source.Playlist, error) {
-	me, err := p.currentUserID(ctx)
+	var created struct {
+		ID   string `json:"id"`
+		URI  string `json:"uri"`
+		Name string `json:"name"`
+	}
+	body := map[string]any{"name": name, "public": false}
+	err := p.apiWrite(ctx, http.MethodPost, "/me/playlists", body, &created)
+	if err != nil && isLegacyFallbackError(err) {
+		me, merr := p.currentUserID(ctx)
+		if merr != nil {
+			return source.Playlist{}, wrapScopeError(merr)
+		}
+		pl, cerr := p.client.CreatePlaylistForUser(ctx, me, name, "", false, false)
+		if cerr != nil {
+			return source.Playlist{}, wrapScopeError(cerr)
+		}
+		created.ID, created.URI, created.Name = string(pl.ID), string(pl.URI), pl.Name
+		err = nil
+	}
 	if err != nil {
 		return source.Playlist{}, wrapScopeError(err)
 	}
-	pl, err := p.client.CreatePlaylistForUser(ctx, me, name, "", false, false)
-	if err != nil {
-		return source.Playlist{}, wrapScopeError(err)
-	}
-	return source.Playlist{
-		ID:       string(pl.ID),
-		URI:      string(pl.URI),
-		Name:     pl.Name,
-		Editable: true,
-	}, nil
+	return source.Playlist{ID: created.ID, URI: created.URI, Name: created.Name, Editable: true}, nil
 }

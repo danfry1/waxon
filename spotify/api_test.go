@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -512,7 +513,7 @@ func TestPlaylistTracksPageOffset(t *testing.T) {
 	}
 
 	// Verify the URL included the offset and limit
-	wantPath := "/v1/playlists/pl999/tracks?offset=50&limit=25"
+	wantPath := "/v1/playlists/pl999/items?offset=50&limit=25"
 	if requestedPath != wantPath {
 		t.Errorf("requested path = %q, want %q", requestedPath, wantPath)
 	}
@@ -1548,5 +1549,126 @@ func TestWrapScopeErrorMapsForbidden(t *testing.T) {
 	}
 	if err := wrapScopeError(spotifyapi.Error{Status: 404, Message: "x"}); errors.Is(err, source.ErrForbidden) {
 		t.Error("non-403 must pass through")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Current-API endpoints with legacy fallback
+// ---------------------------------------------------------------------------
+
+func TestPlaylistPageFallsBackToLegacyTracksOn403(t *testing.T) {
+	var paths []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/playlists/p1/items", func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.WriteHeader(403)
+	})
+	mux.HandleFunc("/v1/playlists/p1/tracks", func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		fmt.Fprint(w, `{"items":[{"item":{"id":"t1","name":"S"}}],"total":60}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	tracks, total, err := newTestPlayerSource(srv.URL).PlaylistTracksPage(context.Background(), "p1", 50, 10)
+	if err != nil || total != 60 || len(tracks) != 1 {
+		t.Fatalf("fallback failed: %v %d %d", err, total, len(tracks))
+	}
+	if len(paths) != 2 || !strings.HasSuffix(paths[0], "/items") || !strings.HasSuffix(paths[1], "/tracks") {
+		t.Errorf("expected /items then /tracks, got %v", paths)
+	}
+}
+
+func TestLibraryUsesCurrentEndpoints(t *testing.T) {
+	var got []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/me/library/contains", func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Method+" "+r.URL.RequestURI())
+		fmt.Fprint(w, `[true]`)
+	})
+	mux.HandleFunc("/v1/me/library", func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Method+" "+r.URL.RequestURI())
+		w.WriteHeader(200)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	ps := newTestPlayerSource(srv.URL)
+	ctx := context.Background()
+	saved, err := ps.IsTrackSaved(ctx, "abc")
+	if err != nil || !saved {
+		t.Fatalf("IsTrackSaved: %v %v", saved, err)
+	}
+	if err := ps.SaveTrack(ctx, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.RemoveTrack(ctx, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"GET /v1/me/library/contains?uris=spotify%3Atrack%3Aabc",
+		"PUT /v1/me/library?uris=spotify%3Atrack%3Aabc",
+		"DELETE /v1/me/library?uris=spotify%3Atrack%3Aabc",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("requests = %v, want %v", got, want)
+	}
+}
+
+func TestPlaylistWritesUseItemsEndpoint(t *testing.T) {
+	type call struct{ method, path, body string }
+	var calls []call
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/playlists/p1/items", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		calls = append(calls, call{r.Method, r.URL.Path, string(b)})
+		w.WriteHeader(201)
+		fmt.Fprint(w, `{"snapshot_id":"x"}`)
+	})
+	mux.HandleFunc("/v1/me/playlists", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		calls = append(calls, call{r.Method, r.URL.Path, string(b)})
+		w.WriteHeader(201)
+		fmt.Fprint(w, `{"id":"new1","uri":"spotify:playlist:new1","name":"Road Trip"}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	ps := newTestPlayerSource(srv.URL)
+	ctx := context.Background()
+	if err := ps.AddToPlaylist(ctx, "p1", "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.RemoveFromPlaylist(ctx, "p1", "t1", 4); err != nil {
+		t.Fatal(err)
+	}
+	pl, err := ps.CreatePlaylist(ctx, "Road Trip")
+	if err != nil || pl.ID != "new1" || !pl.Editable {
+		t.Fatalf("create: %+v %v", pl, err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("calls = %+v", calls)
+	}
+	if calls[0].method != "POST" || !strings.Contains(calls[0].body, `"uris":["spotify:track:t1"]`) {
+		t.Errorf("add = %+v", calls[0])
+	}
+	if calls[1].method != "DELETE" || !strings.Contains(calls[1].body, `"positions":[4]`) || !strings.Contains(calls[1].body, `"items"`) {
+		t.Errorf("remove = %+v", calls[1])
+	}
+	if calls[2].method != "POST" || !strings.Contains(calls[2].body, `"name":"Road Trip"`) || !strings.Contains(calls[2].body, `"public":false`) {
+		t.Errorf("create = %+v", calls[2])
+	}
+}
+
+func TestForbiddenOnBothPathsIsErrForbidden(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+		fmt.Fprint(w, `{"error":{"status":403,"message":"Forbidden"}}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	// Both the current endpoint and the legacy zmb3 fallback route through the
+	// same test server, so both 403.
+	ps := newTestPlayerSourceWithClient(srv.URL)
+	if err := ps.SaveTrack(context.Background(), "abc"); !errors.Is(err, source.ErrForbidden) {
+		t.Errorf("expected ErrForbidden after both paths refused, got %v", err)
 	}
 }

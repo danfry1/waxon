@@ -1,6 +1,7 @@
 package spotify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -71,6 +73,17 @@ type apiTrack struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"artists"`
+}
+
+// isLegacyFallbackError reports whether a failure on a current-API endpoint
+// warrants retrying the legacy endpoint: the app may not have the new route
+// (404) or may not be permitted it (403).
+func isLegacyFallbackError(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusNotFound
+	}
+	return false
 }
 
 // apiImage is one entry of a Spotify images array (largest first).
@@ -171,7 +184,7 @@ func (e *APIError) HTTPStatus() int {
 }
 
 func (p *PlayerSource) apiGet(ctx context.Context, path string, v any) error {
-	found, err := p.apiGetRetry(ctx, path, v, 0)
+	found, err := p.apiDo(ctx, http.MethodGet, path, nil, v, 0)
 	if err == nil && !found {
 		// Callers of apiGet expect a body; treat 204 as "nothing" by leaving v
 		// zero-valued, which is what every current caller wants.
@@ -184,7 +197,14 @@ func (p *PlayerSource) apiGet(ctx context.Context, path string, v any) error {
 // there is nothing to report (e.g. /me/player with no active session).
 // found is false on 204.
 func (p *PlayerSource) apiGetOptional(ctx context.Context, path string, v any) (found bool, err error) {
-	return p.apiGetRetry(ctx, path, v, 0)
+	return p.apiDo(ctx, http.MethodGet, path, nil, v, 0)
+}
+
+// apiWrite sends a JSON-bodied (or bodiless) POST/PUT/DELETE and decodes an
+// optional response into v (may be nil). 2xx without a body is success.
+func (p *PlayerSource) apiWrite(ctx context.Context, method, path string, body, v any) error {
+	_, err := p.apiDo(ctx, method, path, body, v, 0)
+	return err
 }
 
 const maxRetries = 2
@@ -193,10 +213,24 @@ const maxRetries = 2
 // waits are returned as an error instead of silently stalling a fetch.
 const maxRetryAfterSeconds = 30
 
-func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, attempt int) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+path, nil)
+// apiDo performs one API request with waxon's error handling: bounded 429
+// retries honouring Retry-After, structured APIError on failure, and 204/201
+// handling. found is false when the response carried no body to decode.
+func (p *PlayerSource) apiDo(ctx context.Context, method, path string, body, v any, attempt int) (bool, error) {
+	var reqBody io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return false, err
+		}
+		reqBody = bytes.NewReader(data)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, apiBase+path, reqBody)
 	if err != nil {
 		return false, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -227,13 +261,13 @@ func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, atte
 		case <-ctx.Done():
 			return false, ctx.Err()
 		}
-		return p.apiGetRetry(ctx, path, v, attempt+1)
+		return p.apiDo(ctx, method, path, body, v, attempt+1)
 	}
 
 	if resp.StatusCode == http.StatusNoContent {
 		return false, nil
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		body, _ := io.ReadAll(limited)
 		slog.Debug("API error", "path", path, "status", resp.StatusCode)
 		apiErr := &APIError{StatusCode: resp.StatusCode, Path: path, Body: string(body)}
@@ -243,7 +277,14 @@ func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, atte
 		}
 		return false, apiErr
 	}
+	if v == nil {
+		_, _ = io.Copy(io.Discard, limited)
+		return true, nil
+	}
 	if err := json.NewDecoder(limited).Decode(v); err != nil {
+		if errors.Is(err, io.EOF) {
+			return false, nil // 2xx with an empty body
+		}
 		return false, err
 	}
 	return true, nil
@@ -328,9 +369,17 @@ func (p *PlayerSource) PlaylistTracksPage(ctx context.Context, id string, offset
 		Items []apiPlaylistItem `json:"items"`
 		Total int               `json:"total"`
 	}
-	path := fmt.Sprintf("/playlists/%s/tracks?offset=%d&limit=%d", id, offset, limit)
+	// /items is the current endpoint (and the only one development-mode apps
+	// may call); /tracks is the legacy name kept as a fallback.
+	path := fmt.Sprintf("/playlists/%s/items?offset=%d&limit=%d", id, offset, limit)
 	if err := p.apiGet(ctx, path, &page); err != nil {
-		return nil, 0, err
+		if !isLegacyFallbackError(err) {
+			return nil, 0, err
+		}
+		path = fmt.Sprintf("/playlists/%s/tracks?offset=%d&limit=%d", id, offset, limit)
+		if err := p.apiGet(ctx, path, &page); err != nil {
+			return nil, 0, err
+		}
 	}
 	tracks := make([]source.Track, 0, len(page.Items))
 	for _, item := range page.Items {
@@ -543,16 +592,32 @@ func (p *PlayerSource) GetAlbum(ctx context.Context, albumID string) (*source.Al
 	}, nil
 }
 
+// Library endpoints. Spotify's current API is /me/library (URI-addressed);
+// /me/tracks is the legacy form that development-mode apps are refused. Try
+// the current endpoint first and fall back for apps that only have the old.
+
 func (p *PlayerSource) SaveTrack(ctx context.Context, trackID string) error {
-	return wrapScopeError(p.client.AddTracksToLibrary(ctx, spotifyapi.ID(trackID)))
+	err := p.apiWrite(ctx, http.MethodPut, "/me/library?uris="+url.QueryEscape("spotify:track:"+trackID), nil, nil)
+	if err != nil && isLegacyFallbackError(err) {
+		err = p.client.AddTracksToLibrary(ctx, spotifyapi.ID(trackID))
+	}
+	return wrapScopeError(err)
 }
 
 func (p *PlayerSource) RemoveTrack(ctx context.Context, trackID string) error {
-	return wrapScopeError(p.client.RemoveTracksFromLibrary(ctx, spotifyapi.ID(trackID)))
+	err := p.apiWrite(ctx, http.MethodDelete, "/me/library?uris="+url.QueryEscape("spotify:track:"+trackID), nil, nil)
+	if err != nil && isLegacyFallbackError(err) {
+		err = p.client.RemoveTracksFromLibrary(ctx, spotifyapi.ID(trackID))
+	}
+	return wrapScopeError(err)
 }
 
 func (p *PlayerSource) IsTrackSaved(ctx context.Context, trackID string) (bool, error) {
-	results, err := p.client.UserHasTracks(ctx, spotifyapi.ID(trackID))
+	var results []bool
+	err := p.apiGet(ctx, "/me/library/contains?uris="+url.QueryEscape("spotify:track:"+trackID), &results)
+	if err != nil && isLegacyFallbackError(err) {
+		results, err = p.client.UserHasTracks(ctx, spotifyapi.ID(trackID))
+	}
 	if err != nil {
 		return false, wrapScopeError(err)
 	}

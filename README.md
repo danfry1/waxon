@@ -305,7 +305,7 @@ waxon works out of the box with no configuration — it ships with a shared clie
 
 The client ID is saved to `~/.config/waxon/config.json` automatically, so you only need to set the environment variable once during setup.
 
-> **Trade-off:** Spotify keeps new developer apps in *development mode* and blocks a few endpoints for them — notably liking/unliking tracks (and the ♥ indicator) and artists' top tracks. waxon detects this and degrades (artist pages show the discography; `f` explains why it can't like). Everything else — playback, search, playlists, queue — works, without the shared app's rate limits.
+> **Note:** new developer apps are in Spotify's *development mode*, which only allows the current API endpoints. waxon uses those (with legacy fallbacks for older apps), so playback, search, queue, liking and playlist editing all work. The one thing Spotify blocks for development-mode apps with no replacement is an artist's *top tracks* — artist pages show the discography instead.
 
 ## Troubleshooting
 
@@ -313,7 +313,7 @@ The client ID is saved to `~/.config/waxon/config.json` automatically, so you on
 |---|---|
 | *Spotify rate limit* / *Spotify is rate limiting* toasts | Spotify is throttling the app. waxon backs off automatically and honours Spotify's `Retry-After`. If it keeps happening, the shared client ID is busy — [use your own](#using-your-own-spotify-app-recommended-if-you-see-rate-limits). |
 | *No active Spotify device* | Spotify must be open somewhere (desktop, phone, speaker). waxon picks the only available device automatically or asks with `D`. |
-| *Not available with this Spotify app* | You're on a personal client ID in Spotify development mode; Spotify blocks that endpoint (like/unlike, artist top tracks) for such apps. Use the shared ID for those, or accept the gap. |
+| *Not available with this Spotify app* | Spotify blocks that endpoint for development-mode (personal) apps — currently only artists' top tracks. |
 | *Permission needed — run `waxon auth`* | Your saved token predates a feature that needs extra permissions (e.g. playlist editing). Re-run `waxon auth` once. |
 | *Session expired* | Token revoked or refresh failed. Re-run `waxon auth`. |
 | Nothing renders / garbled colours | Set a true-colour or 256-colour `TERM`, or `NO_COLOR=1` for monochrome. Minimum size is 40×10. |
