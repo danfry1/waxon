@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/danfry1/waxon/app"
 	myauth "github.com/danfry1/waxon/auth"
+	"github.com/danfry1/waxon/cli"
 	"github.com/danfry1/waxon/config"
 	myspotify "github.com/danfry1/waxon/spotify"
 )
@@ -42,8 +43,36 @@ func main() {
 			printUsage()
 			return
 		}
+		if cli.IsCommand(os.Args[1]) {
+			src, ok := newSource()
+			if !ok {
+				cleanup()
+				os.Exit(1) //nolint:gocritic // cleanup called above
+			}
+			r := &cli.Runner{Src: src, Out: os.Stdout, Err: os.Stderr}
+			code := r.Run(context.Background(), os.Args[1:])
+			cleanup()
+			os.Exit(code) //nolint:gocritic // cleanup called above
+		}
 	}
 
+	src, ok := newSource()
+	if !ok {
+		cleanup()
+		os.Exit(1) //nolint:gocritic // cleanup called above
+	}
+
+	m := app.NewModel(src)
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// newSource builds the Spotify-backed source from the saved token. On failure
+// it prints guidance and returns ok=false (the caller exits).
+func newSource() (*myspotify.PlayerSource, bool) {
 	clientID := resolveClientID()
 	if clientID == "" {
 		clientID = myauth.DefaultClientID
@@ -58,25 +87,17 @@ func main() {
 	tokenPath := myauth.DefaultTokenPath()
 	token, err := myauth.LoadToken(tokenPath)
 	if err != nil {
-		cleanup()
 		if errors.Is(err, os.ErrNotExist) {
-			fmt.Println("No Spotify token found. Run 'waxon auth' to connect your account.")
+			fmt.Fprintln(os.Stderr, "No Spotify token found. Run 'waxon auth' to connect your account.")
 		} else {
 			fmt.Fprintf(os.Stderr, "Failed to read token: %v\n", err)
-			fmt.Println("Your token file may be corrupted. Run 'waxon auth' to re-authenticate.")
+			fmt.Fprintln(os.Stderr, "Your token file may be corrupted. Run 'waxon auth' to re-authenticate.")
 		}
-		os.Exit(1) //nolint:gocritic // cleanup called above
+		return nil, false
 	}
 
 	cp := myspotify.NewClient(clientID, token, tokenPath)
-	src := myspotify.NewPlayerSource(cp)
-
-	m := app.NewModel(src)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
+	return myspotify.NewPlayerSource(cp), true
 }
 
 // resolveClientID returns the Client ID from the env var (takes priority)
@@ -207,12 +228,14 @@ func printUsage() {
 
 Usage:
   waxon          Launch the TUI
-  waxon auth    Connect or re-connect your Spotify account
+  waxon auth     Connect or re-connect your Spotify account
   waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
   waxon help     Show this help
 
+` + cli.Usage() + `
+
 Environment:
   SPOTIFY_CLIENT_ID  Override the saved Client ID
-  WAXON_LOG       Path to debug log file (e.g. /tmp/waxon.log)`)
+  WAXON_LOG          Path to debug log file (e.g. /tmp/waxon.log)`)
 }

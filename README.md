@@ -183,6 +183,72 @@ Enter command mode by pressing `:`, then type a command.
 | `:recent`               | Recently played      |
 | `:q`                    | Quit                 |
 
+## Scripting & Status Bars
+
+Every playback action is also a plain subcommand, so waxon slots into tmux,
+waybar/polybar, hotkey daemons and shell scripts without opening the TUI.
+
+```
+waxon status                      # ▶ Let It Happen — Tame Impala
+waxon status --json               # {"playing":true,"title":...,"progress":37,...}
+waxon status --format '{icon} {title} [{position}/{duration}]'
+waxon play | pause | toggle | next | prev
+waxon play daft punk get lucky    # search, then play the first match
+waxon seek +10 | seek -10 | seek 1:30
+waxon vol 40 | vol +5 | vol -5
+waxon shuffle [on|off] | repeat off|all|one
+waxon like                        # toggle Liked Songs for the playing track
+waxon queue instant crush
+waxon devices | device "living room"
+waxon search radiohead [--json]
+```
+
+`status` prints nothing when idle (so bars stay blank) and exits non-zero on
+errors; `--json` always emits an object. Placeholders for `--format`:
+`{title} {artist} {album} {position} {duration} {progress} {state} {icon}
+{device} {volume} {shuffle} {repeat} {liked} {uri} {id}`. If no Spotify device
+is active, commands activate the only available one automatically, or tell you
+which ones to choose from.
+
+<p align="center">
+  <img src="demo/recordings/cli.gif" alt="waxon CLI subcommands" width="800">
+</p>
+
+**tmux** (`~/.tmux.conf`):
+
+```
+set -g status-right '#(waxon status --format "{icon} {title} — {artist}") | %H:%M'
+set -g status-interval 5
+```
+
+**waybar** (`~/.config/waybar/config`):
+
+```json
+"custom/spotify": {
+  "exec": "waxon status --json",
+  "return-type": "json",
+  "format": "{icon} {}",
+  "format-icons": {"playing": "", "paused": ""},
+  "on-click": "waxon toggle",
+  "on-scroll-up": "waxon vol +5",
+  "on-scroll-down": "waxon vol -5",
+  "interval": 5
+}
+```
+
+(waybar reads the `text`/`alt`/`class` keys; map them with a tiny wrapper —
+`waxon status --format '{"text":"{title} — {artist}","alt":"{state}","class":"{state}"}'`
+— or use `--format` directly for a plain-text module.)
+
+**Hotkeys** (skhd on macOS / sxhkd on Linux):
+
+```
+cmd + alt - space : waxon toggle
+cmd + alt - right : waxon next
+cmd + alt - left  : waxon prev
+cmd + alt - l     : waxon like
+```
+
 ## Using Your Own Spotify App (Optional)
 
 waxon works out of the box with no configuration — it ships with a shared client ID used by several open-source Spotify clients. Most users don't need to change anything.
