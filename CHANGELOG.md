@@ -21,6 +21,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 - Homebrew now ships as a Cask (goreleaser deprecated binary formulae); the install
   command is unchanged and the macOS quarantine flag is cleared on install.
+  Existing formula installs (≤ 1.6.0) migrate once with
+  `brew uninstall --formula waxon && brew install danfry1/tap/waxon`.
 - Built with Go 1.26; CI runs tests on Linux, macOS and Windows, lints with
   golangci-lint v2.12, runs govulncheck and validates the release config. GitHub
   Actions bumped to current majors and Dependabot keeps them (and Go modules)
