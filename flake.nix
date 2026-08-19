@@ -18,7 +18,7 @@
         pkgs = import nixpkgs { inherit system; };
         # Bumped on release (see CHANGELOG.md / the release checklist in
         # CLAUDE.md); CI checks it matches the newest CHANGELOG entry.
-        version = "1.6.0";
+        version = "1.7.0";
       in
       {
         packages.default = pkgs.buildGoModule {
