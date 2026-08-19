@@ -4,6 +4,8 @@ package demo
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -551,3 +553,70 @@ func (d *DemoSource) IsTrackSaved(_ context.Context, trackID string) (bool, erro
 
 // Compile-time interface check.
 var _ source.RichSource = (*DemoSource)(nil)
+
+// --- source.PlaylistSource ---
+
+func (d *DemoSource) findTrack(trackID string) (source.Track, bool) {
+	for _, t := range d.allTracks {
+		if t.ID == trackID {
+			return t, true
+		}
+	}
+	return source.Track{}, false
+}
+
+func (d *DemoSource) AddToPlaylist(_ context.Context, playlistID, trackID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	t, ok := d.findTrack(trackID)
+	if !ok {
+		return errors.New("track not found")
+	}
+	for i := range d.playlists {
+		if d.playlists[i].ID == playlistID {
+			if !d.playlists[i].Editable {
+				return errors.New("playlist is read-only")
+			}
+			d.tracksByPL[playlistID] = append(d.tracksByPL[playlistID], t)
+			d.playlists[i].TrackCount++
+			return nil
+		}
+	}
+	return errors.New("playlist not found")
+}
+
+func (d *DemoSource) RemoveFromPlaylist(_ context.Context, playlistID, trackID string, position int) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	tracks := d.tracksByPL[playlistID]
+	kept := tracks[:0]
+	removed := 0
+	for i, t := range tracks {
+		if t.ID == trackID && (position < 0 || i == position) {
+			removed++
+			continue
+		}
+		kept = append(kept, t)
+	}
+	d.tracksByPL[playlistID] = kept
+	for i := range d.playlists {
+		if d.playlists[i].ID == playlistID {
+			d.playlists[i].TrackCount -= removed
+		}
+	}
+	return nil
+}
+
+func (d *DemoSource) CreatePlaylist(_ context.Context, name string) (source.Playlist, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	pl := source.Playlist{
+		ID:       fmt.Sprintf("pl-new-%d", len(d.playlists)),
+		URI:      fmt.Sprintf("spotify:playlist:new-%d", len(d.playlists)),
+		Name:     name,
+		Editable: true,
+	}
+	d.playlists = append(d.playlists, pl)
+	d.tracksByPL[pl.ID] = nil
+	return pl, nil
+}

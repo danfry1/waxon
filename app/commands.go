@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/danfry1/waxon/source"
 )
@@ -39,6 +40,16 @@ func (m Model) fetchCurrentTrack() tea.Cmd {
 }
 
 func (m Model) fetchPlaylists() tea.Cmd {
+	return m.loadPlaylists(true)
+}
+
+// refreshPlaylists reloads the library list (names, counts, new playlists)
+// without disturbing the current tracklist — used after playlist edits.
+func (m Model) refreshPlaylists() tea.Cmd {
+	return m.loadPlaylists(false)
+}
+
+func (m Model) loadPlaylists(initial bool) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
 	return func() tea.Msg {
@@ -46,7 +57,7 @@ func (m Model) fetchPlaylists() tea.Cmd {
 		if err != nil {
 			return trackErrorMsg{err}
 		}
-		return playlistsLoadedMsg{playlists}
+		return playlistsLoadedMsg{playlists: playlists, initial: initial}
 	}
 }
 
@@ -220,6 +231,81 @@ func (m Model) likeToggleCmd(trackID string) tea.Cmd {
 		return m.toggleLike(trackID, liked)
 	}
 	return m.toggleLikeByLookup(trackID)
+}
+
+// currentPlaylistContext describes the playlist the tracklist is showing, if
+// it is one of the user's playlists, so actions can offer "remove from".
+func (m Model) currentPlaylistContext() TrackActionContext {
+	const prefix = "spotify:playlist:"
+	uri := m.tracklist.ContextURI()
+	if !strings.HasPrefix(uri, prefix) {
+		return TrackActionContext{Position: -1}
+	}
+	id := strings.TrimPrefix(uri, prefix)
+	for _, pl := range m.playlists {
+		if pl.ID == id {
+			return TrackActionContext{PlaylistID: pl.ID, PlaylistName: pl.Name, Editable: pl.Editable, Position: -1}
+		}
+	}
+	return TrackActionContext{Position: -1}
+}
+
+// openPlaylistPicker shows the "Add to playlist" chooser for a track.
+func (m Model) openPlaylistPicker(trackID, trackName string) (Model, tea.Cmd) {
+	picker := NewPlaylistPicker(m.playlists, trackID, trackName, m.width, m.height)
+	m.playlistPick = &picker
+	// Return to wherever the actions popup came from (e.g. Now Playing). The
+	// popup has already restored m.mode to that origin before executing.
+	m.pickReturn = m.mode
+	if m.pickReturn == ModeActions || m.pickReturn == ModePlaylistPick {
+		m.pickReturn = ModeNormal
+	}
+	m.mode = ModePlaylistPick
+	return m, textinput.Blink
+}
+
+// addToPlaylist appends a track to a playlist.
+func (m Model) addToPlaylist(pl source.Playlist, trackID, trackName string) tea.Cmd {
+	src := m.source
+	ctx := m.ctx
+	return func() tea.Msg {
+		if err := src.AddToPlaylist(ctx, pl.ID, trackID); err != nil {
+			return trackErrorMsg{err}
+		}
+		return playlistChangedMsg{playlistID: pl.ID, playlistName: pl.Name, trackName: trackName, added: true}
+	}
+}
+
+// removeFromPlaylist removes the track at position in a playlist (just that
+// occurrence; position < 0 removes all occurrences).
+func (m Model) removeFromPlaylist(playlistID, trackID string, position int, trackName string) tea.Cmd {
+	src := m.source
+	ctx := m.ctx
+	name := playlistID
+	for _, pl := range m.playlists {
+		if pl.ID == playlistID {
+			name = pl.Name
+		}
+	}
+	return func() tea.Msg {
+		if err := src.RemoveFromPlaylist(ctx, playlistID, trackID, position); err != nil {
+			return trackErrorMsg{err}
+		}
+		return playlistChangedMsg{playlistID: playlistID, playlistName: name, trackName: trackName, added: false}
+	}
+}
+
+// createPlaylist creates an empty playlist and reloads the library.
+func (m Model) createPlaylist(name string) tea.Cmd {
+	src := m.source
+	ctx := m.ctx
+	return func() tea.Msg {
+		pl, err := src.CreatePlaylist(ctx, name)
+		if err != nil {
+			return trackErrorMsg{err}
+		}
+		return playlistCreatedMsg{playlist: pl}
+	}
 }
 
 // likedPlaylistID is the sentinel playlist ID the sidebar uses for Liked Songs
@@ -500,6 +586,8 @@ func (m *Model) executeCommand(input string) tea.Cmd {
 		return m.fetchRecentlyPlayed()
 	case CmdTheme:
 		return m.setTheme(cmd.StrArg)
+	case CmdNewPlaylist:
+		return m.createPlaylist(cmd.StrArg)
 	case CmdSearch:
 		s := NewSearch(m.width, m.height)
 		m.search = &s
@@ -527,7 +615,9 @@ func (m Model) openActions() (Model, tea.Cmd) {
 			return m, m.fetchAlbumPage(track.AlbumID)
 		}
 		liked, known := m.likedStatus(track.ID)
-		popup := NewTrackActions(track.Name, track.Artist, track.URI, m.tracklist.ContextURI(), track.ArtistID, track.AlbumID, liked, m.width, m.height)
+		in := m.currentPlaylistContext()
+		in.Position = m.tracklist.SelectedIndex()
+		popup := NewTrackActionsIn(track.Name, track.Artist, track.URI, m.tracklist.ContextURI(), track.ArtistID, track.AlbumID, liked, in, m.width, m.height)
 		m.actions = &popup
 		m.actionsReturn = ModeNormal
 		m.mode = ModeActions
@@ -563,6 +653,8 @@ type actionSubject struct {
 	contextURI string
 	artistID   string
 	albumID    string
+	playlistID string // playlist the track is listed in (for remove), may be empty
+	position   int    // row index within that playlist (-1 unknown)
 }
 
 func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.Cmd) {
@@ -615,6 +707,18 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 		}
 		m.toast.Show("Opened in Spotify", "", ToastSuccess)
 		return m, scheduleAutoDismiss()
+	case ActionAddToPlaylist:
+		if subj.trackID == "" {
+			m.toast.Show("No track selected", "", ToastError)
+			return m, scheduleAutoDismiss()
+		}
+		return m.openPlaylistPicker(subj.trackID, subj.name)
+	case ActionRemoveFromPlaylist:
+		if subj.trackID == "" || subj.playlistID == "" {
+			m.toast.Show("Nothing to remove", "", ToastError)
+			return m, scheduleAutoDismiss()
+		}
+		return m, m.removeFromPlaylist(subj.playlistID, subj.trackID, subj.position, subj.name)
 	case ActionCopyURI:
 		if err := copyToClipboard(subj.uri); err != nil {
 			m.toast.Show("Copy failed", err.Error(), ToastError)

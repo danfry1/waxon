@@ -122,6 +122,8 @@ func TestSpotifyOAuthConfigAllScopes(t *testing.T) {
 		"user-read-currently-playing",
 		"playlist-read-private",
 		"playlist-read-collaborative",
+		"playlist-modify-public",
+		"playlist-modify-private",
 		"user-library-read",
 		"user-library-modify",
 		"user-read-recently-played",

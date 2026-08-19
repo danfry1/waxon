@@ -116,6 +116,8 @@ func friendlyPlaybackError(err error) (title, detail string, ok bool) {
 		return "Spotify Premium required", "Playback control needs a Premium account", true
 	case errors.Is(err, source.ErrNoActiveDevice):
 		return "No active Spotify device", "Open Spotify on any device, or press D", true
+	case errors.Is(err, source.ErrInsufficientScope):
+		return "Permission needed", "Run 'waxon auth' once to allow playlist changes", true
 	}
 	return "", "", false
 }

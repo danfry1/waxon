@@ -18,6 +18,7 @@ const (
 	CmdSearch
 	CmdRecent
 	CmdTheme
+	CmdNewPlaylist
 )
 
 // commandHelp is the user-facing list of : commands shown in the help overlay.
@@ -30,6 +31,7 @@ var commandHelp = []helpBinding{
 	{":search Q", "search Spotify"},
 	{":recent", "recently played"},
 	{":theme NAME", "switch colour theme"},
+	{":playlist new NAME", "create a playlist"},
 	{":q", "quit"},
 }
 
@@ -93,6 +95,12 @@ func ParseCommand(input string) (Command, error) {
 
 	case "recent":
 		return Command{Type: CmdRecent}, nil
+
+	case "playlist", "pl":
+		if len(args) >= 2 && args[0] == "new" {
+			return Command{Type: CmdNewPlaylist, StrArg: strings.Join(args[1:], " ")}, nil
+		}
+		return Command{}, errors.New("usage: playlist new <name>")
 
 	case "theme", "themes", "colorscheme", "colourscheme":
 		if len(args) != 1 {

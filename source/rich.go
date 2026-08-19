@@ -37,6 +37,18 @@ type SearchSource interface {
 	GetAlbum(ctx context.Context, albumID string) (*AlbumPage, error)
 }
 
+// PlaylistSource mutates the user's playlists. Needs the playlist-modify
+// scopes; implementations return ErrInsufficientScope when the token
+// predates them so the UI can ask the user to re-authenticate.
+type PlaylistSource interface {
+	AddToPlaylist(ctx context.Context, playlistID, trackID string) error
+	// RemoveFromPlaylist removes the occurrence of trackID at position (its
+	// 0-based index in the playlist). A negative position removes every
+	// occurrence — callers should only use that when the position is unknown.
+	RemoveFromPlaylist(ctx context.Context, playlistID, trackID string, position int) error
+	CreatePlaylist(ctx context.Context, name string) (Playlist, error)
+}
+
 // LyricsSource provides lyrics for a track. Returns (nil, nil) when no lyrics
 // are available so callers can show an empty state without treating it as an
 // error.
@@ -45,12 +57,14 @@ type LyricsSource interface {
 }
 
 // RichSource combines all source capabilities. Implementations must satisfy
-// TrackSource, PlaybackSource, LibrarySource, SearchSource, and LyricsSource.
+// TrackSource, PlaybackSource, LibrarySource, SearchSource, PlaylistSource
+// and LyricsSource.
 type RichSource interface {
 	TrackSource
 	PlaybackSource
 	LibrarySource
 	SearchSource
+	PlaylistSource
 	LyricsSource
 }
 
@@ -88,6 +102,10 @@ type Playlist struct {
 	Name       string
 	ImageURL   string
 	TrackCount int
+	// Editable is true when the current user can add/remove tracks: they own
+	// the playlist or it is collaborative. Liked Songs is never Editable here
+	// (use Save/RemoveTrack).
+	Editable bool
 }
 
 type Device struct {
@@ -150,6 +168,11 @@ const (
 // active device to act on (the user has no Spotify client open anywhere).
 // The UI can recover by activating a device and retrying.
 var ErrNoActiveDevice = errors.New("no active Spotify device")
+
+// ErrInsufficientScope is returned when the saved token lacks a permission
+// the operation needs (e.g. playlist-modify after upgrading waxon). The fix
+// is to run 'waxon auth' again.
+var ErrInsufficientScope = errors.New("missing permission — run 'waxon auth' to grant it")
 
 // ErrPremiumRequired is returned by playback commands when the account is
 // not Spotify Premium; the Web API only permits playback control for Premium.

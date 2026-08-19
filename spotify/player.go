@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/danfry1/waxon/lyrics"
@@ -37,6 +38,9 @@ type PlayerSource struct {
 	client     *spotifyapi.Client
 	httpClient *http.Client
 	lyrics     *lyrics.Client
+
+	userMu sync.Mutex
+	userID string // cached current user ID (for playlist ownership/creation)
 }
 
 func NewPlayerSource(cp ClientPair) *PlayerSource {
@@ -187,4 +191,58 @@ func (p *PlayerSource) RecentlyPlayed(ctx context.Context) ([]source.Track, erro
 
 func (p *PlayerSource) Lyrics(ctx context.Context, track source.Track) (*source.Lyrics, error) {
 	return p.lyrics.Get(ctx, track)
+}
+
+// currentUserID returns the authenticated user's Spotify ID, fetched once.
+func (p *PlayerSource) currentUserID(ctx context.Context) (string, error) {
+	p.userMu.Lock()
+	defer p.userMu.Unlock()
+	if p.userID != "" {
+		return p.userID, nil
+	}
+	var me struct {
+		ID string `json:"id"`
+	}
+	if err := p.apiGet(ctx, "/me", &me); err != nil {
+		return "", err
+	}
+	p.userID = me.ID
+	return p.userID, nil
+}
+
+// --- source.PlaylistSource ---
+
+func (p *PlayerSource) AddToPlaylist(ctx context.Context, playlistID, trackID string) error {
+	_, err := p.client.AddTracksToPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
+	return wrapScopeError(err)
+}
+
+func (p *PlayerSource) RemoveFromPlaylist(ctx context.Context, playlistID, trackID string, position int) error {
+	if position < 0 {
+		// Removes every occurrence; only used when the row position is unknown.
+		_, err := p.client.RemoveTracksFromPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
+		return wrapScopeError(err)
+	}
+	// Position-based removal touches just the selected row, so duplicates of
+	// the same track elsewhere in the playlist are left alone.
+	tracks := []spotifyapi.TrackToRemove{{URI: "spotify:track:" + trackID, Positions: []int{position}}}
+	_, err := p.client.RemoveTracksFromPlaylistOpt(ctx, spotifyapi.ID(playlistID), tracks, "")
+	return wrapScopeError(err)
+}
+
+func (p *PlayerSource) CreatePlaylist(ctx context.Context, name string) (source.Playlist, error) {
+	me, err := p.currentUserID(ctx)
+	if err != nil {
+		return source.Playlist{}, wrapScopeError(err)
+	}
+	pl, err := p.client.CreatePlaylistForUser(ctx, me, name, "", false, false)
+	if err != nil {
+		return source.Playlist{}, wrapScopeError(err)
+	}
+	return source.Playlist{
+		ID:       string(pl.ID),
+		URI:      string(pl.URI),
+		Name:     pl.Name,
+		Editable: true,
+	}, nil
 }

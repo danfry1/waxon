@@ -7,6 +7,7 @@ import (
 	"image"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -926,8 +927,8 @@ func TestNewTrackActions(t *testing.T) {
 	if popup.albumID != "album1" {
 		t.Errorf("albumID = %q", popup.albumID)
 	}
-	if len(popup.items) != 7 {
-		t.Errorf("items count = %d, want 7", len(popup.items))
+	if len(popup.items) != 8 {
+		t.Errorf("items count = %d, want 8 (incl. Add to Playlist)", len(popup.items))
 	}
 	if popup.cursor != 0 {
 		t.Errorf("cursor = %d, want 0", popup.cursor)
@@ -5963,5 +5964,309 @@ func TestStatusBarWithArtNeverWrapsNarrow(t *testing.T) {
 				t.Errorf("width %d: line overflows (%d)", w, lw)
 			}
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Playlist management
+// ---------------------------------------------------------------------------
+
+func testPlaylists() []source.Playlist {
+	return []source.Playlist{
+		{ID: likedPlaylistID, Name: "♥ Liked Songs", Editable: false},
+		{ID: "mine", URI: "spotify:playlist:mine", Name: "My Mix", Editable: true, TrackCount: 3},
+		{ID: "collab", URI: "spotify:playlist:collab", Name: "Road Trip", Editable: true},
+		{ID: "theirs", URI: "spotify:playlist:theirs", Name: "Editorial Hits", Editable: false},
+	}
+}
+
+func TestPlaylistPickerOnlyEditable(t *testing.T) {
+	p := NewPlaylistPicker(testPlaylists(), "t1", "Song", 100, 40)
+	if len(p.all) != 2 {
+		t.Fatalf("picker should list only editable non-liked playlists, got %d", len(p.all))
+	}
+	p, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("road")})
+	if sel := p.Selected(); sel == nil || sel.ID != "collab" {
+		t.Errorf("typing should filter: %+v", sel)
+	}
+	p, _ = p.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	p, _ = p.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	p, _ = p.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	p, _ = p.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	p, _ = p.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	if sel := p.Selected(); sel == nil || sel.ID != "collab" {
+		t.Errorf("ctrl+n should move down: %+v", sel)
+	}
+	if !strings.Contains(p.View(), "My Mix") || !strings.Contains(p.View(), "3 tracks") {
+		t.Error("view should list playlists with counts")
+	}
+	empty := NewPlaylistPicker(nil, "t1", "Song", 100, 40)
+	if !strings.Contains(empty.View(), "No editable playlists") {
+		t.Error("empty state should explain")
+	}
+}
+
+func TestActionsOfferRemoveOnlyInEditablePlaylist(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.playlists = testPlaylists()
+	m.focusPane = PaneTrackList
+	m.tracklist.SetTracks([]source.Track{{ID: "t1", Name: "Song", URI: "spotify:track:t1"}}, "My Mix", "spotify:playlist:mine")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	v := result.(Model).actions.View()
+	if !strings.Contains(v, "Add to Playlist") || !strings.Contains(v, "Remove from My Mix") {
+		t.Errorf("expected add + remove in an editable playlist:\n%s", v)
+	}
+	m.tracklist.SetTracks([]source.Track{{ID: "t1", Name: "Song", URI: "spotify:track:t1"}}, "Editorial", "spotify:playlist:theirs")
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	if strings.Contains(result.(Model).actions.View(), "Remove from") {
+		t.Error("no remove action in a playlist the user can't edit")
+	}
+}
+
+func TestAddToPlaylistFlow(t *testing.T) {
+	var added [][2]string
+	stub := &StubSource{
+		AddToPlaylistFn: func(_ context.Context, pl, tr string) error { added = append(added, [2]string{pl, tr}); return nil },
+		PlaylistsFn:     func(context.Context) ([]source.Playlist, error) { return testPlaylists(), nil },
+	}
+	m := newTestModel(stub)
+	m.playlists = testPlaylists()
+	m.focusPane = PaneTrackList
+	m.tracklist.SetTracks([]source.Track{{ID: "t1", Name: "Song", URI: "spotify:track:t1"}}, "Album", "spotify:album:x")
+	m.trackCache["mine"] = cachedPlaylist{tracks: []source.Track{{ID: "old"}}}
+
+	// o → Add to Playlist… → picker
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = result.(Model)
+	for m.actions.Selected().Type != ActionAddToPlaylist {
+		m.actions.MoveDown()
+	}
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+	if m.mode != ModePlaylistPick || m.playlistPick == nil {
+		t.Fatalf("expected playlist picker, mode=%v", m.mode)
+	}
+	// Enter picks the first editable playlist.
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+	if m.mode != ModeNormal || m.playlistPick != nil || cmd == nil {
+		t.Fatal("Enter should close the picker and issue the add")
+	}
+	msg := cmd()
+	pc, ok := msg.(playlistChangedMsg)
+	if !ok || !pc.added || pc.playlistID != "mine" {
+		t.Fatalf("got %#v", msg)
+	}
+	if len(added) != 1 || added[0] != [2]string{"mine", "t1"} {
+		t.Errorf("AddToPlaylist calls = %v", added)
+	}
+	result, cmd = m.Update(pc)
+	m = result.(Model)
+	if !strings.Contains(m.toast.View(120), "Added to My Mix") {
+		t.Errorf("toast = %q", m.toast.View(120))
+	}
+	if _, cached := m.trackCache["mine"]; cached {
+		t.Error("track cache for the edited playlist should be invalidated")
+	}
+	if cmd == nil {
+		t.Error("expected a playlist refresh")
+	}
+}
+
+func TestRemoveFromPlaylistRefreshesCurrentView(t *testing.T) {
+	var removed []string
+	fetches := 0
+	stub := &StubSource{
+		RemoveFromPlaylistFn: func(_ context.Context, pl, tr string, pos int) error {
+			removed = append(removed, fmt.Sprintf("%s/%s@%d", pl, tr, pos))
+			return nil
+		},
+		PlaylistsFn: func(context.Context) ([]source.Playlist, error) { return testPlaylists(), nil },
+	}
+	m := newTestModel(stub)
+	m.playlists = testPlaylists()
+	m.focusPane = PaneTrackList
+	m.tracklist.SetTracks([]source.Track{{ID: "t1", Name: "Song", URI: "spotify:track:t1"}, {ID: "t2", Name: "Other"}}, "My Mix", "spotify:playlist:mine")
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = result.(Model)
+	for m.actions.Selected().Type != ActionRemoveFromPlaylist {
+		m.actions.MoveDown()
+	}
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+	msg := cmd()
+	if pc, ok := msg.(playlistChangedMsg); !ok || pc.added || pc.playlistID != "mine" {
+		t.Fatalf("got %#v", msg)
+	}
+	if len(removed) != 1 || removed[0] != "mine/t1@0" {
+		t.Errorf("removed = %v (want the selected row's position, not all occurrences)", removed)
+	}
+	result, cmd = m.Update(msg)
+	m = result.(Model)
+	if !strings.Contains(m.toast.View(120), "Removed from My Mix") {
+		t.Errorf("toast = %q", m.toast.View(120))
+	}
+	// The batch refreshes this playlist's tracks (we are viewing it) and the library.
+	if cmd == nil {
+		t.Fatal("expected refresh commands")
+	}
+	// The batch also carries the 3s toast auto-dismiss tick; run the tree in
+	// the background and wait only for the refetch we care about.
+	var mu sync.Mutex
+	count := func() int { mu.Lock(); defer mu.Unlock(); return fetches }
+	stub.PlaylistTracksPageFn = func(context.Context, string, int, int) ([]source.Track, int, error) {
+		mu.Lock()
+		fetches++
+		mu.Unlock()
+		return []source.Track{{ID: "t2", Name: "Other"}}, 1, nil
+	}
+	go runCmdTree(cmd)
+	deadline := time.Now().Add(2 * time.Second)
+	for count() < 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if count() != 1 {
+		t.Errorf("expected the current playlist to be refetched once, got %d", count())
+	}
+}
+
+// runCmdTree executes cmd, recursing into batches, and discards results.
+// Batch members run concurrently (as Bubbletea does) so a slow tick in one
+// doesn't delay the others.
+func runCmdTree(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if batch, ok := cmd().(tea.BatchMsg); ok {
+		var wg sync.WaitGroup
+		for _, c := range batch {
+			wg.Add(1)
+			go func(c tea.Cmd) { defer wg.Done(); runCmdTree(c) }(c)
+		}
+		wg.Wait()
+	}
+}
+
+func TestRemoveUsesRowPositionUnderFilterAndDuplicates(t *testing.T) {
+	var gotPos int
+	stub := &StubSource{RemoveFromPlaylistFn: func(_ context.Context, _, _ string, pos int) error { gotPos = pos; return nil }}
+	m := newTestModel(stub)
+	m.playlists = testPlaylists()
+	m.focusPane = PaneTrackList
+	// The same track appears at rows 0 and 2; the user filters and selects the
+	// second copy.
+	m.tracklist.SetTracks([]source.Track{
+		{ID: "dup", Name: "Same Song", URI: "spotify:track:dup"},
+		{ID: "x", Name: "Other"},
+		{ID: "dup", Name: "Same Song", URI: "spotify:track:dup"},
+	}, "My Mix", "spotify:playlist:mine")
+	m.tracklist.SetFilter("same")
+	m.tracklist.MoveDown(1) // second filtered row = playlist position 2
+	if m.tracklist.SelectedIndex() != 2 {
+		t.Fatalf("SelectedIndex = %d, want 2", m.tracklist.SelectedIndex())
+	}
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = result.(Model)
+	for m.actions.Selected().Type != ActionRemoveFromPlaylist {
+		m.actions.MoveDown()
+	}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	cmd()
+	if gotPos != 2 {
+		t.Errorf("removal position = %d, want 2 (only the selected duplicate)", gotPos)
+	}
+}
+
+func TestPlaylistPickerReturnsToNowPlaying(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.playlists = testPlaylists()
+	m.track = &source.Track{ID: "t1", Name: "Song", URI: "spotify:track:t1"}
+	m.mode = ModeNowPlaying
+	// o in Now Playing → actions → Add to Playlist…
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = result.(Model)
+	for m.actions.Selected().Type != ActionAddToPlaylist {
+		m.actions.MoveDown()
+	}
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+	if m.mode != ModePlaylistPick {
+		t.Fatalf("mode = %v", m.mode)
+	}
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if result.(Model).mode != ModeNowPlaying {
+		t.Error("Esc from the picker should return to Now Playing")
+	}
+	// Same for Enter.
+	m.mode = ModePlaylistPick
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if result.(Model).mode != ModeNowPlaying {
+		t.Error("picking a playlist should return to Now Playing")
+	}
+}
+
+func TestPlaylistsRefreshDoesNotReopenFirstPlaylist(t *testing.T) {
+	loads := 0
+	stub := &StubSource{PlaylistTracksPageFn: func(context.Context, string, int, int) ([]source.Track, int, error) {
+		loads++
+		return nil, 0, nil
+	}}
+	m := newTestModel(stub)
+	_, cmd := m.Update(playlistsLoadedMsg{playlists: testPlaylists(), initial: false})
+	runCmdTree(cmd)
+	if loads != 0 {
+		t.Error("a refresh must not reload the first playlist's tracks")
+	}
+	_, cmd = m.Update(playlistsLoadedMsg{playlists: testPlaylists(), initial: true})
+	runCmdTree(cmd)
+	if loads != 1 {
+		t.Error("the initial load should open the first playlist")
+	}
+}
+
+func TestCreatePlaylistCommand(t *testing.T) {
+	created := ""
+	stub := &StubSource{CreatePlaylistFn: func(_ context.Context, name string) (source.Playlist, error) {
+		created = name
+		return source.Playlist{ID: "n", Name: name, Editable: true}, nil
+	}}
+	m := newTestModel(stub)
+	m.mode = ModeCommand
+	m.cmdInput = "playlist new Summer Jams"
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msg := cmd()
+	if _, ok := msg.(playlistCreatedMsg); !ok || created != "Summer Jams" {
+		t.Fatalf("got %#v created=%q", msg, created)
+	}
+	result, _ := m.Update(msg)
+	if !strings.Contains(result.(Model).toast.View(120), "Summer Jams") {
+		t.Error("toast should name the playlist")
+	}
+	if _, err := ParseCommand("playlist"); err == nil {
+		t.Error("playlist without subcommand is a usage error")
+	}
+}
+
+func TestInsufficientScopeToast(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	result, _ := m.Update(trackErrorMsg{source.ErrInsufficientScope})
+	if !strings.Contains(result.(Model).toast.View(120), "waxon auth") {
+		t.Errorf("toast = %q", result.(Model).toast.View(120))
+	}
+}
+
+func TestPlaylistPickerEscAndClickClose(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.playlists = testPlaylists()
+	m, _ = m.openPlaylistPicker("t1", "Song")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if result.(Model).mode != ModeNormal || result.(Model).playlistPick != nil {
+		t.Error("Esc should close the picker")
+	}
+	m, _ = m.openPlaylistPicker("t1", "Song")
+	closed, _ := m.closeOverlay()
+	if closed.mode != ModeNormal || closed.playlistPick != nil {
+		t.Error("overlay click should close the picker")
 	}
 }

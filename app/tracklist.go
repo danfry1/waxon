@@ -21,23 +21,24 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // tl.offset is always the exact data index of the first visible row, which
 // is what makes click-to-row mapping reliable even when the list is scrolled.
 type TrackList struct {
-	table      table.Model
-	tracks     []source.Track
-	filtered   []source.Track // subset visible after filter; nil means no filter active
-	filterText string         // current active filter query
-	allRows    []table.Row    // full row set; the table sees only a window of these
-	cursor     int            // selected index into displayTracks (global, not windowed)
-	offset     int            // data index of the first visible row
-	title      string
-	subtitle   string // optional second line (e.g. genres, artist name)
-	headerInfo string // optional third line (e.g. "30 tracks · 1h 42m")
-	contextURI string // playlist/album URI for play context
-	artBlock   string // rendered playlist/album art
-	loading    bool   // true while fetching tracks
-	spinFrame  int    // current spinner animation frame
-	width      int
-	height     int
-	nowPlaying string // ID of currently playing track
+	table       table.Model
+	tracks      []source.Track
+	filtered    []source.Track // subset visible after filter; nil means no filter active
+	filteredIdx []int          // index into tracks for each filtered row
+	filterText  string         // current active filter query
+	allRows     []table.Row    // full row set; the table sees only a window of these
+	cursor      int            // selected index into displayTracks (global, not windowed)
+	offset      int            // data index of the first visible row
+	title       string
+	subtitle    string // optional second line (e.g. genres, artist name)
+	headerInfo  string // optional third line (e.g. "30 tracks · 1h 42m")
+	contextURI  string // playlist/album URI for play context
+	artBlock    string // rendered playlist/album art
+	loading     bool   // true while fetching tracks
+	spinFrame   int    // current spinner animation frame
+	width       int
+	height      int
+	nowPlaying  string // ID of currently playing track
 }
 
 // Column layout breakpoints, measured on the usable width inside the pane
@@ -137,7 +138,7 @@ func (tl *TrackList) SetLoading(title string) {
 	tl.loading = true
 	tl.title = title
 	tl.tracks = nil
-	tl.filtered = nil
+	tl.filtered, tl.filteredIdx = nil, nil
 	tl.allRows = nil
 	tl.cursor = 0
 	tl.offset = 0
@@ -170,7 +171,7 @@ func (tl *TrackList) SetTracks(tracks []source.Track, title, contextURI string) 
 	if tl.filterText != "" {
 		tl.applyFilter(tl.filterText)
 	} else {
-		tl.filtered = nil
+		tl.filtered, tl.filteredIdx = nil, nil
 	}
 
 	tl.rebuildRows()
@@ -334,22 +335,41 @@ func (tl *TrackList) SetFilter(query string) {
 func (tl *TrackList) applyFilter(query string) {
 	q := strings.ToLower(query)
 	var result []source.Track
-	for _, t := range tl.tracks {
+	var idx []int
+	for i, t := range tl.tracks {
 		if t.IsSeparator || t.IsAlbumRow {
 			continue
 		}
 		if strings.Contains(strings.ToLower(t.Name), q) ||
 			strings.Contains(strings.ToLower(t.Artist), q) {
 			result = append(result, t)
+			idx = append(idx, i)
 		}
 	}
 	tl.filtered = result
+	tl.filteredIdx = idx
+}
+
+// SelectedIndex returns the selected row's index into the full track list
+// (its position in the playlist), or -1 when nothing is selected. Unlike the
+// cursor, this is stable under an active filter.
+func (tl *TrackList) SelectedIndex() int {
+	if tl.cursor < 0 || tl.cursor >= len(tl.displayTracks()) {
+		return -1
+	}
+	if tl.filtered != nil {
+		if tl.cursor < len(tl.filteredIdx) {
+			return tl.filteredIdx[tl.cursor]
+		}
+		return -1
+	}
+	return tl.cursor
 }
 
 // ClearFilter removes the active filter and restores the full track list.
 func (tl *TrackList) ClearFilter() {
 	tl.filterText = ""
-	tl.filtered = nil
+	tl.filtered, tl.filteredIdx = nil, nil
 	tl.rebuildRows()
 }
 
@@ -601,7 +621,7 @@ func (tl *TrackList) RestoreState(s NavState) {
 	tl.headerInfo = s.headerInfo
 	tl.contextURI = s.contextURI
 	tl.artBlock = s.artBlock
-	tl.filtered = nil
+	tl.filtered, tl.filteredIdx = nil, nil
 	tl.filterText = ""
 	tl.table.SetHeight(tl.tableHeight())
 	tl.cursor = s.cursor
