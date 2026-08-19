@@ -68,6 +68,14 @@ Navigate everything without leaving the home row — `j`/`k` to move, `gg`/`G` t
   <img src="demo/recordings/navigation.gif" alt="vim navigation" width="800">
 </p>
 
+### Small Terminals
+
+Below 80 columns waxon shows one pane at a time — `h`/`l`/`Tab` switch between library and tracks — and the track table drops columns rather than overflowing. Now Playing art scales to fit. Handy for a tmux side pane.
+
+<p align="center">
+  <img src="demo/recordings/narrow.gif" alt="narrow terminal layout" width="480">
+</p>
+
 ### Now Playing
 
 Full-screen album art rendered with Unicode half-blocks, gradient backgrounds, and a vinyl spinning mode.

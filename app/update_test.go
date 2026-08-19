@@ -5772,3 +5772,196 @@ func TestSidebarFilterStillWorksOnLibrary(t *testing.T) {
 		t.Fatalf("ClearFilter restored %d, want 2", n)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Narrow / small terminals
+// ---------------------------------------------------------------------------
+
+func TestTrackColumnsFitPaneWidth(t *testing.T) {
+	for _, w := range []int{30, 36, 44, 50, 64, 80, 120, 200} {
+		cols := trackColumns(w)
+		total := 0
+		for _, c := range cols {
+			if c.Width > 0 {
+				total += c.Width + tableCellPadding
+			}
+		}
+		if total > w-2 {
+			t.Errorf("width %d: columns need %d cells but only %d fit", w, total, w-2)
+		}
+		if cols[2].Width <= 0 {
+			t.Errorf("width %d: title column must always be visible", w)
+		}
+	}
+	if cols := trackColumns(120); cols[1].Width == 0 || cols[4].Width == 0 {
+		t.Error("wide pane should show # and duration")
+	}
+	if cols := trackColumns(50); cols[1].Width != 0 || cols[4].Width == 0 {
+		t.Error("medium pane should drop # but keep duration")
+	}
+	if cols := trackColumns(36); cols[4].Width != 0 || cols[3].Width == 0 {
+		t.Error("narrow pane should drop duration but keep artist")
+	}
+	if cols := trackColumns(28); cols[3].Width != 0 {
+		t.Error("very narrow pane should drop artist")
+	}
+}
+
+func TestNarrowModeShowsOnlyFocusedPane(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.width, m.height = 60, 30
+	m.layoutResize()
+	m.sidebar.SetPlaylists([]source.Playlist{{ID: "p", Name: "My Playlist Name"}})
+	m.tracklist.SetTracks([]source.Track{{ID: "1", Name: "Unique Track Title", Artist: "A"}}, "Tracks", "")
+	if !m.narrow() {
+		t.Fatal("60 columns should be narrow")
+	}
+	m.focusPane = PaneSidebar
+	v := m.View()
+	if !strings.Contains(v, "My Playlist Name") || strings.Contains(v, "Unique Track Title") {
+		t.Error("sidebar focus should show only the sidebar")
+	}
+	m.focusPane = PaneTrackList
+	v = m.View()
+	if strings.Contains(v, "My Playlist Name") || !strings.Contains(v, "Unique Track Title") {
+		t.Error("tracklist focus should show only the tracklist")
+	}
+	// Panes take the full width.
+	if m.sidebar.width != 60 || m.tracklist.width != 60 {
+		t.Errorf("panes should be full width in narrow mode: %d/%d", m.sidebar.width, m.tracklist.width)
+	}
+	// Clicks land on the visible pane regardless of x.
+	if m.paneAt(2) != PaneTrackList {
+		t.Error("click should target the visible pane")
+	}
+	// No line wider than the terminal.
+	for _, line := range strings.Split(v, "\n") {
+		if lw := lipgloss.Width(line); lw > 60 {
+			t.Errorf("line overflows: %d > 60", lw)
+		}
+	}
+}
+
+func TestWideModeShowsBothPanes(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.sidebar.SetPlaylists([]source.Playlist{{ID: "p", Name: "My Playlist Name"}})
+	m.tracklist.SetTracks([]source.Track{{ID: "1", Name: "Unique Track Title", Artist: "A"}}, "Tracks", "")
+	v := m.View()
+	if !strings.Contains(v, "My Playlist Name") || !strings.Contains(v, "Unique Track Title") {
+		t.Error("wide terminal should show both panes")
+	}
+}
+
+func TestTooSmallTerminalShowsPrompt(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.width, m.height = 30, 8
+	m.layoutResize()
+	v := m.View()
+	if !strings.Contains(v, "needs at least") {
+		t.Errorf("expected too-small prompt, got %q", v)
+	}
+}
+
+func TestCompactStatusBarNeverWraps(t *testing.T) {
+	for _, w := range []int{40, 45, 60} {
+		sb := NewStatusBar(w)
+		track := &source.Track{
+			Name: "A Very Long Track Title Indeed", Artist: "Some Artist", Album: "An Album Name",
+			Duration: 301 * time.Second, Position: 30 * time.Second, Playing: true,
+		}
+		for _, line := range []string{
+			sb.ViewNowPlaying(track, true, source.RepeatContext, true),
+			sb.ViewModeLine(ModeNormal, "", "", "", 50, "Living Room Speaker"),
+		} {
+			if strings.Contains(line, "\n") || lipgloss.Width(line) > w {
+				t.Errorf("width %d: status line wraps/overflows (%d): %q", w, lipgloss.Width(line), line)
+			}
+		}
+	}
+}
+
+func TestNowPlayingArtShrinksToFit(t *testing.T) {
+	w, h := npArtSize(200, 60)
+	if w != npArtW || h != npArtH {
+		t.Errorf("large terminal: %dx%d", w, h)
+	}
+	w, h = npArtSize(50, 40)
+	if w > 46 || w%2 != 0 || h != w/2 {
+		t.Errorf("narrow terminal: %dx%d", w, h)
+	}
+	w, h = npArtSize(120, 24)
+	if h > 24-npTextRows || w != h*2 {
+		t.Errorf("short terminal: %dx%d", w, h)
+	}
+	if w, _ := npArtSize(10, 5); w != 0 {
+		t.Error("tiny terminal should drop art")
+	}
+	// Rendered NP never exceeds the terminal width.
+	m := newTestModel(&StubSource{})
+	m.width, m.height = 50, 30
+	m.layoutResize()
+	m.mode = ModeNowPlaying
+	m.track = &source.Track{Name: "Song", Artist: "Band", Album: "LP", Duration: time.Minute, Playing: true}
+	for _, line := range strings.Split(m.View(), "\n") {
+		if lw := lipgloss.Width(line); lw > 50 {
+			t.Errorf("NP line overflows: %d > 50", lw)
+		}
+	}
+}
+
+func TestNowPlayingAtMinimumSizeDoesNotPanic(t *testing.T) {
+	// Width ≥ minTermWidth, height == minTermHeight: the art region collapses
+	// to zero. Every NP state (art, vinyl, lyrics loading/error/empty/lines)
+	// must render without panicking and without overflowing.
+	for _, sz := range [][2]int{{40, 10}, {60, 10}, {40, 12}, {120, 11}} {
+		m := newTestModel(&StubSource{})
+		m.width, m.height = sz[0], sz[1]
+		m.layoutResize()
+		m.track = &source.Track{ID: "t", Name: "Song", Artist: "Band", Album: "LP", Duration: time.Minute, Playing: true}
+		m.npSourceImg = image.NewRGBA(image.Rect(0, 0, 4, 4))
+		m.renderNPArt()
+		states := []func(*Model){
+			func(m *Model) { m.mode = ModeNowPlaying },
+			func(m *Model) { m.vinylMode = true },
+			func(m *Model) { m.vinylMode = false; m.lyricsView = true; m.lyricsLoading = true },
+			func(m *Model) { m.lyricsLoading = false; m.lyricsErr = errors.New("x") },
+			func(m *Model) { m.lyricsErr = nil; m.lyrics = &source.Lyrics{} },
+			func(m *Model) {
+				m.lyrics = &source.Lyrics{Synced: true, Lines: []source.LyricLine{{Text: "la"}, {Text: "la la"}}}
+			},
+		}
+		for i, apply := range states {
+			apply(&m)
+			v := m.View()
+			for _, line := range strings.Split(v, "\n") {
+				if lw := lipgloss.Width(line); lw > sz[0] {
+					t.Errorf("%dx%d state %d: line overflows (%d)", sz[0], sz[1], i, lw)
+				}
+			}
+		}
+	}
+}
+
+func TestStatusBarWithArtNeverWrapsNarrow(t *testing.T) {
+	// Height ≥ MinTermRows uses the art layout even on narrow terminals.
+	for _, w := range []int{40, 45, 60} {
+		m := newTestModel(&StubSource{})
+		m.width, m.height = w, 30
+		m.layoutResize()
+		m.track = &source.Track{
+			Name: "A Very Long Track Title That Goes On", Artist: "Some Lengthy Artist Name",
+			Album: "An Album Name Also Long", Duration: 301 * time.Second, Position: 30 * time.Second,
+			Playing: true, DeviceName: "Living Room Speaker",
+		}
+		m.deviceName = "Living Room Speaker"
+		v := m.View()
+		if n := strings.Count(v, "\n") + 1; n > 30 {
+			t.Errorf("width %d: view is %d rows tall (wrapped status bar?)", w, n)
+		}
+		for _, line := range strings.Split(v, "\n") {
+			if lw := lipgloss.Width(line); lw > w {
+				t.Errorf("width %d: line overflows (%d)", w, lw)
+			}
+		}
+	}
+}

@@ -12,8 +12,11 @@ import (
 )
 
 const (
-	npArtW = 70 // columns for large album art
-	npArtH = 35 // terminal rows for large album art (same as original)
+	npArtW = 70 // max columns for large album art
+	npArtH = 35 // max terminal rows for large album art (square: 2 px rows per cell)
+	// npTextRows is the vertical space the text block under the art needs
+	// (title, artist, bar, time, hint + spacing).
+	npTextRows = 9
 )
 
 // npLyrics carries the lyrics view state into the Now Playing renderer.
@@ -27,10 +30,27 @@ type npLyrics struct {
 
 // RenderNowPlaying renders the full-screen now playing overlay with
 // a blurred, darkened album art background.
+// npArtSize returns the album-art cell size for a terminal: up to 70×35,
+// shrunk to fit the width and to leave room for the text below. Always an
+// even number of columns so the square stays square.
+func npArtSize(width, height int) (w, h int) {
+	w = min(npArtW, width-4)
+	h = w / 2
+	if maxH := height - npTextRows; h > maxH {
+		h = maxH
+		w = h * 2
+	}
+	if h < 2 {
+		return 0, 0
+	}
+	return w &^ 1, h
+}
+
 func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image, vinylMode bool, vinylAngle float64, liked bool, lyr npLyrics, width, height int) string {
 	if width == 0 || height == 0 {
 		return ""
 	}
+	artW, artH := npArtSize(width, height)
 
 	// Accent colour and blurred background depend only on the image and the
 	// terminal height, but View runs every 500ms tick — memoise them.
@@ -38,7 +58,7 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 
 	// Render art block — vinyl uses bgRows for outside-circle pixels
 	if vinylMode && albumImg != nil {
-		artBlock = renderVinyl(albumImg, vinylAngle, npArtW, npArtH, bgRows)
+		artBlock = renderVinyl(albumImg, vinylAngle, artW, artH, bgRows)
 	}
 
 	// Compute a single bg color for the text area (bottom-center of gradient)
@@ -60,12 +80,15 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 
 	var sections []string
 
-	if lyr.active {
-		sections = append(sections, renderLyricsBlock(lyr, npArtW, npArtH, textAccent, dimStyle, textBg))
-	} else if artBlock != "" {
+	switch {
+	case artW == 0:
+		// No room for the art/lyrics region at all (minimum-height terminal).
+	case lyr.active:
+		sections = append(sections, renderLyricsBlock(lyr, artW, artH, textAccent, dimStyle, textBg))
+	case artBlock != "" && artW > 0:
 		sections = append(sections, artBlock)
-	} else {
-		sections = append(sections, PlaceholderArt(npArtW, npArtH))
+	case artW > 0:
+		sections = append(sections, PlaceholderArt(artW, artH))
 	}
 
 	sections = append(sections, "")
@@ -92,7 +115,11 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 		timeStr := fmt.Sprintf("%s / %s", fmtDur(track.Position), fmtDur(track.Duration))
 		sections = append(sections, dimStyle.Render(timeStr))
 		sections = append(sections, "")
-		sections = append(sections, dimStyle.Render("space play · n/p skip · f like · a queue · l lyrics · o actions · N close"))
+		hint := "space play · n/p skip · f like · a queue · l lyrics · o actions · N close"
+		if width < lipgloss.Width(hint)+2 {
+			hint = "space · n/p · f · a · l · o · N"
+		}
+		sections = append(sections, dimStyle.Render(hint))
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Center, sections...)
@@ -106,7 +133,7 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 	// Compose each row with gradient background filling full width
 	var sb strings.Builder
 	for y := range height {
-		bgHex := "#191414"
+		bgHex := CurrentPalette().Bg
 		if bgRows != nil && y < len(bgRows) {
 			c := bgRows[y]
 			bgHex = rgbHex(c.R, c.G, c.B)
@@ -257,6 +284,9 @@ func activeLyricLine(lines []source.LyricLine, pos time.Duration) int {
 // effect); plain lyrics render evenly. Loading, error, and not-found states
 // render as a single centered message.
 func renderLyricsBlock(lyr npLyrics, w, h int, accent lipgloss.Color, dim lipgloss.Style, bg lipgloss.Color) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
 	switch {
 	case lyr.loading:
 		return centeredMessageBlock("Loading lyrics…", w, h, dim)
@@ -324,6 +354,9 @@ func parseHexColor(c lipgloss.Color) (r, g, b uint8, ok bool) {
 // centeredMessageBlock renders msg on the middle row of an otherwise-blank
 // h-row block.
 func centeredMessageBlock(msg string, w, h int, dim lipgloss.Style) string {
+	if h <= 0 || w <= 0 {
+		return ""
+	}
 	rows := make([]string, h)
 	rows[h/2] = dim.Render(truncate(msg, w))
 	return strings.Join(rows, "\n")
