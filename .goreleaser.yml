@@ -75,12 +75,13 @@ scoops:
   - repository:
       owner: danfry1
       name: scoop-bucket
-      token: '{{ envOrDefault "SCOOP_BUCKET_GITHUB_TOKEN" "" }}'
+      token: "{{ .Env.SCOOP_BUCKET_GITHUB_TOKEN }}"
     directory: bucket
     homepage: https://github.com/danfry1/waxon
     description: A vim-modal Spotify client for the terminal
     license: GPL-3.0
-    skip_upload: '{{ if envOrDefault "SCOOP_BUCKET_GITHUB_TOKEN" "" }}false{{ else }}true{{ end }}'
+    # The workflow always sets the variable (empty when the App isn't configured).
+    skip_upload: "{{ if .Env.SCOOP_BUCKET_GITHUB_TOKEN }}false{{ else }}true{{ end }}"
 
 checksum:
   name_template: "checksums.txt"
