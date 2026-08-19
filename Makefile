@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS  := -X main.version=$(VERSION)
 BINARY   := waxon
 
-.PHONY: build test lint fmt cover install clean check demo record record-one
+.PHONY: build test lint fmt cover install clean check demo record record-one nix-hash
 
 build: ## Build the binary
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
@@ -26,6 +26,9 @@ install: ## Install the binary
 
 clean: ## Remove build artifacts
 	rm -f $(BINARY) waxon-demo coverage.out
+
+nix-hash: ## Refresh flake.nix vendorHash after go.mod/go.sum change
+	./scripts/nix-vendor-hash.sh
 
 demo: ## Launch waxon in demo mode
 	go build -tags demo -ldflags "$(LDFLAGS)" -o waxon-demo . && ./waxon-demo demo
