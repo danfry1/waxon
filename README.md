@@ -21,7 +21,7 @@
 
 ## Install
 
-**Homebrew:**
+**Homebrew** (macOS / Linux):
 
 ```
 brew trust danfry1/tap        # one-time: trust the third-party tap
@@ -32,13 +32,29 @@ brew install danfry1/tap/waxon
 > they're trusted. If you see `Error: Refusing to load formula ... from
 > untrusted tap`, run the `brew trust danfry1/tap` line above (once) and retry.
 
+**Nix** (flakes):
+
+```
+nix run github:danfry1/waxon              # run without installing
+nix profile install github:danfry1/waxon
+```
+
+**Scoop** (Windows):
+
+```
+scoop bucket add danfry1 https://github.com/danfry1/scoop-bucket
+scoop install waxon
+```
+
 **Go:**
 
 ```
 go install github.com/danfry1/waxon@latest
 ```
 
-**Binary:** download from the [Releases](https://github.com/danfry1/waxon/releases) page.
+**Linux packages / binaries:** every [release](https://github.com/danfry1/waxon/releases)
+ships `.deb`, `.rpm` and `.apk` packages plus `tar.gz`/`zip` archives (with
+SHA-256 checksums) for Linux, macOS and Windows on `amd64` and `arm64`.
 
 ## Quick Start
 

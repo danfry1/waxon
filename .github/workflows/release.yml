@@ -1,5 +1,16 @@
 name: Release
 
+# Pushing a version tag (git tag v1.2.3 && git push origin v1.2.3) builds every
+# target with goreleaser, publishes the GitHub Release with notes taken from
+# CHANGELOG.md, updates the Homebrew tap, and — when the GitHub App below is
+# configured — the Scoop bucket.
+#
+# One-time setup for Scoop: a GitHub App installed on danfry1/scoop-bucket with
+# Contents: read/write (the same "tap bumper" App other danfry1 repos use).
+# Store its App ID as the repository variable TAP_BUMP_APP_ID and its private
+# key as the secret TAP_BUMP_APP_PRIVATE_KEY. Without them the Scoop step is
+# skipped and everything else still publishes.
+
 on:
   push:
     tags:
@@ -13,18 +24,42 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
 
-      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+      - name: Check the tag has a CHANGELOG entry and matches flake.nix
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ./scripts/changelog-section.sh "$TAG" > release-notes.md
+          flake_version=$(sed -n 's/^ *version = "\([0-9.]*\)";/\1/p' flake.nix | head -1)
+          if [ "v$flake_version" != "$TAG" ]; then
+            echo "flake.nix version ($flake_version) does not match tag $TAG" >&2
+            exit 1
+          fi
+          echo "--- release notes ---"; cat release-notes.md
+
+      - name: Mint a Scoop bucket token from the GitHub App
+        id: scoop-token
+        if: ${{ vars.TAP_BUMP_APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          version: latest
-          args: release --clean
+          app-id: ${{ vars.TAP_BUMP_APP_ID }}
+          private-key: ${{ secrets.TAP_BUMP_APP_PRIVATE_KEY }}
+          owner: danfry1
+          repositories: scoop-bucket
+
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: "~> v2"
+          args: release --clean --release-notes=release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SCOOP_BUCKET_GITHUB_TOKEN: ${{ steps.scoop-token.outputs.token }}

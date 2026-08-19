@@ -11,7 +11,7 @@ test: ## Run tests with race detector
 	go test -race ./...
 
 lint: ## Run golangci-lint
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4 run
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run
 
 fmt: ## Format code with gofumpt
 	go run mvdan.cc/gofumpt@latest -w .

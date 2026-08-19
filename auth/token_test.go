@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -135,6 +136,9 @@ func TestSaveTokenPermissions(t *testing.T) {
 		t.Fatalf("stat: %v", err)
 	}
 
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows")
+	}
 	perm := info.Mode().Perm()
 	if perm != 0o600 {
 		t.Errorf("file permissions = %o, want 0600", perm)
