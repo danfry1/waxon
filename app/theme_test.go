@@ -175,6 +175,15 @@ func TestKeyOverridesDriveTheModelAndHelp(t *testing.T) {
 	if mm := result.(Model); mm.tracklist.Cursor() != 29 {
 		t.Error("end should jump to bottom after rebinding")
 	}
+	// Rebound toggles close their overlay too.
+	m.mode = ModeHelp
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyF1})
+	if result.(Model).mode != ModeNormal {
+		t.Error("rebound help key should close the help overlay")
+	}
+	if _, err := KeyMapFromOverrides(map[string]string{"escape": "x"}); err == nil {
+		t.Error("escape is not configurable and must be rejected, not silently ignored")
+	}
 	// Help overlay reflects the override.
 	m.mode = ModeHelp
 	if v := m.View(); !strings.Contains(v, "C-q") {

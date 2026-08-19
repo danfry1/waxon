@@ -173,8 +173,8 @@ func (t *GTracker) Reset() {
 }
 
 // keyBindingFields maps config action names to KeyMap fields. Names are what
-// users write in config.json under "keys". g/G motions and the g-prefix table
-// are fixed and not listed here.
+// users write in config.json under "keys". The g-prefix table and Esc (which
+// closes every overlay/mode) are fixed and not listed here.
 func (k *KeyMap) keyBindingFields() map[string]*key.Binding {
 	return map[string]*key.Binding{
 		"up": &k.Up, "down": &k.Down, "bottom": &k.Bottom,
@@ -184,7 +184,7 @@ func (k *KeyMap) keyBindingFields() map[string]*key.Binding {
 		"seek_fwd": &k.SeekFwd, "seek_back": &k.SeekBack,
 		"add_queue": &k.AddQueue, "like": &k.Like, "actions": &k.Actions, "devices": &k.Devices,
 		"back": &k.Back, "filter": &k.Filter, "search": &k.Search, "command": &k.Command,
-		"help": &k.Help, "now_playing": &k.NowPlaying, "quit": &k.Quit, "escape": &k.Escape,
+		"help": &k.Help, "now_playing": &k.NowPlaying, "quit": &k.Quit,
 		"section1": &k.Section1, "section2": &k.Section2,
 	}
 }

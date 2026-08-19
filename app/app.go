@@ -735,7 +735,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape || msg.String() == "?" || msg.String() == "q" {
+	if msg.Type == tea.KeyEscape || key.Matches(msg, m.keys.Help) || msg.String() == "q" {
 		m.mode = ModeNormal
 	}
 	return m, nil
@@ -760,7 +760,7 @@ func (m *Model) ensureLyrics() tea.Cmd {
 
 func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
-	case msg.String() == "N", msg.Type == tea.KeyEscape, msg.String() == "q":
+	case key.Matches(msg, m.keys.NowPlaying), msg.Type == tea.KeyEscape, msg.String() == "q":
 		m.mode = ModeNormal
 		m.vinylMode = false
 		m.lyricsView = false
