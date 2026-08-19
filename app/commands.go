@@ -342,7 +342,7 @@ func (m Model) fetchAlbumPage(albumID string) tea.Cmd {
 func (m Model) playTrack(trackURI, contextURI string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
-	return func() tea.Msg {
+	return deviceAware(func() tea.Msg {
 		var err error
 		if contextURI != "" {
 			err = src.PlayTrack(ctx, contextURI, trackURI)
@@ -355,17 +355,17 @@ func (m Model) playTrack(trackURI, contextURI string) tea.Cmd {
 			return trackErrorMsg{err}
 		}
 		return controlDoneMsg{}
-	}
+	})
 }
 
 func (m Model) controlCmd(fn func(context.Context) error) tea.Cmd {
 	ctx := m.ctx
-	return func() tea.Msg {
+	return deviceAware(func() tea.Msg {
 		if err := fn(ctx); err != nil {
 			return trackErrorMsg{err}
 		}
 		return controlDoneMsg{}
-	}
+	})
 }
 
 func (m Model) seekRelative(delta time.Duration) tea.Cmd {
@@ -378,12 +378,12 @@ func (m Model) seekRelative(delta time.Duration) tea.Cmd {
 	}
 	src := m.source
 	ctx := m.ctx
-	return func() tea.Msg {
+	return deviceAware(func() tea.Msg {
 		if err := src.Seek(ctx, pos); err != nil {
 			return trackErrorMsg{err}
 		}
 		return controlDoneMsg{}
-	}
+	})
 }
 
 func (m Model) transferPlayback(deviceID, deviceName string) tea.Cmd {
@@ -400,12 +400,12 @@ func (m Model) transferPlayback(deviceID, deviceName string) tea.Cmd {
 func (m Model) playPlaylistFromStart(contextURI string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
-	return func() tea.Msg {
+	return deviceAware(func() tea.Msg {
 		if err := src.PlayTrack(ctx, contextURI, ""); err != nil {
 			return trackErrorMsg{err}
 		}
 		return controlDoneMsg{}
-	}
+	})
 }
 
 // --- Command/Action Execution ---
@@ -427,12 +427,12 @@ func (m *Model) executeCommand(input string) tea.Cmd {
 	case CmdVolume:
 		m.volume = cmd.IntArg
 		vol := cmd.IntArg
-		return func() tea.Msg {
+		return deviceAware(func() tea.Msg {
 			if err := src.SetVolume(ctx, vol); err != nil {
 				return trackErrorMsg{err}
 			}
 			return cmdFlashMsg{fmt.Sprintf("Volume: %d%%", vol)}
-		}
+		})
 	case CmdShuffle:
 		m.shuffleOn = !m.shuffleOn
 		state := m.shuffleOn
@@ -440,21 +440,21 @@ func (m *Model) executeCommand(input string) tea.Cmd {
 		if !state {
 			label = "Shuffle off"
 		}
-		return func() tea.Msg {
+		return deviceAware(func() tea.Msg {
 			if err := src.SetShuffle(ctx, state); err != nil {
 				return trackErrorMsg{err}
 			}
 			return cmdFlashMsg{label}
-		}
+		})
 	case CmdRepeat:
 		m.repeatMode = source.RepeatMode(cmd.StrArg)
 		mode := source.RepeatMode(cmd.StrArg)
-		return func() tea.Msg {
+		return deviceAware(func() tea.Msg {
 			if err := src.SetRepeat(ctx, mode); err != nil {
 				return trackErrorMsg{err}
 			}
 			return cmdFlashMsg{"Repeat: " + cmd.StrArg}
-		}
+		})
 	case CmdDevice:
 		return m.fetchDevices()
 	case CmdRecent:
@@ -615,12 +615,12 @@ func (m Model) handleAddQueue() (Model, tea.Cmd) {
 func (m Model) queueTrack(trackID, name string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
-	return func() tea.Msg {
+	return deviceAware(func() tea.Msg {
 		if err := src.AddToQueue(ctx, trackID); err != nil {
 			return trackErrorMsg{err}
 		}
 		return queueDoneMsg{trackName: name}
-	}
+	})
 }
 
 // jumpToCurrentTrack focuses the currently playing track. If it is in the

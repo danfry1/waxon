@@ -146,6 +146,7 @@ type Model struct {
 	search          *Search
 	actions         *ActionsPopup
 	devices         *DevicePicker
+	pendingRetry    tea.Cmd // playback command to replay once a device is picked
 	keys            KeyMap
 	gtracker        GTracker
 	cmdInput        string
@@ -499,9 +500,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.applyPendingJump()
 
+	case noActiveDeviceMsg:
+		return m, m.fetchDevicesForRetry(msg.retry)
+
+	case deviceChoicesMsg:
+		return m.handleDeviceChoices(msg)
+
 	case devicesLoadedMsg:
 		if len(msg.devices) == 0 {
-			m.toast.Show("No devices available", "", ToastError)
+			m.toast.Show("No Spotify device found",
+				"Open Spotify on any device and it will show up here", ToastError)
 			return m, scheduleAutoDismiss()
 		}
 		picker := NewDevicePicker(msg.devices, m.width, m.height)
@@ -570,6 +578,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if isAuthError(msg.err) {
 			m.toast.Show("Session expired", "Run 'waxon auth' to reconnect", ToastError)
+		} else if title, detail, ok := friendlyPlaybackError(msg.err); ok {
+			m.toast.Show(title, detail, ToastError)
 		} else {
 			m.toast.Show(msg.err.Error(), "", ToastError)
 		}
@@ -811,20 +821,24 @@ func (m Model) handleKeyDevices(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
 		m.devices = nil
+		m.pendingRetry = nil
 		m.mode = ModeNormal
 		return m, nil
 	case tea.KeyEnter:
 		dev := m.devices.Selected()
-		if dev != nil {
-			deviceID := dev.ID
-			deviceName := dev.Name
-			m.devices = nil
-			m.mode = ModeNormal
-			return m, m.transferPlayback(deviceID, deviceName)
-		}
+		retry := m.pendingRetry
 		m.devices = nil
+		m.pendingRetry = nil
 		m.mode = ModeNormal
-		return m, nil
+		if dev == nil {
+			return m, nil
+		}
+		if retry != nil {
+			// Picker opened to recover a failed command: activate, then replay it.
+			m.toast.Show("Playing on "+dev.Name, "", ToastInfo)
+			return m, tea.Batch(scheduleAutoDismiss(), m.activateAndRetry(dev.ID, retry))
+		}
+		return m, m.transferPlayback(dev.ID, dev.Name)
 	}
 	switch msg.String() {
 	case "j", "down":
@@ -833,6 +847,7 @@ func (m Model) handleKeyDevices(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.devices.MoveUp()
 	case "q":
 		m.devices = nil
+		m.pendingRetry = nil
 		m.mode = ModeNormal
 	}
 	return m, nil
@@ -1295,6 +1310,7 @@ func (m Model) closeOverlay() (Model, tea.Cmd) {
 		m.mode = m.actionsReturn
 	case ModeDevices:
 		m.devices = nil
+		m.pendingRetry = nil
 		m.mode = ModeNormal
 	case ModeHelp, ModeNowPlaying:
 		m.mode = ModeNormal

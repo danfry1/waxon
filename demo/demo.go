@@ -4,6 +4,7 @@ package demo
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -26,18 +27,23 @@ type DemoSource struct {
 	repeatMode source.RepeatMode
 
 	// Content
-	playlists  []source.Playlist
-	tracksByPL map[string][]source.Track
-	userQueue     []source.Track  // manually queued tracks (play next before playlist continues)
-	playingQueued *source.Track   // non-nil when a queued track is currently playing
-	devices    []source.Device
-	artists    map[string]*source.ArtistPage
-	albums     map[string]*source.AlbumPage
-	allTracks  []source.Track
-	liked      map[string]bool // track ID → saved to Liked Songs
+	playlists     []source.Playlist
+	tracksByPL    map[string][]source.Track
+	userQueue     []source.Track // manually queued tracks (play next before playlist continues)
+	playingQueued *source.Track  // non-nil when a queued track is currently playing
+	devices       []source.Device
+	artists       map[string]*source.ArtistPage
+	albums        map[string]*source.AlbumPage
+	allTracks     []source.Track
+	liked         map[string]bool // track ID → saved to Liked Songs
 
 	// Current context
 	currentPLID string
+
+	// noDevice simulates Spotify having no active device: playback commands
+	// fail with source.ErrNoActiveDevice until TransferPlayback picks one.
+	// Enabled with WAXON_DEMO_SCENARIO=no-device.
+	noDevice bool
 }
 
 // NewDemoSource creates a fully populated demo source ready for use.
@@ -66,7 +72,23 @@ func NewDemoSource() *DemoSource {
 		liked:       make(map[string]bool),
 		currentPLID: firstPL,
 	}
+	if os.Getenv("WAXON_DEMO_SCENARIO") == "no-device" {
+		ds.noDevice = true
+		ds.playing = false
+		for i := range ds.devices {
+			ds.devices[i].IsActive = false
+		}
+	}
 	return ds
+}
+
+// requireDevice returns source.ErrNoActiveDevice while the no-device scenario
+// is active. Callers must hold d.mu.
+func (d *DemoSource) requireDevice() error {
+	if d.noDevice {
+		return source.ErrNoActiveDevice
+	}
+	return nil
 }
 
 // playingQueued is true when the currently playing track came from the user
@@ -128,6 +150,9 @@ func (d *DemoSource) advanceTrack() {
 func (d *DemoSource) CurrentPlayback(_ context.Context) (*source.PlaybackState, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.noDevice {
+		return nil, nil // nothing is playing anywhere
+	}
 
 	track := d.currentTrack()
 	if track == nil {
@@ -139,6 +164,12 @@ func (d *DemoSource) CurrentPlayback(_ context.Context) (*source.PlaybackState, 
 	t.Position = pos
 	t.Playing = d.playing
 	t.DeviceName = d.devices[0].Name
+	for _, dev := range d.devices {
+		if dev.IsActive {
+			t.DeviceName = dev.Name
+			break
+		}
+	}
 
 	// Surface the playlist the track is playing from (unless it came from the
 	// user queue, which has no context) so "jump to current" can navigate back.
@@ -164,6 +195,9 @@ func (d *DemoSource) CurrentPlayback(_ context.Context) (*source.PlaybackState, 
 func (d *DemoSource) Play(_ context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	if !d.playing {
 		d.playing = true
 		d.startTime = time.Now()
@@ -174,6 +208,9 @@ func (d *DemoSource) Play(_ context.Context) error {
 func (d *DemoSource) Pause(_ context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	if d.playing {
 		d.position = d.computePosition()
 		d.playing = false
@@ -184,6 +221,9 @@ func (d *DemoSource) Pause(_ context.Context) error {
 func (d *DemoSource) Next(_ context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	d.advanceTrack()
 	return nil
 }
@@ -191,6 +231,9 @@ func (d *DemoSource) Next(_ context.Context) error {
 func (d *DemoSource) Previous(_ context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	tracks := d.tracksByPL[d.currentPLID]
 	if len(tracks) == 0 {
 		return nil
@@ -207,6 +250,9 @@ func (d *DemoSource) Previous(_ context.Context) error {
 func (d *DemoSource) Seek(_ context.Context, pos time.Duration) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	d.position = pos
 	d.startTime = time.Now()
 	return nil
@@ -217,6 +263,9 @@ func (d *DemoSource) Seek(_ context.Context, pos time.Duration) error {
 func (d *DemoSource) SetVolume(_ context.Context, percent int) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	d.volume = percent
 	return nil
 }
@@ -224,6 +273,9 @@ func (d *DemoSource) SetVolume(_ context.Context, percent int) error {
 func (d *DemoSource) SetShuffle(_ context.Context, state bool) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	d.shuffleOn = state
 	return nil
 }
@@ -231,6 +283,9 @@ func (d *DemoSource) SetShuffle(_ context.Context, state bool) error {
 func (d *DemoSource) SetRepeat(_ context.Context, mode source.RepeatMode) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	d.repeatMode = mode
 	return nil
 }
@@ -247,12 +302,16 @@ func (d *DemoSource) TransferPlayback(_ context.Context, deviceID string) error 
 	for i := range d.devices {
 		d.devices[i].IsActive = d.devices[i].ID == deviceID
 	}
+	d.noDevice = false
 	return nil
 }
 
 func (d *DemoSource) PlayTrack(_ context.Context, contextURI, trackURI string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	for _, pl := range d.playlists {
 		if pl.URI == contextURI {
 			tracks := d.tracksByPL[pl.ID]
@@ -280,6 +339,9 @@ func (d *DemoSource) PlayTrack(_ context.Context, contextURI, trackURI string) e
 func (d *DemoSource) PlayTrackDirect(_ context.Context, trackURI string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	for plID, tracks := range d.tracksByPL {
 		for i, t := range tracks {
 			if t.URI == trackURI {
@@ -298,6 +360,9 @@ func (d *DemoSource) PlayTrackDirect(_ context.Context, trackURI string) error {
 func (d *DemoSource) AddToQueue(_ context.Context, trackID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.requireDevice(); err != nil {
+		return err
+	}
 	for _, t := range d.allTracks {
 		if t.ID == trackID {
 			d.userQueue = append(d.userQueue, t)

@@ -11,8 +11,15 @@ import (
 type DevicePicker struct {
 	devices []source.Device
 	cursor  int
+	prompt  string // optional subtitle override (e.g. why the picker opened)
 	width   int
 	height  int
+}
+
+// SetPrompt replaces the default "Select a playback device" subtitle, e.g. to
+// explain that the picker opened because no device was active.
+func (d *DevicePicker) SetPrompt(prompt string) {
+	d.prompt = prompt
 }
 
 // NewDevicePicker creates a device picker popup from a list of devices.
@@ -80,7 +87,11 @@ func (d DevicePicker) View() string {
 		Foreground(ColorTextDim)
 
 	content := titleStyle.Render("  Devices") + "\n"
-	content += subtitleStyle.Render("  Select a playback device") + "\n\n"
+	prompt := d.prompt
+	if prompt == "" {
+		prompt = "Select a playback device"
+	}
+	content += subtitleStyle.Render("  "+prompt) + "\n\n"
 
 	if len(d.devices) == 0 {
 		content += subtitleStyle.Render("  No devices available") + "\n"

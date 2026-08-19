@@ -86,36 +86,36 @@ func (p *PlayerSource) CurrentPlayback(ctx context.Context) (*source.PlaybackSta
 }
 
 func (p *PlayerSource) Play(ctx context.Context) error {
-	return p.client.Play(ctx)
+	return wrapPlayerError(p.client.Play(ctx))
 }
 
 func (p *PlayerSource) Pause(ctx context.Context) error {
-	return p.client.Pause(ctx)
+	return wrapPlayerError(p.client.Pause(ctx))
 }
 
 func (p *PlayerSource) Next(ctx context.Context) error {
-	return p.client.Next(ctx)
+	return wrapPlayerError(p.client.Next(ctx))
 }
 
 func (p *PlayerSource) Previous(ctx context.Context) error {
-	return p.client.Previous(ctx)
+	return wrapPlayerError(p.client.Previous(ctx))
 }
 
 func (p *PlayerSource) Seek(ctx context.Context, position time.Duration) error {
 	ms := int(position.Milliseconds())
-	return p.client.Seek(ctx, ms)
+	return wrapPlayerError(p.client.Seek(ctx, ms))
 }
 
 func (p *PlayerSource) SetVolume(ctx context.Context, percent int) error {
-	return p.client.Volume(ctx, percent)
+	return wrapPlayerError(p.client.Volume(ctx, percent))
 }
 
 func (p *PlayerSource) SetShuffle(ctx context.Context, state bool) error {
-	return p.client.Shuffle(ctx, state)
+	return wrapPlayerError(p.client.Shuffle(ctx, state))
 }
 
 func (p *PlayerSource) SetRepeat(ctx context.Context, mode source.RepeatMode) error {
-	return p.client.Repeat(ctx, string(mode))
+	return wrapPlayerError(p.client.Repeat(ctx, string(mode)))
 }
 
 func (p *PlayerSource) Devices(ctx context.Context) ([]source.Device, error) {
@@ -137,7 +137,7 @@ func (p *PlayerSource) Devices(ctx context.Context) ([]source.Device, error) {
 
 func (p *PlayerSource) TransferPlayback(ctx context.Context, deviceID string) error {
 	id := spotifyapi.ID(deviceID)
-	return p.client.TransferPlayback(ctx, id, true)
+	return wrapPlayerError(p.client.TransferPlayback(ctx, id, true))
 }
 
 func (p *PlayerSource) Queue(ctx context.Context) ([]source.Track, error) {
@@ -160,18 +160,18 @@ func (p *PlayerSource) PlayTrack(ctx context.Context, contextURI string, trackUR
 	if trackURI != "" {
 		opts.PlaybackOffset = &spotifyapi.PlaybackOffset{URI: spotifyapi.URI(trackURI)}
 	}
-	return p.client.PlayOpt(ctx, opts)
+	return wrapPlayerError(p.client.PlayOpt(ctx, opts))
 }
 
 func (p *PlayerSource) PlayTrackDirect(ctx context.Context, trackURI string) error {
 	opts := &spotifyapi.PlayOptions{
 		URIs: []spotifyapi.URI{spotifyapi.URI(trackURI)},
 	}
-	return p.client.PlayOpt(ctx, opts)
+	return wrapPlayerError(p.client.PlayOpt(ctx, opts))
 }
 
 func (p *PlayerSource) AddToQueue(ctx context.Context, trackID string) error {
-	return p.client.QueueSong(ctx, spotifyapi.ID(trackID))
+	return wrapPlayerError(p.client.QueueSong(ctx, spotifyapi.ID(trackID)))
 }
 
 func (p *PlayerSource) RecentlyPlayed(ctx context.Context) ([]source.Track, error) {

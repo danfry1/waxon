@@ -49,6 +49,15 @@ waxon         # Launch the TUI
 
 Requires a **Spotify Premium** account and a terminal with **true color** support.
 
+waxon is a remote control for Spotify Connect: it plays through whatever Spotify
+client is running (desktop app, phone, speaker). If nothing is active when you
+press play, waxon picks the only available device for you — or asks which one
+to use when there are several.
+
+<p align="center">
+  <img src="demo/recordings/no-device.gif" alt="picking a device when none is active" width="800">
+</p>
+
 ## Features
 
 ### Vim Navigation

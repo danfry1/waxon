@@ -13,23 +13,25 @@ import (
 //go:embed art/*.jpg
 var artFS embed.FS
 
-var artOnce sync.Once
-var artCache map[string]image.Image
+var (
+	artOnce  sync.Once
+	artCache map[string]image.Image
+)
 
 // artMapping maps demo:// URLs to embedded file paths.
 var artMapping = map[string]string{
-	artDarkSide: "art/dark-side-of-the-moon.jpg",
-	artRumours:  "art/rumours.jpg",
-	artOKComp:   "art/ok-computer.jpg",
-	artKindBlue: "art/kind-of-blue.jpg",
-	artPLLiked:   "art/liked-songs.jpg",
-	artPLRock:    "art/classic-rock.jpg",
-	artPLCoding:  "art/late-night-coding.jpg",
-	artPLJazz:    "art/jazz-essentials.jpg",
-	artCurrents:  "art/currents.jpg",
+	artDarkSide:   "art/dark-side-of-the-moon.jpg",
+	artRumours:    "art/rumours.jpg",
+	artOKComp:     "art/ok-computer.jpg",
+	artKindBlue:   "art/kind-of-blue.jpg",
+	artPLLiked:    "art/liked-songs.jpg",
+	artPLRock:     "art/classic-rock.jpg",
+	artPLCoding:   "art/late-night-coding.jpg",
+	artPLJazz:     "art/jazz-essentials.jpg",
+	artCurrents:   "art/currents.jpg",
 	artPurpleRain: "art/purple-rain.jpg",
-	artRAM:       "art/random-access-memories.jpg",
-	artNevermind: "art/nevermind.jpg",
+	artRAM:        "art/random-access-memories.jpg",
+	artNevermind:  "art/nevermind.jpg",
 }
 
 func loadArtCache() {
