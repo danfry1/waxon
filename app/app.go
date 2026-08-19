@@ -116,8 +116,9 @@ type playlistArtLoadedMsg struct {
 	url string
 	img image.Image
 }
-type sidebarIconsLoadedMsg struct {
-	icons map[string]string // playlist ID → rendered icon
+type sidebarIconLoadedMsg struct {
+	id   string // playlist ID
+	icon string // rendered icon
 }
 type artistPageLoadedMsg struct {
 	page *source.ArtistPage
@@ -395,8 +396,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
-	case sidebarIconsLoadedMsg:
-		m.sidebar.SetPlaylistIcons(msg.icons)
+	case sidebarIconLoadedMsg:
+		m.sidebar.SetPlaylistIcons(map[string]string{msg.id: msg.icon})
 		return m, nil
 
 	case tracksLoadedMsg:

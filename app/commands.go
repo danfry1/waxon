@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -274,61 +273,40 @@ func (m Model) doSearch(query string) tea.Cmd {
 	}
 }
 
+// fetchSidebarIcons returns one command per playlist cover so icons stream
+// into the sidebar as each arrives, instead of all at once after the slowest
+// download. FetchImage bounds concurrency and serves repeats from cache, so
+// a large library doesn't flood the network.
 func (m Model) fetchSidebarIcons(playlists []source.Playlist) tea.Cmd {
 	ctx := m.ctx
 	ap := m.artworkProvider
-	return func() tea.Msg {
-		type iconResult struct {
-			id   string
-			icon string
+	cmds := make([]tea.Cmd, 0, len(playlists))
+	for _, pl := range playlists {
+		if pl.ImageURL == "" {
+			continue
 		}
-
-		// Filter to playlists with images
-		var toFetch []source.Playlist
-		for _, pl := range playlists {
-			if pl.ImageURL != "" {
-				toFetch = append(toFetch, pl)
+		id, url := pl.ID, pl.ImageURL
+		cmds = append(cmds, func() tea.Msg {
+			var img image.Image
+			if ap != nil {
+				if i, ok := ap.ArtworkImage(url); ok {
+					img = i
+				}
 			}
-		}
-
-		results := make(chan iconResult, len(toFetch))
-		sem := make(chan struct{}, 5) // bounded concurrency
-
-		var wg sync.WaitGroup
-		for _, pl := range toFetch {
-			wg.Add(1)
-			go func(p source.Playlist) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-				var img image.Image
-				if ap != nil {
-					if i, ok := ap.ArtworkImage(p.ImageURL); ok {
-						img = i
-					}
+			if img == nil {
+				var err error
+				img, err = FetchImage(ctx, url)
+				if err != nil {
+					return nil // icon stays as the ♫ fallback
 				}
-				if img == nil {
-					var err error
-					img, err = FetchImage(ctx, p.ImageURL)
-					if err != nil {
-						return
-					}
-				}
-				results <- iconResult{id: p.ID, icon: renderHalfBlocks(img, 3, 1)}
-			}(pl)
-		}
-
-		go func() {
-			wg.Wait()
-			close(results)
-		}()
-
-		icons := make(map[string]string)
-		for r := range results {
-			icons[r.id] = r.icon
-		}
-		return sidebarIconsLoadedMsg{icons: icons}
+			}
+			return sidebarIconLoadedMsg{id: id, icon: renderHalfBlocks(img, 3, 1)}
+		})
 	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) fetchArtwork(url string) tea.Cmd {

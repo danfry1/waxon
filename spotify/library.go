@@ -27,13 +27,11 @@ type apiPlaylistPage struct {
 }
 
 type apiSimplePlaylist struct {
-	ID     string `json:"id"`
-	URI    string `json:"uri"`
-	Name   string `json:"name"`
-	Images []struct {
-		URL string `json:"url"`
-	} `json:"images"`
-	Items struct {
+	ID     string     `json:"id"`
+	URI    string     `json:"uri"`
+	Name   string     `json:"name"`
+	Images []apiImage `json:"images"`
+	Items  struct {
 		Total int `json:"total"`
 	} `json:"items"`
 	// Fallback for older API format
@@ -60,16 +58,63 @@ type apiTrack struct {
 	Name     string `json:"name"`
 	Duration int    `json:"duration_ms"`
 	Album    struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Images []struct {
-			URL string `json:"url"`
-		} `json:"images"`
+		ID     string     `json:"id"`
+		Name   string     `json:"name"`
+		Images []apiImage `json:"images"`
 	} `json:"album"`
 	Artists []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"artists"`
+}
+
+// apiImage is one entry of a Spotify images array (largest first).
+type apiImage struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+// Minimum pixel sizes for the places art is rendered. Half-block art shows
+// two pixels per row, so the largest Now Playing view (70×35 cells) needs
+// ~140px; 300px covers it with headroom. Sidebar icons and header thumbs are
+// tiny, so the 64px variant is plenty and ~100× cheaper to fetch and decode.
+const (
+	trackArtMinPx = 300
+	thumbArtMinPx = 64
+)
+
+// zmb3Images converts zmb3's image slice for pickImageURL.
+func zmb3Images(images []spotifyapi.Image) []apiImage {
+	out := make([]apiImage, len(images))
+	for i, im := range images {
+		out[i] = apiImage{URL: im.URL, Width: int(im.Width), Height: int(im.Height)}
+	}
+	return out
+}
+
+// pickImageURL returns the smallest image whose width is at least minPx.
+// When none is big enough — or sizes are unknown, as with some custom
+// playlist covers — it falls back to the first (largest) image.
+func pickImageURL(images []apiImage, minPx int) string {
+	best, bestW := "", 0
+	for _, im := range images {
+		if im.URL == "" || im.Width < minPx {
+			continue
+		}
+		if best == "" || im.Width < bestW {
+			best, bestW = im.URL, im.Width
+		}
+	}
+	if best != "" {
+		return best
+	}
+	for _, im := range images {
+		if im.URL != "" {
+			return im.URL
+		}
+	}
+	return ""
 }
 
 // apiTrackToSource converts an apiTrack to a source.Track.
@@ -80,10 +125,7 @@ func apiTrackToSource(t apiTrack) source.Track {
 		artist = t.Artists[0].Name
 		artistID = t.Artists[0].ID
 	}
-	artworkURL := ""
-	if len(t.Album.Images) > 0 {
-		artworkURL = t.Album.Images[0].URL
-	}
+	artworkURL := pickImageURL(t.Album.Images, trackArtMinPx)
 	return source.Track{
 		ID:         t.ID,
 		URI:        t.URI,
@@ -205,10 +247,7 @@ func (p *PlayerSource) Playlists(ctx context.Context) ([]source.Playlist, error)
 			if total == 0 {
 				total = pl.Tracks.Total // fallback for older API
 			}
-			imageURL := ""
-			if len(pl.Images) > 0 {
-				imageURL = pl.Images[0].URL
-			}
+			imageURL := pickImageURL(pl.Images, thumbArtMinPx)
 			playlists = append(playlists, source.Playlist{
 				ID:         pl.ID,
 				URI:        pl.URI,
@@ -293,10 +332,7 @@ func (p *PlayerSource) Search(ctx context.Context, query string) (*source.Search
 	}
 	if result.Artists != nil {
 		for _, a := range result.Artists.Artists {
-			imgURL := ""
-			if len(a.Images) > 0 {
-				imgURL = a.Images[0].URL
-			}
+			imgURL := pickImageURL(zmb3Images(a.Images), thumbArtMinPx)
 			sr.Artists = append(sr.Artists, source.SearchArtist{
 				ID:       string(a.ID),
 				Name:     a.Name,
@@ -306,10 +342,7 @@ func (p *PlayerSource) Search(ctx context.Context, query string) (*source.Search
 	}
 	if result.Albums != nil {
 		for _, a := range result.Albums.Albums {
-			imgURL := ""
-			if len(a.Images) > 0 {
-				imgURL = a.Images[0].URL
-			}
+			imgURL := pickImageURL(zmb3Images(a.Images), thumbArtMinPx)
 			artistName := ""
 			if len(a.Artists) > 0 {
 				artistName = a.Artists[0].Name
@@ -330,12 +363,10 @@ func (p *PlayerSource) Search(ctx context.Context, query string) (*source.Search
 func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.ArtistPage, error) {
 	// Fetch artist details
 	var artist struct {
-		ID     string   `json:"id"`
-		Name   string   `json:"name"`
-		Genres []string `json:"genres"`
-		Images []struct {
-			URL string `json:"url"`
-		} `json:"images"`
+		ID     string     `json:"id"`
+		Name   string     `json:"name"`
+		Genres []string   `json:"genres"`
+		Images []apiImage `json:"images"`
 	}
 	if err := p.apiGet(ctx, "/artists/"+artistID, &artist); err != nil {
 		return nil, fmt.Errorf("get artist: %w", err)
@@ -354,22 +385,17 @@ func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.
 		tracks = append(tracks, apiTrackToSource(t))
 	}
 
-	imageURL := ""
-	if len(artist.Images) > 0 {
-		imageURL = artist.Images[0].URL // largest image
-	}
+	imageURL := pickImageURL(artist.Images, thumbArtMinPx)
 
 	// Fetch artist's albums (discography)
 	var albumsResp struct {
 		Items []struct {
-			ID          string `json:"id"`
-			Name        string `json:"name"`
-			ReleaseDate string `json:"release_date"`
-			TotalTracks int    `json:"total_tracks"`
-			AlbumType   string `json:"album_type"`
-			Images      []struct {
-				URL string `json:"url"`
-			} `json:"images"`
+			ID          string     `json:"id"`
+			Name        string     `json:"name"`
+			ReleaseDate string     `json:"release_date"`
+			TotalTracks int        `json:"total_tracks"`
+			AlbumType   string     `json:"album_type"`
+			Images      []apiImage `json:"images"`
 		} `json:"items"`
 	}
 	var albums []source.ArtistAlbum
@@ -388,10 +414,7 @@ func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.
 			if a.AlbumType == "single" {
 				albumType = "Single"
 			}
-			imgURL := ""
-			if len(a.Images) > 0 {
-				imgURL = a.Images[0].URL
-			}
+			imgURL := pickImageURL(a.Images, thumbArtMinPx)
 			albums = append(albums, source.ArtistAlbum{
 				ID:       a.ID,
 				Name:     a.Name,
@@ -422,9 +445,7 @@ func (p *PlayerSource) GetAlbum(ctx context.Context, albumID string) (*source.Al
 			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"artists"`
-		Images []struct {
-			URL string `json:"url"`
-		} `json:"images"`
+		Images []apiImage `json:"images"`
 		Tracks struct {
 			Items []apiTrack `json:"items"`
 		} `json:"tracks"`
@@ -438,10 +459,7 @@ func (p *PlayerSource) GetAlbum(ctx context.Context, albumID string) (*source.Al
 		artistName = album.Artists[0].Name
 	}
 
-	imageURL := ""
-	if len(album.Images) > 0 {
-		imageURL = album.Images[0].URL // largest image
-	}
+	imageURL := pickImageURL(album.Images, thumbArtMinPx)
 
 	tracks := make([]source.Track, 0, len(album.Tracks.Items))
 	for _, t := range album.Tracks.Items {
