@@ -40,14 +40,51 @@ type TrackList struct {
 	nowPlaying string // ID of currently playing track
 }
 
+// Column layout breakpoints, measured on the usable width inside the pane
+// border. Below each threshold a column is dropped (a zero width hides it)
+// so the table never overflows the pane.
+const (
+	colsFullMinWidth   = 64 // marker, #, title, artist, duration
+	colsNoNumMinWidth  = 44 // marker, title, artist, duration
+	colsNoDurMinWidth  = 30 // marker, title, artist
+	tableCellPadding   = 2  // bubbles table pads each visible cell by 1 each side
+	colMarkerW, colNum = 2, 4
+	colDurW            = 8
+)
+
+// trackColumns returns a column set that fits within a pane of the given
+// total width, dropping the track number, then duration, then artist as the
+// pane narrows. Title always gets the most space (4/7 of what's left).
 func trackColumns(width int) []table.Column {
-	return []table.Column{
-		{Title: " ", Width: 2},
-		{Title: "#", Width: 4},
-		{Title: "Title", Width: max(10, width/3)},
-		{Title: "Artist", Width: max(10, width/4)},
-		{Title: "Duration", Width: 8},
+	avail := width - 2 // pane border
+	cols := []table.Column{
+		{Title: " ", Width: colMarkerW},
+		{Title: "#", Width: colNum},
+		{Title: "Title"},
+		{Title: "Artist"},
+		{Title: "Duration", Width: colDurW},
 	}
+	visible := 5
+	switch {
+	case avail >= colsFullMinWidth:
+	case avail >= colsNoNumMinWidth:
+		cols[1].Width = 0
+		visible = 4
+	case avail >= colsNoDurMinWidth:
+		cols[1].Width, cols[4].Width = 0, 0
+		visible = 3
+	default:
+		cols[1].Width, cols[3].Width, cols[4].Width = 0, 0, 0
+		visible = 2
+	}
+	rem := avail - cols[0].Width - cols[1].Width - cols[4].Width - visible*tableCellPadding
+	if cols[3].Width == 0 && visible == 2 {
+		cols[2].Width = max(4, rem)
+		return cols
+	}
+	cols[2].Width = max(6, rem*4/7)
+	cols[3].Width = max(4, rem-cols[2].Width)
+	return cols
 }
 
 func NewTrackList(width, height int) TrackList {

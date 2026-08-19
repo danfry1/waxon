@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"log/slog"
 	"math"
@@ -298,6 +299,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.layoutResize()
+		m.renderNPArt()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -510,10 +512,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case npArtLoadedMsg:
-		m.npArt = renderHalfBlocks(msg.img, npArtW, npArtH)
 		m.npArtURL = msg.url
 		m.npSourceImg = msg.img
 		m.vinylAngle = 0
+		m.renderNPArt()
 		return m, nil
 
 	case lyricsLoadedMsg:
@@ -1214,9 +1216,13 @@ func (m Model) maybeLoadMore() tea.Cmd {
 	return m.fetchMoreTracks()
 }
 
-// paneAt returns which pane a given X column falls in.
+// paneAt returns which pane a given X column falls in. In narrow mode only
+// the focused pane is on screen, so every click lands on it.
 func (m Model) paneAt(x int) Pane {
-	if x < max(20, m.width/4) {
+	if m.narrow() {
+		return m.focusPane
+	}
+	if x < m.sidebarWidth() {
 		return PaneSidebar
 	}
 	return PaneTrackList
@@ -1425,12 +1431,54 @@ func (m Model) handleEnter() (Model, tea.Cmd) {
 	return m, nil
 }
 
+// renderNPArt (re)renders the Now Playing art for the current terminal size.
+func (m *Model) renderNPArt() {
+	if m.npSourceImg == nil {
+		return
+	}
+	w, h := npArtSize(m.width, m.height)
+	if w == 0 {
+		m.npArt = ""
+		return
+	}
+	m.npArt = renderHalfBlocks(m.npSourceImg, w, h)
+}
+
+// Layout breakpoints.
+const (
+	// narrowWidth is the terminal width below which the two panes stop
+	// fitting side by side; the focused pane then takes the full width and
+	// h/l/Tab switch between them.
+	narrowWidth = 80
+	// minTermWidth/minTermHeight are the smallest terminal waxon will try to
+	// draw; below that View shows a resize prompt instead of a broken layout.
+	minTermWidth  = 40
+	minTermHeight = 10
+)
+
+// narrow reports whether the terminal is too narrow for two panes.
+func (m Model) narrow() bool { return m.width < narrowWidth }
+
+// tooSmall reports whether the terminal is too small to draw anything useful.
+func (m Model) tooSmall() bool { return m.width < minTermWidth || m.height < minTermHeight }
+
+// sidebarWidth is the sidebar's width for the current terminal size.
+func (m Model) sidebarWidth() int {
+	if m.narrow() {
+		return m.width
+	}
+	return max(20, m.width/4)
+}
+
 func (m *Model) layoutResize() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	sidebarW := max(20, m.width/4)
+	sidebarW := m.sidebarWidth()
 	tracklistW := m.width - sidebarW
+	if m.narrow() {
+		tracklistW = m.width
+	}
 
 	// Reserve rows for the bottom area
 	statusRows := 2
@@ -1453,6 +1501,12 @@ func (m *Model) layoutResize() {
 		m.tracklist.Resize(tracklistW, contentH)
 		m.statusbar.Resize(m.width)
 	}
+}
+
+// viewTooSmall asks for a bigger terminal instead of drawing a broken layout.
+func viewTooSmall(width, height int) string {
+	msg := fmt.Sprintf("waxon needs at least %d×%d\n(now %d×%d)", minTermWidth, minTermHeight, width, height)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, StyleDimText.Render(msg))
 }
 
 // httpStatusError is satisfied by any error type that carries an HTTP status code.
@@ -1509,6 +1563,9 @@ func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}
+	if m.tooSmall() {
+		return viewTooSmall(m.width, m.height)
+	}
 
 	// Search overlay replaces everything
 	if m.mode == ModeSearch && m.search != nil {
@@ -1546,10 +1603,19 @@ func (m Model) View() string {
 		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.liked, lyr, m.width, m.height)
 	}
 
-	// Two-pane layout
-	sidebarView := m.sidebar.View(m.focusPane == PaneSidebar)
-	tracklistView := m.tracklist.View(m.focusPane == PaneTrackList)
-	panes := lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, tracklistView)
+	// Two-pane layout — or just the focused pane when the terminal is narrow.
+	var panes string
+	if m.narrow() {
+		if m.focusPane == PaneSidebar {
+			panes = m.sidebar.View(true)
+		} else {
+			panes = m.tracklist.View(true)
+		}
+	} else {
+		sidebarView := m.sidebar.View(m.focusPane == PaneSidebar)
+		tracklistView := m.tracklist.View(m.focusPane == PaneTrackList)
+		panes = lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, tracklistView)
+	}
 
 	// Now-playing area
 	var view string

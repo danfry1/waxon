@@ -63,12 +63,26 @@ func (s StatusBar) ViewNowPlaying(track *source.Track, shuffleOn bool, repeatMod
 		right = strings.Join(indicators, " ") + "  " + progress
 	}
 
-	// Fill middle with progress bar
-	leftW := lipgloss.Width(info)
+	// Fill middle with progress bar. On narrow terminals the track info is
+	// truncated (album first, then the rest) so the line never wraps.
+	const minBarW = 5
 	rightW := lipgloss.Width(right) + 2
+	if s.width-rightW-minBarW-4 < 12 {
+		// Not enough room for shuffle/repeat badges; keep just the time.
+		right = progress
+		rightW = lipgloss.Width(right) + 2
+	}
+	if maxInfo := s.width - rightW - minBarW - 4; lipgloss.Width(info) > maxInfo {
+		short := fmt.Sprintf(" %s %s%s · %s", icon, track.Name, heart, track.Artist)
+		if lipgloss.Width(short) > maxInfo {
+			short = truncate(short, max(4, maxInfo))
+		}
+		info = short
+	}
+	leftW := lipgloss.Width(info)
 	barW := s.width - leftW - rightW - 4
-	if barW < 5 {
-		barW = 5
+	if barW < minBarW {
+		barW = minBarW
 	}
 
 	bar := s.renderProgressBar(track, barW)
@@ -121,6 +135,11 @@ func (s StatusBar) ViewModeLine(mode Mode, cmdInput string, filterInput string, 
 
 	leftW := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)
+	if leftW+rightW > s.width {
+		// Drop the device name, then the help hint, rather than wrapping.
+		right = fmt.Sprintf("♪ %d%% ", volume)
+		rightW = lipgloss.Width(right)
+	}
 	gap := s.width - leftW - rightW
 	if gap < 0 {
 		gap = 0
