@@ -26,33 +26,66 @@ builds:
         goarch: arm64
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
-brews:
-  - repository:
+# Linux packages, attached to the GitHub Release.
+nfpms:
+  - package_name: waxon
+    vendor: Daniel Fry
+    homepage: https://github.com/danfry1/waxon
+    maintainer: Daniel Fry <danielfentonfry@gmail.com>
+    description: A vim-modal Spotify client for the terminal
+    license: GPL-3.0
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+
+# Homebrew: a Cask (the current goreleaser mechanism; `brews` formulas are
+# deprecated). Casks install plain binaries on macOS and Linux, and the post
+# install hook clears macOS's quarantine flag so the unsigned binary runs.
+homebrew_casks:
+  - name: waxon
+    repository:
       owner: danfry1
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/danfry1/waxon
     description: Vim-modal Spotify terminal client
     license: GPL-3.0
-    install: |
-      bin.install "waxon"
-    test: |
-      system bin/"waxon", "version"
+    # Replaces the Formula of the same name from earlier releases: remove
+    # Formula/waxon.rb from the tap after the first cask release so
+    # `brew install danfry1/tap/waxon` resolves to the cask.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/waxon"]
+          end
+
+# Windows: Scoop manifest in danfry1/scoop-bucket. The token is minted per run
+# from a GitHub App by the release workflow; when it isn't configured the
+# upload is skipped rather than failing the release.
+scoops:
+  - repository:
+      owner: danfry1
+      name: scoop-bucket
+      token: '{{ envOrDefault "SCOOP_BUCKET_GITHUB_TOKEN" "" }}'
+    directory: bucket
+    homepage: https://github.com/danfry1/waxon
+    description: A vim-modal Spotify client for the terminal
+    license: GPL-3.0
+    skip_upload: '{{ if envOrDefault "SCOOP_BUCKET_GITHUB_TOKEN" "" }}false{{ else }}true{{ end }}'
 
 checksum:
   name_template: "checksums.txt"
 
+# Release notes come from CHANGELOG.md (see the release workflow), not from
+# the commit list.
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^ci:"
-      - "^chore:"
+  disable: true
