@@ -350,6 +350,19 @@ func (tl *TrackList) applyFilter(query string) {
 	tl.filteredIdx = idx
 }
 
+// RemoveAt deletes the track at index i (into the full list) and keeps the
+// cursor on the same row where possible.
+func (tl *TrackList) RemoveAt(i int) {
+	if i < 0 || i >= len(tl.tracks) {
+		return
+	}
+	tl.tracks = append(tl.tracks[:i], tl.tracks[i+1:]...)
+	if tl.filterText != "" {
+		tl.applyFilter(tl.filterText)
+	}
+	tl.rebuildRows()
+}
+
 // SelectedIndex returns the selected row's index into the full track list
 // (its position in the playlist), or -1 when nothing is selected. Unlike the
 // cursor, this is stable under an active filter.

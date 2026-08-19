@@ -272,7 +272,7 @@ func (m Model) addToPlaylist(pl source.Playlist, trackID, trackName string) tea.
 		if err := src.AddToPlaylist(ctx, pl.ID, trackID); err != nil {
 			return trackErrorMsg{err}
 		}
-		return playlistChangedMsg{playlistID: pl.ID, playlistName: pl.Name, trackName: trackName, added: true}
+		return playlistChangedMsg{playlistID: pl.ID, playlistName: pl.Name, trackName: trackName, added: true, position: -1}
 	}
 }
 
@@ -291,7 +291,7 @@ func (m Model) removeFromPlaylist(playlistID, trackID string, position int, trac
 		if err := src.RemoveFromPlaylist(ctx, playlistID, trackID, position); err != nil {
 			return trackErrorMsg{err}
 		}
-		return playlistChangedMsg{playlistID: playlistID, playlistName: name, trackName: trackName, added: false}
+		return playlistChangedMsg{playlistID: playlistID, playlistName: name, trackName: trackName, added: false, position: position}
 	}
 }
 
