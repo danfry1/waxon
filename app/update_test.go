@@ -5728,6 +5728,38 @@ func TestSidebarFilterAppliesToQueueWhenShown(t *testing.T) {
 	}
 }
 
+func TestSidebarQueueFilterSurvivesRefresh(t *testing.T) {
+	s := NewSidebar(30, 40)
+	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}})
+	s.SetSection(SectionQueue)
+	s.SetQueueTracks([]source.Track{{ID: "t1", Name: "Song One"}, {ID: "t2", Name: "Other"}})
+	s.SetFilter("song")
+	// The queue is re-fetched in the background (track change, add-to-queue).
+	s.SetQueueTracks([]source.Track{{ID: "t2", Name: "Other"}, {ID: "t3", Name: "Song Three"}})
+	items := s.list.Items()
+	if len(items) != 1 {
+		t.Fatalf("filter dropped on refresh: %d items, want 1", len(items))
+	}
+	if qi, ok := items[0].(queueItem); !ok || qi.track.ID != "t3" {
+		t.Errorf("filtered refresh shows %#v, want t3", items[0])
+	}
+	// Switching sections resets the filter.
+	s.SetSection(SectionLibrary)
+	if len(s.list.Items()) != 1 || s.filterText != "" {
+		t.Error("section switch should clear the filter and show the full library")
+	}
+}
+
+func TestSidebarLibraryFilterSurvivesIconRefresh(t *testing.T) {
+	s := NewSidebar(30, 40)
+	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}, {ID: "p2", Name: "Jazz"}})
+	s.SetFilter("ja")
+	s.SetPlaylistIcons(map[string]string{"p1": "▀", "p2": "▄"})
+	if n := len(s.list.Items()); n != 1 {
+		t.Fatalf("icon refresh dropped filter: %d items, want 1", n)
+	}
+}
+
 func TestSidebarFilterStillWorksOnLibrary(t *testing.T) {
 	s := NewSidebar(30, 40)
 	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}, {ID: "p2", Name: "Jazz"}})
