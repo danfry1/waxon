@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -110,6 +111,13 @@ func callbackPath(clientID string) string {
 	return "/callback"
 }
 
+// RedirectURI is the callback URL to register in the Spotify dashboard for a
+// personal client ID (exported for the setup guide).
+func RedirectURI(clientID string) string { return redirectURI(clientID) }
+
+// OpenBrowser opens url in the user's default browser (best effort).
+func OpenBrowser(url string) error { return openBrowser(url) }
+
 // redirectURI returns the exact redirect URI sent to Spotify for the given
 // client ID. Spotify matches this string against the dashboard registration;
 // for the ncspot client ID the registered URI is the port-less loopback
@@ -145,12 +153,12 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 		oauth2.SetAuthURLParam("code_challenge", challenge),
 	)
 
-	fmt.Printf("\nOpening browser for Spotify login...\n")
+	fmt.Printf("\n  Opening browser for Spotify login...\n")
 	if browserErr := openBrowser(authURL); browserErr != nil {
-		fmt.Printf("Could not open browser automatically.\n")
+		fmt.Printf("  Could not open browser automatically.\n")
 	}
-	fmt.Printf("If it doesn't open, visit this URL:\n\n  %s\n\n", authURL)
-	fmt.Printf("Waiting for Spotify authorization...\n")
+	fmt.Printf("  If it doesn't open, visit this URL:\n\n    %s\n\n", authURL)
+	fmt.Printf("  Waiting for Spotify authorization...\n")
 
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
@@ -189,6 +197,11 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 }
 
 func openBrowser(url string) error {
+	// WAXON_NO_BROWSER=1 skips launching a browser (SSH sessions, recordings);
+	// callers always print the URL as well.
+	if os.Getenv("WAXON_NO_BROWSER") != "" {
+		return errors.New("WAXON_NO_BROWSER is set")
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":

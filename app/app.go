@@ -1828,7 +1828,7 @@ func (m Model) rateLimitHint(err error) string {
 		sb.WriteString("Pausing updates for a moment")
 	}
 	if m.opts.SharedClientID && (wait >= 60 || m.rateLimitHits >= 2) {
-		sb.WriteString(" · shared app is busy — use your own client ID (README)")
+		sb.WriteString(" · shared app is busy — run 'waxon auth --own' for your own")
 	}
 	return sb.String()
 }

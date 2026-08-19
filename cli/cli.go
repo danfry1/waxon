@@ -134,7 +134,7 @@ func friendly(err error) string {
 	case errors.Is(err, source.ErrForbidden):
 		return "not available with this Spotify app: Spotify blocks this endpoint for development-mode apps (see README)"
 	case isRateLimited(err):
-		return "Spotify is rate limiting requests — try again shortly; if it persists, use your own client ID (see README)"
+		return "Spotify is rate limiting requests — try again shortly; if it persists, run 'waxon auth --own' to use your own client ID"
 	}
 	return err.Error()
 }

@@ -62,8 +62,24 @@ SHA-256 checksums) for Linux, macOS and Windows on `amd64` and `arm64`.
 ## Quick Start
 
 ```bash
-waxon auth    # Connect your Spotify account (one-time setup)
-waxon         # Launch the TUI
+waxon         # first run walks you through connecting Spotify
+```
+
+Setup asks one question — use **your own** Spotify app (recommended: no rate
+limits, two minutes, waxon shows the exact clicks) or the **shared** one (zero
+setup, but Spotify throttles it for everyone).
+
+<p align="center">
+  <img src="demo/recordings/setup.gif" alt="guided setup" width="700">
+</p>
+
+Re-run or switch any time:
+
+```bash
+waxon auth            # guided
+waxon auth --own      # set up / switch to your own app
+waxon auth --shared   # use the shared app
+waxon auth --client-id <ID>
 ```
 
 Requires a **Spotify Premium** account. True-colour terminals get the full look; 256-colour and `NO_COLOR` terminals are supported with graceful fallbacks.
@@ -345,6 +361,7 @@ Debug log: `WAXON_LOG=/tmp/waxon.log waxon` (includes rate-limit `Retry-After` v
 |---------------------|------------------------------------|
 | `SPOTIFY_CLIENT_ID` | Override the saved Spotify Client ID |
 | `WAXON_LOG`         | Path to debug log file (e.g. `/tmp/waxon.log`) |
+| `WAXON_NO_BROWSER`  | Don't launch a browser during `waxon auth`; just print the URL (SSH) |
 
 ## Acknowledgements
 
