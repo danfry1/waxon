@@ -11,9 +11,9 @@ import (
 // Artwork URLs use a demo:// scheme intercepted by ArtworkProvider.
 // Album artwork URLs.
 const (
-	artDarkSide = "demo://art/dark-side-of-the-moon.jpg"
-	artRumours  = "demo://art/rumours.jpg"
-	artOKComp   = "demo://art/ok-computer.jpg"
+	artDarkSide   = "demo://art/dark-side-of-the-moon.jpg"
+	artRumours    = "demo://art/rumours.jpg"
+	artOKComp     = "demo://art/ok-computer.jpg"
 	artKindBlue   = "demo://art/kind-of-blue.jpg"
 	artCurrents   = "demo://art/currents.jpg"
 	artPurpleRain = "demo://art/purple-rain.jpg"

@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -153,3 +154,12 @@ const (
 	RepeatContext RepeatMode = "context"
 	RepeatTrack   RepeatMode = "track"
 )
+
+// ErrNoActiveDevice is returned by playback commands when Spotify has no
+// active device to act on (the user has no Spotify client open anywhere).
+// The UI can recover by activating a device and retrying.
+var ErrNoActiveDevice = errors.New("no active Spotify device")
+
+// ErrPremiumRequired is returned by playback commands when the account is
+// not Spotify Premium; the Web API only permits playback control for Premium.
+var ErrPremiumRequired = errors.New("premium account required for playback control")
