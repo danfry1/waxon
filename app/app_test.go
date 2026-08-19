@@ -1,14 +1,17 @@
 package app
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/danfry1/waxon/source"
+	spotifyapi "github.com/zmb3/spotify/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -731,13 +734,156 @@ func TestBackoffInterval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := Model{consecutiveErrors: tt.consecutiveErrors}
+			// A playing track gives the fastest base cadence.
+			m := Model{consecutiveErrors: tt.consecutiveErrors, track: &source.Track{Playing: true}}
 			got := m.backoffInterval()
-			want := pollInterval * time.Duration(tt.wantMultiplier)
+			want := min(pollInterval*time.Duration(tt.wantMultiplier), maxPollInterval)
 			if got != want {
 				t.Errorf("backoffInterval() with %d errors = %v, want %v", tt.consecutiveErrors, got, want)
 			}
 		})
+	}
+}
+
+func TestBasePollIntervalAdapts(t *testing.T) {
+	cases := []struct {
+		name string
+		m    Model
+		want time.Duration
+	}{
+		{"playing", Model{track: &source.Track{Playing: true}}, pollInterval},
+		{"paused", Model{track: &source.Track{Playing: false}}, pollIntervalPaused},
+		{"idle", Model{}, pollIntervalIdle},
+		{"blurred wins", Model{track: &source.Track{Playing: true}, blurred: true}, pollIntervalBlurred},
+	}
+	for _, c := range cases {
+		if got := c.m.basePollInterval(); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	if pollInterval < 2*time.Second {
+		t.Error("steady-state polling faster than 2s trips Spotify's rate limit")
+	}
+}
+
+func TestFocusMessagesToggleBlurred(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	result, _ := m.Update(tea.BlurMsg{})
+	if !result.(Model).blurred {
+		t.Error("BlurMsg should mark the model blurred")
+	}
+	result, _ = result.(Model).Update(tea.FocusMsg{})
+	if result.(Model).blurred {
+		t.Error("FocusMsg should clear blurred")
+	}
+}
+
+type rateLimitErr struct{ retry int }
+
+func (e rateLimitErr) Error() string          { return "rate limited" }
+func (e rateLimitErr) HTTPStatus() int        { return 429 }
+func (e rateLimitErr) RetryAfterSeconds() int { return e.retry }
+
+func TestPollRateLimitPausesPollingWithoutCountingAsOutage(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.track = &source.Track{Playing: true}
+	// zmb3-style 429 (no Retry-After): default cooldown.
+	result, cmd := m.Update(pollErrorMsg{spotifyapi.Error{Status: 429, Message: "API rate limit exceeded"}})
+	model := result.(Model)
+	if model.consecutiveErrors != 0 {
+		t.Errorf("429 must not count towards the connection-issue toast, got %d", model.consecutiveErrors)
+	}
+	if d := model.backoffInterval(); d < rateLimitCooldown-time.Second {
+		t.Errorf("next poll should wait out the cooldown, got %v", d)
+	}
+	if cmd == nil || !strings.Contains(model.toast.View(120), "rate limit") {
+		t.Error("first 429 should show a quiet info toast")
+	}
+	// A second 429 during the cooldown is silent.
+	result, cmd = model.Update(pollErrorMsg{rateLimitErr{}})
+	model = result.(Model)
+	if cmd != nil {
+		t.Error("repeat 429s must not re-toast")
+	}
+	// Retry-After is honoured when present.
+	result, _ = model.Update(pollErrorMsg{rateLimitErr{retry: 90}})
+	if d := result.(Model).backoffInterval(); d < 85*time.Second {
+		t.Errorf("Retry-After 90 should extend the cooldown, got %v", d)
+	}
+	// A successful poll clears it.
+	result, _ = result.(Model).Update(trackUpdateMsg{track: &source.Track{ID: "x", Playing: true}})
+	if d := result.(Model).backoffInterval(); d != pollInterval {
+		t.Errorf("after a good poll the cadence should be back to %v, got %v", pollInterval, d)
+	}
+}
+
+func TestCooldownSuppressesInFlightTicks(t *testing.T) {
+	calls := 0
+	stub := &StubSource{CurrentPlaybackFn: func(context.Context) (*source.PlaybackState, error) {
+		calls++
+		return nil, nil
+	}}
+	m := newTestModel(stub)
+	m.rateLimitedUntil = time.Now().Add(time.Minute)
+	// A poll tick that was scheduled before the 429 must not fetch.
+	_, cmd := m.Update(pollTickMsg(time.Now()))
+	if cmd == nil {
+		t.Fatal("tick should still reschedule itself")
+	}
+	// The returned cmd is a single Tick (no batch with a fetch): running it
+	// would block for the interval, so just check no fetch happened yet.
+	if calls != 0 {
+		t.Errorf("fetch during cooldown: %d calls", calls)
+	}
+	// A pending control refresh is dropped too.
+	m.refreshPending = 1
+	_, cmd = m.Update(playbackRefreshMsg{})
+	if cmd != nil || calls != 0 {
+		t.Error("refresh during cooldown should be a no-op")
+	}
+	// Once the cooldown has passed, the tick fetches again.
+	m.rateLimitedUntil = time.Now().Add(-time.Second)
+	_, cmd = m.Update(pollTickMsg(time.Now()))
+	if cmd == nil {
+		t.Fatal("expected batch")
+	}
+	if batch, ok := cmd().(tea.BatchMsg); !ok || len(batch) != 2 {
+		t.Errorf("after cooldown the tick should fetch and reschedule, got %T", cmd())
+	}
+}
+
+func TestControlRateLimitToastAndCooldown(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	result, _ := m.Update(trackErrorMsg{spotifyapi.Error{Status: 429, Message: "API rate limit exceeded"}})
+	model := result.(Model)
+	if !strings.Contains(model.toast.View(120), "rate limiting") {
+		t.Errorf("toast = %q", model.toast.View(120))
+	}
+	if model.rateLimitedUntil.IsZero() {
+		t.Error("a 429 on a control action should also pause polling")
+	}
+}
+
+func TestControlBurstIsCoalesced(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	result, cmd := m.Update(controlDoneMsg{})
+	model := result.(Model)
+	if cmd == nil || model.refreshPending != len(playbackRefreshDelays) {
+		t.Fatalf("first control should schedule %d refreshes", len(playbackRefreshDelays))
+	}
+	_, cmd = model.Update(controlDoneMsg{})
+	if cmd != nil {
+		t.Error("a second control while a burst is pending must not schedule another burst")
+	}
+	for range playbackRefreshDelays {
+		result, _ = model.Update(playbackRefreshMsg{})
+		model = result.(Model)
+	}
+	if model.refreshPending != 0 {
+		t.Errorf("refreshPending should drain to 0, got %d", model.refreshPending)
+	}
+	if _, cmd = model.Update(controlDoneMsg{}); cmd == nil {
+		t.Error("once drained, the next control should schedule a new burst")
 	}
 }
 

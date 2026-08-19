@@ -19,9 +19,23 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// Poll cadence. The progress bar is interpolated locally on a 500ms tick, so
+// playback polling only needs to catch track changes and external control;
+// polling faster than this just burns Spotify's per-user rate limit (which
+// surfaced as "API rate limit exceeded" / "connection issue" toasts).
 const (
-	pollInterval         = 1500 * time.Millisecond
+	pollInterval         = 2500 * time.Millisecond // playing, terminal focused
+	pollIntervalPaused   = 8 * time.Second         // paused: nothing moves on its own
+	pollIntervalIdle     = 10 * time.Second        // nothing playing anywhere
+	pollIntervalBlurred  = 20 * time.Second        // terminal not focused
 	progressTickInterval = 500 * time.Millisecond
+	// rateLimitCooldown is how long to stop polling after a 429 that carries no
+	// Retry-After header (zmb3 errors drop it). Spotify's limit is a rolling
+	// 30-second window, so waiting it out is the fastest way back.
+	rateLimitCooldown = 30 * time.Second
+	// maxPollInterval caps error backoff so recovery is never more than a
+	// minute away once Spotify is reachable again.
+	maxPollInterval = 60 * time.Second
 )
 
 // playbackRefreshDelays are the delays after a control action (play/next/prev/
@@ -205,6 +219,13 @@ type Model struct {
 
 	// Error backoff: increases poll interval on consecutive API failures
 	consecutiveErrors int
+	// rateLimitedUntil is set on a 429; polling pauses until then.
+	rateLimitedUntil time.Time
+	// blurred is true while the terminal window doesn't have focus.
+	blurred bool
+	// refreshPending counts post-control re-polls still scheduled, so a burst
+	// of keypresses doesn't stack up dozens of extra requests.
+	refreshPending int
 
 	width    int
 	height   int
@@ -310,13 +331,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pollTickMsg:
 		interval := m.backoffInterval()
-		return m, tea.Batch(
-			m.fetchCurrentTrack(),
-			tea.Tick(interval, func(t time.Time) tea.Msg { return pollTickMsg(t) }),
-		)
+		next := tea.Tick(interval, func(t time.Time) tea.Msg { return pollTickMsg(t) })
+		if m.coolingDown() {
+			// A tick scheduled before the 429 landed: don't fetch, just wait.
+			return m, next
+		}
+		return m, tea.Batch(m.fetchCurrentTrack(), next)
 
 	case noPlaybackMsg:
 		m.consecutiveErrors = 0
+		m.rateLimitedUntil = time.Time{}
 		m.track = nil
 		m.playbackContextURI = ""
 		m.albumart.Clear()
@@ -326,6 +350,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case trackUpdateMsg:
 		m.consecutiveErrors = 0
+		m.rateLimitedUntil = time.Time{}
 		prevTrackID := ""
 		if m.track != nil {
 			prevTrackID = m.track.ID
@@ -598,6 +623,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// reflect the change quickly instead of waiting for the next regular
 		// poll — and so a skip is caught even when Spotify's API lags it.
 		m.consecutiveErrors = 0
+		m.rateLimitedUntil = time.Time{}
+		if m.refreshPending > 0 {
+			return m, nil // a burst is already in flight; it will pick this up
+		}
+		m.refreshPending = len(playbackRefreshDelays)
 		cmds := make([]tea.Cmd, len(playbackRefreshDelays))
 		for i, d := range playbackRefreshDelays {
 			cmds[i] = tea.Tick(d, func(time.Time) tea.Msg { return playbackRefreshMsg{} })
@@ -605,7 +635,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case playbackRefreshMsg:
+		if m.refreshPending > 0 {
+			m.refreshPending--
+		}
+		if m.coolingDown() {
+			return m, nil
+		}
 		return m, m.fetchCurrentTrack()
+
+	case tea.FocusMsg:
+		m.blurred = false
+		return m, nil
+
+	case tea.BlurMsg:
+		m.blurred = true
+		return m, nil
 
 	case queueDoneMsg:
 		m.toast.Show("Added to queue", msg.trackName, ToastSuccess)
@@ -645,6 +689,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case trackErrorMsg:
 		m.consecutiveErrors++
+		m.noteRateLimit(msg.err)
 		if m.pagination != nil {
 			m.pagination.loadingMore = false
 		}
@@ -656,12 +701,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingJumpTrackID = ""
 			m.popNav()
 		}
-		if isAuthError(msg.err) {
+		switch {
+		case isAuthError(msg.err):
 			m.toast.Show("Session expired", "Run 'waxon auth' to reconnect", ToastError)
-		} else if title, detail, ok := friendlyPlaybackError(msg.err); ok {
-			m.toast.Show(title, detail, ToastError)
-		} else {
-			m.toast.Show(msg.err.Error(), "", ToastError)
+		case isRateLimitError(msg.err):
+			m.toast.Show("Spotify is rate limiting", "Try again in a few seconds", ToastError)
+		default:
+			if title, detail, ok := friendlyPlaybackError(msg.err); ok {
+				m.toast.Show(title, detail, ToastError)
+			} else {
+				m.toast.Show(msg.err.Error(), "", ToastError)
+			}
 		}
 		return m, scheduleAutoDismiss()
 
@@ -671,6 +721,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if isAuthError(msg.err) {
 			m.toast.Show("Session expired", "Run 'waxon auth' to reconnect", ToastError)
 			return m, scheduleAutoDismiss()
+		}
+		// A 429 isn't an outage: pause polling for the cooldown and say so
+		// once, quietly. Don't let it count towards the connection-issue toast.
+		if isRateLimitError(msg.err) {
+			first := m.rateLimitedUntil.IsZero()
+			m.noteRateLimit(msg.err)
+			m.consecutiveErrors--
+			if first {
+				m.toast.Show("Spotify rate limit", "Pausing updates for a moment", ToastInfo)
+				return m, scheduleAutoDismiss()
+			}
+			return m, nil
 		}
 		// Otherwise the poll self-heals on the next tick (with backoff); only
 		// flag it once failures persist, and only once, to avoid nagging.
@@ -1551,14 +1613,74 @@ func isAuthError(err error) bool {
 	return false
 }
 
-// backoffInterval returns the poll interval, increasing on consecutive errors
-// up to a cap of ~48 seconds.
-func (m Model) backoffInterval() time.Duration {
-	if m.consecutiveErrors <= 0 {
+// retryAfterError is satisfied by errors that carry a Retry-After hint.
+type retryAfterError interface {
+	error
+	RetryAfterSeconds() int
+}
+
+// isRateLimitError reports whether err is an HTTP 429 from Spotify, from
+// either the zmb3 client or waxon's own API path.
+func isRateLimitError(err error) bool {
+	var sErr spotifyapi.Error
+	if errors.As(err, &sErr) && sErr.Status == http.StatusTooManyRequests {
+		return true
+	}
+	var hse httpStatusError
+	return errors.As(err, &hse) && hse.HTTPStatus() == http.StatusTooManyRequests
+}
+
+// coolingDown reports whether a rate-limit cooldown is still in effect.
+func (m Model) coolingDown() bool {
+	return time.Now().Before(m.rateLimitedUntil)
+}
+
+// noteRateLimit records a rate-limit cooldown if err is a 429, honouring the
+// server's Retry-After when it's known.
+func (m *Model) noteRateLimit(err error) {
+	if !isRateLimitError(err) {
+		return
+	}
+	wait := rateLimitCooldown
+	var ra retryAfterError
+	if errors.As(err, &ra) && ra.RetryAfterSeconds() > 0 {
+		wait = time.Duration(ra.RetryAfterSeconds()) * time.Second
+	}
+	until := time.Now().Add(wait)
+	if until.After(m.rateLimitedUntil) {
+		m.rateLimitedUntil = until
+	}
+}
+
+// basePollInterval picks the steady-state poll cadence from what the user can
+// actually see change: fast while playing and focused, slow when paused,
+// idle, or the terminal is in the background.
+func (m Model) basePollInterval() time.Duration {
+	switch {
+	case m.blurred:
+		return pollIntervalBlurred
+	case m.track == nil:
+		return pollIntervalIdle
+	case !m.track.Playing:
+		return pollIntervalPaused
+	default:
 		return pollInterval
 	}
-	shift := min(m.consecutiveErrors, 5) // cap at 2^5 = 32x
-	return pollInterval * time.Duration(1<<shift)
+}
+
+// backoffInterval returns the next poll delay: the base cadence, doubled per
+// consecutive error (capped at 32×), and never earlier than an active
+// rate-limit cooldown.
+func (m Model) backoffInterval() time.Duration {
+	d := m.basePollInterval()
+	if m.consecutiveErrors > 0 {
+		shift := min(m.consecutiveErrors, 5) // cap at 2^5 = 32x
+		d = min(d*time.Duration(1<<shift), maxPollInterval)
+	}
+	if remaining := time.Until(m.rateLimitedUntil); remaining > d {
+		d = remaining
+	}
+	return d
 }
 
 func (m Model) View() string {
