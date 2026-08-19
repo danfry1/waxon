@@ -129,6 +129,10 @@ func friendly(err error) string {
 		return "Spotify Premium is required for playback control"
 	case errors.Is(err, source.ErrNoActiveDevice):
 		return "no active Spotify device — open Spotify on any device, or run 'waxon devices' and 'waxon device <name>'"
+	case errors.Is(err, source.ErrInsufficientScope):
+		return "missing permission — run 'waxon auth' once to grant it"
+	case errors.Is(err, source.ErrForbidden):
+		return "not available with this Spotify app: Spotify blocks this endpoint for development-mode apps (see README)"
 	case isRateLimited(err):
 		return "Spotify is rate limiting requests — try again shortly; if it persists, use your own client ID (see README)"
 	}

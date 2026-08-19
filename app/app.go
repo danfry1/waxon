@@ -130,6 +130,11 @@ type trackLikeStatusMsg struct {
 	liked   bool
 }
 
+// likeStatusErrorMsg is a failed background like-status lookup. Kept apart
+// from trackErrorMsg because it fires on every track change: a permission
+// refusal should disable the feature once, not toast every few minutes.
+type likeStatusErrorMsg struct{ err error }
+
 type playlistArtLoadedMsg struct {
 	url string
 	img image.Image
@@ -216,14 +221,18 @@ type Model struct {
 	volume             int
 	shuffleOn          bool
 	repeatMode         source.RepeatMode
-	liked              bool            // whether the currently playing track is liked
-	likedCache         map[string]bool // saved state of tracks we've looked up or changed this session
-	deviceName         string
-	toast              Toast
-	actionsReturn      Mode                      // mode to return to when the actions popup closes
-	navStack           []navEntry                // browser-like back navigation history
-	trackCache         map[string]cachedPlaylist // playlist ID → cached tracks
-	pagination         *paginationState          // non-nil while a playlist is being lazily loaded
+	liked              bool // whether the currently playing track is liked
+	// likeUnavailable is set once Spotify refuses the library endpoints for
+	// this app (development-mode restriction); like checks stop and like
+	// actions explain instead of erroring on every track change.
+	likeUnavailable bool
+	likedCache      map[string]bool // saved state of tracks we've looked up or changed this session
+	deviceName      string
+	toast           Toast
+	actionsReturn   Mode                      // mode to return to when the actions popup closes
+	navStack        []navEntry                // browser-like back navigation history
+	trackCache      map[string]cachedPlaylist // playlist ID → cached tracks
+	pagination      *paginationState          // non-nil while a playlist is being lazily loaded
 
 	npArt       string      // large rendered art for now playing view
 	npArtURL    string      // URL of the art currently rendered for NP
@@ -422,7 +431,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.fetchQueue())
 			}
 			// Check liked status when track changes
-			if msg.track.ID != prevTrackID {
+			if msg.track.ID != prevTrackID && !m.likeUnavailable {
 				cmds = append(cmds, m.checkLikeStatus(msg.track.ID))
 			}
 		} else {
@@ -766,6 +775,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast.Show("Removed from Liked Songs", "", ToastInfo)
 		}
 		return m, scheduleAutoDismiss()
+
+	case likeStatusErrorMsg:
+		if errors.Is(msg.err, source.ErrForbidden) {
+			if !m.likeUnavailable {
+				m.likeUnavailable = true
+				slog.Warn("like status not permitted for this app; disabling like checks", "error", msg.err)
+			}
+			return m, nil
+		}
+		if isRateLimitError(msg.err) {
+			m.noteRateLimit(msg.err)
+			return m, nil
+		}
+		// Other failures are transient and cosmetic (the heart may lag); log only.
+		slog.Debug("like status lookup failed", "error", msg.err)
+		return m, nil
 
 	case trackLikeStatusMsg:
 		if m.track != nil && m.track.ID == msg.trackID {

@@ -118,6 +118,8 @@ func friendlyPlaybackError(err error) (title, detail string, ok bool) {
 		return "No active Spotify device", "Open Spotify on any device, or press D", true
 	case errors.Is(err, source.ErrInsufficientScope):
 		return "Permission needed", "Run 'waxon auth' once to allow playlist changes", true
+	case errors.Is(err, source.ErrForbidden):
+		return "Not available with this Spotify app", "Spotify blocks this for development-mode apps (see README)", true
 	}
 	return "", "", false
 }
