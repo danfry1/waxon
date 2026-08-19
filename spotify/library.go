@@ -27,11 +27,15 @@ type apiPlaylistPage struct {
 }
 
 type apiSimplePlaylist struct {
-	ID     string     `json:"id"`
-	URI    string     `json:"uri"`
-	Name   string     `json:"name"`
-	Images []apiImage `json:"images"`
-	Items  struct {
+	ID            string     `json:"id"`
+	URI           string     `json:"uri"`
+	Name          string     `json:"name"`
+	Images        []apiImage `json:"images"`
+	Collaborative bool       `json:"collaborative"`
+	Owner         struct {
+		ID string `json:"id"`
+	} `json:"owner"`
+	Items struct {
 		Total int `json:"total"`
 	} `json:"items"`
 	// Fallback for older API format
@@ -242,6 +246,12 @@ func (p *PlayerSource) Playlists(ctx context.Context) ([]source.Playlist, error)
 
 	playlists := []source.Playlist{liked}
 
+	// Whose playlists can we edit? Owned ones and collaborative ones.
+	me, err := p.currentUserID(ctx)
+	if err != nil {
+		slog.Warn("failed to fetch current user (playlist editability unknown)", "error", err)
+	}
+
 	// Paginate through all user playlists (Spotify API returns max 50 per page)
 	offset := 0
 	for {
@@ -265,6 +275,7 @@ func (p *PlayerSource) Playlists(ctx context.Context) ([]source.Playlist, error)
 				Name:       pl.Name,
 				ImageURL:   imageURL,
 				TrackCount: total,
+				Editable:   pl.Collaborative || (me != "" && pl.Owner.ID == me),
 			})
 		}
 		offset += len(page.Items)

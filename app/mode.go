@@ -12,6 +12,7 @@ const (
 	ModeActions
 	ModeDevices
 	ModeNowPlaying
+	ModePlaylistPick
 )
 
 func (m Mode) String() string {
@@ -32,6 +33,8 @@ func (m Mode) String() string {
 		return "DEVICES"
 	case ModeNowPlaying:
 		return "NOW PLAYING"
+	case ModePlaylistPick:
+		return "PLAYLIST"
 	default:
 		return ""
 	}

@@ -92,6 +92,16 @@ Press `l` in Now Playing for time-synced lyrics (via [lrclib](https://lrclib.net
   <img src="demo/recordings/lyrics.gif" alt="time-synced lyrics" width="800">
 </p>
 
+### Playlists
+
+`o` on any track offers **Add to Playlist…** (type to filter your playlists) and, inside one of your own playlists, **Remove from …**. Create a new one with `:playlist new <name>`. Changes show up immediately in the sidebar and the open playlist.
+
+<p align="center">
+  <img src="demo/recordings/playlists.gif" alt="adding a track to a playlist" width="800">
+</p>
+
+> Upgrading? Playlist editing needs two extra Spotify permissions; waxon will ask you to run `waxon auth` once.
+
 ### Search
 
 Find tracks, artists, and albums across Spotify.
@@ -190,6 +200,7 @@ Enter command mode by pressing `:`, then type a command.
 | `:search <query>`       | Search Spotify       |
 | `:recent`               | Recently played      |
 | `:theme <name>`         | Switch colour theme (saved to config) |
+| `:playlist new <name>`  | Create a playlist    |
 | `:q`                    | Quit                 |
 
 ## Configuration

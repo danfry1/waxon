@@ -37,6 +37,9 @@ type StubSource struct {
 	SaveTrackFn          func(context.Context, string) error
 	RemoveTrackFn        func(context.Context, string) error
 	IsTrackSavedFn       func(context.Context, string) (bool, error)
+	AddToPlaylistFn      func(context.Context, string, string) error
+	RemoveFromPlaylistFn func(context.Context, string, string) error
+	CreatePlaylistFn     func(context.Context, string) (source.Playlist, error)
 }
 
 func (s *StubSource) CurrentPlayback(ctx context.Context) (*source.PlaybackState, error) {
@@ -219,6 +222,27 @@ func (s *StubSource) IsTrackSaved(ctx context.Context, trackID string) (bool, er
 		return s.IsTrackSavedFn(ctx, trackID)
 	}
 	return false, nil
+}
+
+func (s *StubSource) AddToPlaylist(ctx context.Context, playlistID, trackID string) error {
+	if s.AddToPlaylistFn != nil {
+		return s.AddToPlaylistFn(ctx, playlistID, trackID)
+	}
+	return nil
+}
+
+func (s *StubSource) RemoveFromPlaylist(ctx context.Context, playlistID, trackID string) error {
+	if s.RemoveFromPlaylistFn != nil {
+		return s.RemoveFromPlaylistFn(ctx, playlistID, trackID)
+	}
+	return nil
+}
+
+func (s *StubSource) CreatePlaylist(ctx context.Context, name string) (source.Playlist, error) {
+	if s.CreatePlaylistFn != nil {
+		return s.CreatePlaylistFn(ctx, name)
+	}
+	return source.Playlist{ID: "new", Name: name, Editable: true}, nil
 }
 
 // Compile-time check that StubSource satisfies RichSource.

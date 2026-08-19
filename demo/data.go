@@ -32,8 +32,8 @@ const (
 func buildPlaylists() ([]source.Playlist, map[string][]source.Track, []source.Track) {
 	playlists := []source.Playlist{
 		{ID: "pl-liked", URI: "spotify:playlist:liked", Name: "Liked Songs", ImageURL: artPLLiked, TrackCount: 21},
-		{ID: "pl-rock", URI: "spotify:playlist:rock", Name: "Classic Rock", ImageURL: artPLRock, TrackCount: 14},
-		{ID: "pl-coding", URI: "spotify:playlist:coding", Name: "Late Night Coding", ImageURL: artPLCoding, TrackCount: 13},
+		{ID: "pl-rock", URI: "spotify:playlist:rock", Name: "Classic Rock", ImageURL: artPLRock, TrackCount: 14, Editable: true},
+		{ID: "pl-coding", URI: "spotify:playlist:coding", Name: "Late Night Coding", ImageURL: artPLCoding, TrackCount: 13, Editable: true},
 		{ID: "pl-jazz", URI: "spotify:playlist:jazz", Name: "Jazz Essentials", ImageURL: artPLJazz, TrackCount: 8},
 	}
 

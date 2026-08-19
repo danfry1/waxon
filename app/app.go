@@ -82,8 +82,11 @@ type (
 const pollErrorToastThreshold = 3
 
 type (
-	playlistsLoadedMsg struct{ playlists []source.Playlist }
-	tracksLoadedMsg    struct {
+	playlistsLoadedMsg struct {
+		playlists []source.Playlist
+		initial   bool // first load: also open the first playlist
+	}
+	tracksLoadedMsg struct {
 		tracks     []source.Track
 		title      string
 		contextURI string
@@ -157,6 +160,19 @@ type lyricsErrorMsg struct {
 	err     error
 }
 
+// playlistChangedMsg reports a track added to / removed from a playlist.
+type playlistChangedMsg struct {
+	playlistID   string
+	playlistName string
+	trackName    string
+	added        bool
+}
+
+// playlistCreatedMsg reports a newly created playlist.
+type playlistCreatedMsg struct {
+	playlist source.Playlist
+}
+
 // Model is the root Bubbletea model for waxon.
 type Model struct {
 	ctx             context.Context
@@ -172,6 +188,7 @@ type Model struct {
 	search          *Search
 	actions         *ActionsPopup
 	devices         *DevicePicker
+	playlistPick    *PlaylistPicker
 	pendingRetry    tea.Cmd // playback command to replay once a device is picked
 	keys            KeyMap
 	opts            Options
@@ -418,7 +435,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sidebar.SetPlaylists(msg.playlists)
 		}
 		cmds := []tea.Cmd{m.fetchSidebarIcons(msg.playlists)}
-		if len(msg.playlists) > 0 {
+		if msg.initial && len(msg.playlists) > 0 {
 			cmds = append(cmds, m.fetchPlaylistTracks(msg.playlists[0]))
 		}
 		return m, tea.Batch(cmds...)
@@ -567,6 +584,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			slog.Warn("lyrics fetch failed", "track", msg.trackID, "error", msg.err)
 		}
 		return m, nil
+
+	case playlistChangedMsg:
+		// The cached track list for that playlist is stale now.
+		delete(m.trackCache, msg.playlistID)
+		var cmds []tea.Cmd
+		cmds = append(cmds, scheduleAutoDismiss())
+		if msg.added {
+			m.toast.Show("Added to "+msg.playlistName, msg.trackName, ToastSuccess)
+		} else {
+			m.toast.Show("Removed from "+msg.playlistName, msg.trackName, ToastInfo)
+		}
+		// Refresh the view if it's showing that playlist, and the sidebar counts.
+		if m.tracklist.ContextURI() == "spotify:playlist:"+msg.playlistID {
+			for _, pl := range m.playlists {
+				if pl.ID == msg.playlistID {
+					cmds = append(cmds, m.fetchPlaylistTracks(pl))
+					break
+				}
+			}
+		}
+		cmds = append(cmds, m.refreshPlaylists())
+		return m, tea.Batch(cmds...)
+
+	case playlistCreatedMsg:
+		m.toast.Show("Created playlist", msg.playlist.Name, ToastSuccess)
+		return m, tea.Batch(scheduleAutoDismiss(), m.refreshPlaylists())
 
 	case queueLoadedMsg:
 		// Only update the live list if we're still on the queue section;
@@ -790,6 +833,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleKeyActions(msg)
 	case ModeDevices:
 		return m.handleKeyDevices(msg)
+	case ModePlaylistPick:
+		return m.handleKeyPlaylistPick(msg)
 	case ModeCommand:
 		return m.handleKeyCommand(msg)
 	case ModeFilter:
@@ -935,6 +980,7 @@ func (m Model) handleKeyActions(msg tea.KeyMsg) (Model, tea.Cmd) {
 			contextURI: m.actions.ContextURI(),
 			artistID:   m.actions.ArtistID(),
 			albumID:    m.actions.AlbumID(),
+			playlistID: m.actions.PlaylistID(),
 		}
 		action := m.actions.Selected()
 		m.actions = nil
@@ -993,6 +1039,31 @@ func (m Model) handleKeyDevices(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.mode = ModeNormal
 	}
 	return m, nil
+}
+
+func (m Model) handleKeyPlaylistPick(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.playlistPick == nil {
+		m.mode = ModeNormal
+		return m, nil
+	}
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.playlistPick = nil
+		m.mode = ModeNormal
+		return m, nil
+	case tea.KeyEnter:
+		pl := m.playlistPick.Selected()
+		trackID, trackName := m.playlistPick.TrackID(), m.playlistPick.TrackName()
+		m.playlistPick = nil
+		m.mode = ModeNormal
+		if pl == nil {
+			return m, nil
+		}
+		return m, m.addToPlaylist(*pl, trackID, trackName)
+	}
+	var cmd tea.Cmd
+	*m.playlistPick, cmd = m.playlistPick.Update(msg)
+	return m, cmd
 }
 
 func (m Model) handleKeyCommand(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -1434,6 +1505,14 @@ func (m Model) scrollOverlay(dir tea.KeyType) Model {
 					m.devices.MoveDown()
 				}
 			}
+		case ModePlaylistPick:
+			if m.playlistPick != nil {
+				if dir == tea.KeyUp {
+					m.playlistPick.MoveUp()
+				} else {
+					m.playlistPick.MoveDown()
+				}
+			}
 		}
 	}
 	return m
@@ -1452,6 +1531,9 @@ func (m Model) closeOverlay() (Model, tea.Cmd) {
 	case ModeDevices:
 		m.devices = nil
 		m.pendingRetry = nil
+		m.mode = ModeNormal
+	case ModePlaylistPick:
+		m.playlistPick = nil
 		m.mode = ModeNormal
 	case ModeHelp, ModeNowPlaying:
 		m.mode = ModeNormal
@@ -1707,6 +1789,10 @@ func (m Model) View() string {
 	// Devices overlay replaces everything
 	if m.mode == ModeDevices && m.devices != nil {
 		return m.devices.View()
+	}
+
+	if m.mode == ModePlaylistPick && m.playlistPick != nil {
+		return m.playlistPick.View()
 	}
 
 	// Help overlay replaces everything

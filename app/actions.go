@@ -20,6 +20,8 @@ const (
 	ActionPlayPlaylist
 	ActionOpenPlaylistSpotify
 	ActionLoadTracks
+	ActionAddToPlaylist
+	ActionRemoveFromPlaylist
 )
 
 // ActionItem is a single entry in the actions popup.
@@ -40,8 +42,18 @@ type ActionsPopup struct {
 	contextURI string // playlist/album URI to play the track within
 	artistID   string // first artist's Spotify ID for "Go to Artist"
 	albumID    string // album's Spotify ID for "Go to Album"
+	playlistID string // playlist the track is listed in (for remove), may be empty
 	width      int
 	height     int
+}
+
+// TrackActionContext carries the optional "this playlist" the track is being
+// viewed in, so the popup can offer "Remove from <playlist>" when that
+// playlist is editable.
+type TrackActionContext struct {
+	PlaylistID   string
+	PlaylistName string
+	Editable     bool
 }
 
 // NewTrackActions returns an ActionsPopup configured for a track. contextURI is
@@ -49,21 +61,35 @@ type ActionsPopup struct {
 // operate on this track explicitly, so the popup can target a track other than
 // the one under the cursor (e.g. the currently playing track from Now Playing).
 func NewTrackActions(trackName, artistName, uri, contextURI, artistID, albumID string, liked bool, width, height int) ActionsPopup {
+	return NewTrackActionsIn(trackName, artistName, uri, contextURI, artistID, albumID, liked, TrackActionContext{}, width, height)
+}
+
+// NewTrackActionsIn is NewTrackActions with knowledge of the playlist the
+// track is listed in (see TrackActionContext).
+func NewTrackActionsIn(trackName, artistName, uri, contextURI, artistID, albumID string, liked bool, in TrackActionContext, width, height int) ActionsPopup {
 	title := trackName
 	if artistName != "" {
 		title = fmt.Sprintf("%s — %s", trackName, artistName)
 	}
 
+	items := []ActionItem{
+		{Type: ActionPlay, Label: "Play", Icon: "▶"},
+		{Type: ActionQueue, Label: "Add to Queue", Icon: "♫"},
+		likeActionItem(liked),
+		{Type: ActionAddToPlaylist, Label: "Add to Playlist…", Icon: "+"},
+	}
+	if in.Editable && in.PlaylistID != "" {
+		items = append(items, ActionItem{Type: ActionRemoveFromPlaylist, Label: "Remove from " + in.PlaylistName, Icon: "−"})
+	}
+	items = append(items,
+		ActionItem{Type: ActionGoArtist, Label: "Go to Artist", Icon: "→"},
+		ActionItem{Type: ActionGoAlbum, Label: "Go to Album", Icon: "→"},
+		ActionItem{Type: ActionOpenSpotify, Label: "Open in Spotify", Icon: "◎"},
+		ActionItem{Type: ActionCopyURI, Label: "Copy Track URI", Icon: "⎘"},
+	)
 	return ActionsPopup{
-		items: []ActionItem{
-			{Type: ActionPlay, Label: "Play", Icon: "▶"},
-			{Type: ActionQueue, Label: "Add to Queue", Icon: "♫"},
-			likeActionItem(liked),
-			{Type: ActionGoArtist, Label: "Go to Artist", Icon: "→"},
-			{Type: ActionGoAlbum, Label: "Go to Album", Icon: "→"},
-			{Type: ActionOpenSpotify, Label: "Open in Spotify", Icon: "◎"},
-			{Type: ActionCopyURI, Label: "Copy Track URI", Icon: "⎘"},
-		},
+		items:      items,
+		playlistID: in.PlaylistID,
 		title:      title,
 		name:       trackName,
 		trackID:    trackIDFromURI(uri),
@@ -153,6 +179,9 @@ func (a ActionsPopup) TrackID() string {
 func (a ActionsPopup) ContextURI() string {
 	return a.contextURI
 }
+
+// PlaylistID returns the playlist the track is listed in, if any.
+func (a ActionsPopup) PlaylistID() string { return a.playlistID }
 
 // ArtistID returns the artist ID stored in the popup.
 func (a ActionsPopup) ArtistID() string {
