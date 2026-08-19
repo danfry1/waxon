@@ -8,6 +8,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-19
+
 ### Added
 
 - Nix flake: `nix run github:danfry1/waxon` / `nix profile install github:danfry1/waxon`.
@@ -19,6 +21,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 - Homebrew now ships as a Cask (goreleaser deprecated binary formulae); the install
   command is unchanged and the macOS quarantine flag is cleared on install.
+  Existing formula installs (≤ 1.6.0) migrate once with
+  `brew uninstall --formula waxon && brew install danfry1/tap/waxon`.
 - Built with Go 1.26; CI runs tests on Linux, macOS and Windows, lints with
   golangci-lint v2.12, runs govulncheck and validates the release config. GitHub
   Actions bumped to current majors and Dependabot keeps them (and Go modules)
@@ -174,7 +178,8 @@ Initial release: vim-modal Spotify TUI with PKCE auth, library and queue
 sidebar, track list, search, device picker, Now Playing view with album art,
 and command mode.
 
-[Unreleased]: https://github.com/danfry1/waxon/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/danfry1/waxon/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/danfry1/waxon/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/danfry1/waxon/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/danfry1/waxon/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/danfry1/waxon/compare/v1.3.0...v1.4.0

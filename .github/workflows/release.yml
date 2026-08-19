@@ -37,13 +37,14 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          ./scripts/changelog-section.sh "$TAG" > release-notes.md
+          # Outside the checkout: goreleaser refuses to run on a dirty tree.
+          ./scripts/changelog-section.sh "$TAG" > "$RUNNER_TEMP/release-notes.md"
           flake_version=$(sed -n 's/^ *version = "\([0-9.]*\)";/\1/p' flake.nix | head -1)
           if [ "v$flake_version" != "$TAG" ]; then
             echo "flake.nix version ($flake_version) does not match tag $TAG" >&2
             exit 1
           fi
-          echo "--- release notes ---"; cat release-notes.md
+          echo "--- release notes ---"; cat "$RUNNER_TEMP/release-notes.md"
 
       - name: Mint a Scoop bucket token from the GitHub App
         id: scoop-token
@@ -58,7 +59,7 @@ jobs:
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: "~> v2"
-          args: release --clean --release-notes=release-notes.md
+          args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
