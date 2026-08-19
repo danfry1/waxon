@@ -492,16 +492,6 @@ func (d *DemoSource) Search(_ context.Context, query string) (*source.SearchResu
 	}, nil
 }
 
-func (d *DemoSource) AudioFeatures(_ context.Context, _ string) (*source.AudioFeatures, error) {
-	return &source.AudioFeatures{
-		Energy:       0.72,
-		Valence:      0.64,
-		Danceability: 0.55,
-		Tempo:        120.0,
-		Acousticness: 0.18,
-	}, nil
-}
-
 func (d *DemoSource) Lyrics(_ context.Context, _ source.Track) (*source.Lyrics, error) {
 	return &source.Lyrics{
 		Synced: true,

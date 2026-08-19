@@ -27,6 +27,9 @@ type Search struct {
 	width     int
 	height    int
 	lastQuery string
+	// resultsQuery is the query the current results answer. It lets the view
+	// distinguish "no results for what you typed" from "still searching".
+	resultsQuery string
 }
 
 func NewSearch(width, height int) Search {
@@ -76,6 +79,7 @@ func (s Search) Update(msg tea.Msg) (Search, tea.Cmd) {
 	case searchResultsMsg:
 		if msg.query == s.input.Value() {
 			s.results = msg.results
+			s.resultsQuery = msg.query
 			s.cursor = 0
 		}
 		return s, nil
@@ -217,8 +221,12 @@ func (s Search) View() string {
 				}
 			}
 		}
-	} else if s.input.Value() != "" {
+	} else if q := s.input.Value(); q != "" && s.results != nil && s.resultsQuery == q {
+		content += "\n" + StyleDimText.Render("  No results for \""+q+"\"")
+	} else if q != "" && len(q) >= 2 {
 		content += "\n" + StyleDimText.Render("  Searching...")
+	} else if q != "" {
+		content += "\n" + StyleDimText.Render("  Keep typing to search")
 	} else {
 		content += "\n"
 		content += StyleDimText.Render("  Type to search Spotify") + "\n\n"

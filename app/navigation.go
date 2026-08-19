@@ -45,13 +45,29 @@ type paginationState struct {
 	loadingMore bool
 }
 
+// navEntry is one back-stack frame: the tracklist snapshot plus the lazy-load
+// state that belongs to it. Pagination must travel with the view — otherwise
+// going back and scrolling would fetch (and splice in) pages of whatever
+// playlist was being paginated *before* the back navigation.
+type navEntry struct {
+	state      NavState
+	pagination *paginationState // nil when the view was fully loaded
+}
+
 // pushNav saves the current tracklist state onto the navigation stack.
 func (m *Model) pushNav() {
 	if len(m.tracklist.tracks) == 0 {
 		return
 	}
-	state := m.tracklist.GetState(m.focusPane)
-	m.navStack = append(m.navStack, state)
+	entry := navEntry{state: m.tracklist.GetState(m.focusPane)}
+	if m.pagination != nil {
+		pg := *m.pagination
+		pg.loadingMore = false // any in-flight page belongs to the old view; ignore it
+		entry.pagination = &pg
+	}
+	// The view being navigated to owns its own pagination (set when it loads).
+	m.pagination = nil
+	m.navStack = append(m.navStack, entry)
 	if len(m.navStack) > maxNavStack {
 		m.navStack = m.navStack[len(m.navStack)-maxNavStack:]
 	}
@@ -96,10 +112,11 @@ func (m *Model) popNav() bool {
 		return false
 	}
 	last := len(m.navStack) - 1
-	state := m.navStack[last]
+	entry := m.navStack[last]
 	m.navStack = m.navStack[:last]
-	m.tracklist.RestoreState(state)
-	m.focusPane = state.focusPane
+	m.tracklist.RestoreState(entry.state)
+	m.focusPane = entry.state.focusPane
+	m.pagination = entry.pagination
 	if m.track != nil {
 		m.tracklist.SetNowPlaying(m.track.ID)
 	}

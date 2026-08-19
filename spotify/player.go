@@ -39,7 +39,6 @@ func fullTrackToSource(item spotifyapi.FullTrack) source.Track {
 type PlayerSource struct {
 	client     *spotifyapi.Client
 	httpClient *http.Client
-	features   *FeatureCache
 	lyrics     *lyrics.Client
 }
 
@@ -47,7 +46,6 @@ func NewPlayerSource(cp ClientPair) *PlayerSource {
 	return &PlayerSource{
 		client:     cp.Spotify,
 		httpClient: cp.HTTP,
-		features:   NewFeatureCache(cp.Spotify),
 		lyrics:     lyrics.New(),
 	}
 }
@@ -188,10 +186,6 @@ func (p *PlayerSource) RecentlyPlayed(ctx context.Context) ([]source.Track, erro
 		tracks = append(tracks, apiTrackToSource(item.Track))
 	}
 	return tracks, nil
-}
-
-func (p *PlayerSource) AudioFeatures(ctx context.Context, trackID string) (*source.AudioFeatures, error) {
-	return p.features.Get(ctx, trackID)
 }
 
 func (p *PlayerSource) Lyrics(ctx context.Context, track source.Track) (*source.Lyrics, error) {

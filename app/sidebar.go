@@ -52,11 +52,12 @@ func (q queueItem) FilterValue() string { return q.track.Name }
 
 // Sidebar is the left pane model.
 type Sidebar struct {
-	list     list.Model
-	section  SidebarSection
-	allItems []list.Item // unfiltered items for restoring after filter
-	width    int
-	height   int
+	list       list.Model
+	section    SidebarSection
+	allItems   []list.Item // unfiltered library items (playlists), with icons
+	queueItems []list.Item // unfiltered queue items from the last queue fetch
+	width      int
+	height     int
 }
 
 func NewSidebar(width, height int) Sidebar {
@@ -123,6 +124,7 @@ func (s *Sidebar) SetQueueTracks(tracks []source.Track) {
 	tracks = stripTrailingDupes(tracks)
 
 	if len(tracks) == 0 {
+		s.queueItems = nil
 		s.list.SetItems(nil)
 		s.list.Title = "QUEUE (empty)"
 		return
@@ -134,6 +136,7 @@ func (s *Sidebar) SetQueueTracks(tracks []source.Track) {
 	}
 	// Don't overwrite allItems — that holds the library playlists for
 	// restoring when switching back from the queue section.
+	s.queueItems = items
 	s.list.SetItems(items)
 	s.list.Title = "QUEUE"
 }
@@ -195,12 +198,27 @@ func (s *Sidebar) SetSection(sec SidebarSection) {
 			s.list.SetItems(s.allItems)
 		}
 	} else {
+		// Show the last-known queue immediately (the caller refreshes it
+		// asynchronously) rather than leaving library rows under a QUEUE header.
 		s.list.Title = "QUEUE"
+		if len(s.queueItems) == 0 {
+			s.list.Title = "QUEUE (empty)"
+		}
+		s.list.SetItems(s.queueItems)
 	}
 	s.list.Select(0)
 }
 
-// SetFilter filters the sidebar playlist list by name.
+// baseItems returns the unfiltered item set for the current section.
+func (s *Sidebar) baseItems() []list.Item {
+	if s.section == SectionQueue {
+		return s.queueItems
+	}
+	return s.allItems
+}
+
+// SetFilter filters the current section by name: playlists by title in the
+// library, tracks by title or artist in the queue.
 func (s *Sidebar) SetFilter(query string) {
 	if query == "" {
 		s.ClearFilter()
@@ -208,9 +226,15 @@ func (s *Sidebar) SetFilter(query string) {
 	}
 	q := strings.ToLower(query)
 	var filtered []list.Item
-	for _, item := range s.allItems {
-		if si, ok := item.(sidebarItem); ok {
-			if strings.Contains(strings.ToLower(si.playlist.Name), q) {
+	for _, item := range s.baseItems() {
+		switch it := item.(type) {
+		case sidebarItem:
+			if strings.Contains(strings.ToLower(it.playlist.Name), q) {
+				filtered = append(filtered, item)
+			}
+		case queueItem:
+			if strings.Contains(strings.ToLower(it.track.Name), q) ||
+				strings.Contains(strings.ToLower(it.track.Artist), q) {
 				filtered = append(filtered, item)
 			}
 		}
@@ -218,11 +242,9 @@ func (s *Sidebar) SetFilter(query string) {
 	s.list.SetItems(filtered)
 }
 
-// ClearFilter restores the full unfiltered playlist list.
+// ClearFilter restores the full unfiltered item list for the current section.
 func (s *Sidebar) ClearFilter() {
-	if s.allItems != nil {
-		s.list.SetItems(s.allItems)
-	}
+	s.list.SetItems(s.baseItems())
 }
 
 // SetCursorFromClick maps a Y coordinate (relative to the pane top)

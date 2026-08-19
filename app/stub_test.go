@@ -28,7 +28,6 @@ type StubSource struct {
 	TransferPlaybackFn   func(context.Context, string) error
 	SetShuffleFn         func(context.Context, bool) error
 	SetRepeatFn          func(context.Context, source.RepeatMode) error
-	AudioFeaturesFn      func(context.Context, string) (*source.AudioFeatures, error)
 	LyricsFn             func(context.Context, source.Track) (*source.Lyrics, error)
 	PlayTrackFn          func(context.Context, string, string) error
 	PlayTrackDirectFn    func(context.Context, string) error
@@ -157,13 +156,6 @@ func (s *StubSource) SetRepeat(ctx context.Context, mode source.RepeatMode) erro
 		return s.SetRepeatFn(ctx, mode)
 	}
 	return nil
-}
-
-func (s *StubSource) AudioFeatures(ctx context.Context, trackID string) (*source.AudioFeatures, error) {
-	if s.AudioFeaturesFn != nil {
-		return s.AudioFeaturesFn(ctx, trackID)
-	}
-	return nil, nil
 }
 
 func (s *StubSource) Lyrics(ctx context.Context, track source.Track) (*source.Lyrics, error) {

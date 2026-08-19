@@ -38,6 +38,9 @@ func NewClient(clientID string, token *oauth2.Token, tokenPath string) ClientPai
 	httpClient := oauth2.NewClient(context.Background(), persistSource)
 	httpClient.Timeout = 15 * time.Second
 
-	client := spotifyapi.New(httpClient)
+	// WithRetry makes the zmb3 client honour 429 Retry-After on its own calls
+	// (player controls, search, library writes); without it a rate limit
+	// surfaced as an immediate raw error.
+	client := spotifyapi.New(httpClient, spotifyapi.WithRetry(true))
 	return ClientPair{Spotify: client, HTTP: httpClient}
 }

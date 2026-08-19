@@ -54,18 +54,11 @@ func NewTrackActions(trackName, artistName, uri, contextURI, artistID, albumID s
 		title = fmt.Sprintf("%s — %s", trackName, artistName)
 	}
 
-	likeLabel := "Save to Liked Songs"
-	likeIcon := "♡"
-	if liked {
-		likeLabel = "Remove from Liked Songs"
-		likeIcon = "♥"
-	}
-
 	return ActionsPopup{
 		items: []ActionItem{
 			{Type: ActionPlay, Label: "Play", Icon: "▶"},
 			{Type: ActionQueue, Label: "Add to Queue", Icon: "♫"},
-			{Type: ActionLike, Label: likeLabel, Icon: likeIcon},
+			likeActionItem(liked),
 			{Type: ActionGoArtist, Label: "Go to Artist", Icon: "→"},
 			{Type: ActionGoAlbum, Label: "Go to Album", Icon: "→"},
 			{Type: ActionOpenSpotify, Label: "Open in Spotify", Icon: "◎"},
@@ -80,6 +73,25 @@ func NewTrackActions(trackName, artistName, uri, contextURI, artistID, albumID s
 		albumID:    albumID,
 		width:      width,
 		height:     height,
+	}
+}
+
+// likeActionItem returns the like/unlike entry for the given saved state.
+func likeActionItem(liked bool) ActionItem {
+	if liked {
+		return ActionItem{Type: ActionLike, Label: "Remove from Liked Songs", Icon: "♥"}
+	}
+	return ActionItem{Type: ActionLike, Label: "Save to Liked Songs", Icon: "♡"}
+}
+
+// SetLiked updates the like/unlike entry in place, e.g. once the track's saved
+// state has been looked up after the popup opened.
+func (a *ActionsPopup) SetLiked(liked bool) {
+	for i, item := range a.items {
+		if item.Type == ActionLike {
+			a.items[i] = likeActionItem(liked)
+			return
+		}
 	}
 }
 

@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/danfry1/waxon/source"
 	"golang.org/x/oauth2"
 )
@@ -523,6 +525,66 @@ func TestPushPopNav(t *testing.T) {
 	}
 	if len(m.navStack) != 0 {
 		t.Errorf("navStack length = %d, want 0", len(m.navStack))
+	}
+}
+
+func TestNavStackCarriesPagination(t *testing.T) {
+	m := newTestModel(&StubSource{})
+
+	// A partially loaded playlist (100 of 500 tracks) is on screen.
+	tracks := make([]source.Track, 100)
+	for i := range tracks {
+		tracks[i] = source.Track{ID: fmt.Sprintf("a%d", i), Name: "A"}
+	}
+	m.tracklist.SetTracks(tracks, "Big Playlist", "spotify:playlist:big")
+	m.pagination = &paginationState{
+		playlistID: "big", contextURI: "spotify:playlist:big",
+		title: "Big Playlist", total: 500, loaded: 100, loadingMore: true,
+	}
+
+	// Navigate away to a fully loaded album.
+	m.pushNav()
+	if m.pagination != nil {
+		t.Fatal("pushNav should hand pagination to the new view (nil until it loads)")
+	}
+	m.tracklist.SetTracks([]source.Track{{ID: "b1", Name: "B"}}, "Album", "spotify:album:x")
+
+	// Going back must restore the playlist's pagination so scrolling continues
+	// loading *that* playlist — not the album, and not nothing.
+	if !m.popNav() {
+		t.Fatal("popNav failed")
+	}
+	if m.pagination == nil || m.pagination.playlistID != "big" || m.pagination.loaded != 100 {
+		t.Fatalf("pagination not restored: %+v", m.pagination)
+	}
+	if m.pagination.loadingMore {
+		t.Error("restored pagination should not think a page is in flight")
+	}
+	m.tracklist.cursor = 95
+	if m.maybeLoadMore() == nil {
+		t.Error("scrolling near the end of the restored view should load more")
+	}
+}
+
+func TestNavStackNilPaginationForFullyLoadedView(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.tracklist.SetTracks([]source.Track{{ID: "b1", Name: "B"}}, "Album", "spotify:album:x")
+	m.pagination = nil
+	m.pushNav()
+	m.pagination = &paginationState{playlistID: "other", total: 50, loaded: 10}
+	m.tracklist.SetTracks([]source.Track{{ID: "c1"}}, "Other", "")
+	m.popNav()
+	if m.pagination != nil {
+		t.Errorf("restored fully-loaded view should have nil pagination, got %+v", m.pagination)
+	}
+}
+
+func TestRecentTracksLoadedClearsPagination(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.pagination = &paginationState{playlistID: "stale", total: 50, loaded: 10}
+	result, _ := m.Update(recentTracksLoadedMsg{tracks: []source.Track{{ID: "r1", Name: "R"}}})
+	if result.(Model).pagination != nil {
+		t.Error("recently played is fully loaded; stale pagination must be dropped")
 	}
 }
 
@@ -1083,6 +1145,68 @@ func TestDeviceIcon(t *testing.T) {
 // ===========================================================================
 // Group 3: View rendering
 // ===========================================================================
+
+func TestHelpListsEveryBoundKey(t *testing.T) {
+	// The help overlay must mention every key in the default KeyMap, plus the
+	// keys that are handled outside KeyMap (g-motions, Now Playing, help close).
+	km := DefaultKeyMap()
+	rendered := ViewHelp(200, 80)
+	check := func(label string) {
+		t.Helper()
+		if !strings.Contains(rendered, label) {
+			t.Errorf("help overlay does not mention %q", label)
+		}
+	}
+	for _, b := range []key.Binding{
+		km.Up, km.Down, km.Bottom, km.HalfUp, km.HalfDown, km.FocusLeft, km.FocusRight,
+		km.CyclePane, km.Section1, km.Section2, km.Back, km.Enter, km.PlayPause, km.Next,
+		km.Prev, km.SeekFwd, km.SeekBack, km.AddQueue, km.Like, km.Actions, km.Devices,
+		km.Filter, km.Search, km.Command, km.Help, km.NowPlaying, km.Quit,
+	} {
+		check(keyLabel(b))
+	}
+	for _, g := range gMotions {
+		check("g" + g.Key)
+	}
+	for _, extra := range []string{"V", "l", "2×click", "wheel", ":vol", "q to close"} {
+		check(extra)
+	}
+	// Direction labels must match the bindings: j is down, k is up.
+	if !strings.Contains(rendered, "j / k") || !strings.Contains(rendered, "down / up") {
+		t.Error("j/k row should read 'j / k  down / up'")
+	}
+}
+
+func TestHelpClipsToShortTerminal(t *testing.T) {
+	got := ViewHelp(80, 20)
+	if lines := strings.Count(got, "\n") + 1; lines > 20 {
+		t.Errorf("help overlay is %d lines tall on a 20-row terminal", lines)
+	}
+	if !strings.Contains(got, "enlarge the terminal") {
+		t.Error("clipped help should say it was clipped")
+	}
+}
+
+func TestHelpFitsWidth(t *testing.T) {
+	for _, w := range []int{60, 80, 100, 140} {
+		got := ViewHelp(w, 60)
+		for _, line := range strings.Split(got, "\n") {
+			if lw := lipgloss.Width(line); lw > w {
+				t.Errorf("width %d: line is %d cells wide", w, lw)
+				break
+			}
+		}
+	}
+}
+
+func TestHelpModeClosesOnQ(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.mode = ModeHelp
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	if result.(Model).mode != ModeNormal {
+		t.Error("q should close the help overlay (it is listed as a close key)")
+	}
+}
 
 func TestViewHelp(t *testing.T) {
 	got := ViewHelp(80, 40)
@@ -2300,12 +2424,62 @@ func TestFetchCurrentTrackNilPlayback(t *testing.T) {
 
 	cmd := m.fetchCurrentTrack()
 	msg := cmd()
-	tum, ok := msg.(trackUpdateMsg)
-	if !ok {
-		t.Fatalf("expected trackUpdateMsg, got %T", msg)
+	if _, ok := msg.(noPlaybackMsg); !ok {
+		t.Fatalf("expected noPlaybackMsg, got %T", msg)
 	}
-	if tum.track != nil {
-		t.Error("track should be nil for nil playback")
+}
+
+func TestNoPlaybackMsgKeepsDeviceState(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.track = &source.Track{ID: "t1", Name: "Song", ArtworkURL: "http://art"}
+	m.volume = 72
+	m.shuffleOn = true
+	m.repeatMode = source.RepeatContext
+	m.deviceName = "Laptop"
+	m.liked = true
+	m.consecutiveErrors = 2
+
+	result, _ := m.Update(noPlaybackMsg{})
+	model := result.(Model)
+	if model.track != nil {
+		t.Error("track should be cleared")
+	}
+	if model.deviceName != "" || model.liked {
+		t.Error("device name and liked should reset with no playback")
+	}
+	if model.consecutiveErrors != 0 {
+		t.Error("a successful poll should reset error backoff")
+	}
+	// Volume/shuffle/repeat are device-level settings; an empty poll must not
+	// zero them (repeat "" is not even a valid mode).
+	if model.volume != 72 || !model.shuffleOn || model.repeatMode != source.RepeatContext {
+		t.Errorf("device state clobbered: vol=%d shuffle=%v repeat=%q",
+			model.volume, model.shuffleOn, model.repeatMode)
+	}
+}
+
+func TestArtErrorMsgDoesNotTriggerPlaybackRefresh(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.consecutiveErrors = 3
+	result, cmd := m.Update(artErrorMsg{url: "http://art", err: errors.New("cdn down")})
+	if cmd != nil {
+		t.Error("art failure must not schedule playback polls")
+	}
+	if result.(Model).consecutiveErrors != 3 {
+		t.Error("art failure must not reset the poll error backoff")
+	}
+}
+
+func TestFetchArtworkFailureReturnsArtErrorMsg(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	// An unreachable URL fails fast without a network round trip.
+	msg := m.fetchArtwork("http://127.0.0.1:1/nope.jpg")()
+	if _, ok := msg.(artErrorMsg); !ok {
+		t.Fatalf("got %T, want artErrorMsg", msg)
+	}
+	msg = m.fetchPlaylistArt("http://127.0.0.1:1/nope.jpg")()
+	if _, ok := msg.(artErrorMsg); !ok {
+		t.Fatalf("got %T, want artErrorMsg", msg)
 	}
 }
 
@@ -5338,5 +5512,231 @@ func TestLyricsViewEmptyState(t *testing.T) {
 	out := RenderNowPlaying(track, "", nil, false, 0, false, npLyrics{active: true, lyrics: nil}, 120, 50)
 	if !strings.Contains(out, "No lyrics found") {
 		t.Error("empty lyrics should render a 'No lyrics found' state")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Like state for non-playing tracks
+// ---------------------------------------------------------------------------
+
+func TestLikeOnNonPlayingTrackLooksUpStateFirst(t *testing.T) {
+	var removed, saved []string
+	stub := &StubSource{
+		IsTrackSavedFn: func(_ context.Context, id string) (bool, error) { return id == "t-saved", nil },
+		RemoveTrackFn:  func(_ context.Context, id string) error { removed = append(removed, id); return nil },
+		SaveTrackFn:    func(_ context.Context, id string) error { saved = append(saved, id); return nil },
+	}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "playing"}
+	m.liked = false
+	m.focusPane = PaneTrackList
+	m.tracklist.SetTracks([]source.Track{
+		{ID: "t-saved", Name: "Already liked"},
+		{ID: "t-new", Name: "Not liked"},
+	}, "List", "")
+
+	// f on an already-liked (non-playing) row must remove, not re-save.
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	msg := cmd()
+	if lm, ok := msg.(trackLikedMsg); !ok || lm.trackID != "t-saved" || lm.liked {
+		t.Fatalf("got %#v, want trackLikedMsg{t-saved, liked=false}", msg)
+	}
+	if len(removed) != 1 || len(saved) != 0 {
+		t.Errorf("removed=%v saved=%v, want remove only", removed, saved)
+	}
+
+	// f on a non-liked row saves it.
+	m.tracklist.MoveDown(1)
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	msg = cmd()
+	if lm, ok := msg.(trackLikedMsg); !ok || lm.trackID != "t-new" || !lm.liked {
+		t.Fatalf("got %#v, want trackLikedMsg{t-new, liked=true}", msg)
+	}
+}
+
+func TestLikeUsesCachedStateWithoutLookup(t *testing.T) {
+	lookups := 0
+	var removed []string
+	stub := &StubSource{
+		IsTrackSavedFn: func(context.Context, string) (bool, error) { lookups++; return false, nil },
+		RemoveTrackFn:  func(_ context.Context, id string) error { removed = append(removed, id); return nil },
+	}
+	m := newTestModel(stub)
+	m.likedCache["t1"] = true
+	cmd := m.likeToggleCmd("t1")
+	cmd()
+	if lookups != 0 {
+		t.Error("known state should not be looked up again")
+	}
+	if len(removed) != 1 {
+		t.Errorf("expected remove for a cached-liked track, got %v", removed)
+	}
+}
+
+func TestLikedSongsPageSeedsLikedCache(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	result, _ := m.Update(tracksLoadedMsg{
+		tracks:     []source.Track{{ID: "a"}, {ID: "b"}},
+		title:      "Liked Songs",
+		playlistID: likedPlaylistID,
+	})
+	model := result.(Model)
+	if liked, known := model.likedStatus("a"); !known || !liked {
+		t.Error("tracks from Liked Songs should be known-liked")
+	}
+	if _, known := model.likedStatus("zzz"); known {
+		t.Error("unrelated track should be unknown")
+	}
+}
+
+func TestActionsPopupLikeLabelUpdatesAfterLookup(t *testing.T) {
+	stub := &StubSource{
+		IsTrackSavedFn: func(context.Context, string) (bool, error) { return true, nil },
+	}
+	m := newTestModel(stub)
+	m.focusPane = PaneTrackList
+	m.tracklist.SetTracks([]source.Track{{ID: "t1", Name: "Song", URI: "spotify:track:t1"}}, "List", "")
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	model := result.(Model)
+	if model.actions == nil {
+		t.Fatal("actions popup should open")
+	}
+	if cmd == nil {
+		t.Fatal("opening actions for an unknown track should look up its liked state")
+	}
+	if !strings.Contains(model.actions.View(), "Save to Liked Songs") {
+		t.Error("popup should start with the unknown/unsaved label")
+	}
+	result, _ = model.Update(cmd())
+	model = result.(Model)
+	if !strings.Contains(model.actions.View(), "Remove from Liked Songs") {
+		t.Error("popup label should flip once the lookup reports the track is saved")
+	}
+	if liked, known := model.likedStatus("t1"); !known || !liked {
+		t.Error("lookup result should be cached")
+	}
+}
+
+func TestTrackLikedMsgUpdatesCache(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	result, _ := m.Update(trackLikedMsg{trackID: "t9", liked: true})
+	if liked, known := result.(Model).likedStatus("t9"); !known || !liked {
+		t.Error("like result should be cached")
+	}
+}
+
+func TestSearchViewDistinguishesNoResultsFromSearching(t *testing.T) {
+	s := NewSearch(120, 40)
+	s.input.SetValue("zzqx")
+	// Results not yet back for this query → still searching.
+	if !strings.Contains(s.View(), "Searching") {
+		t.Error("expected 'Searching…' before results arrive")
+	}
+	// Empty results for exactly this query → say so.
+	s, _ = s.Update(searchResultsMsg{query: "zzqx", results: &source.SearchResults{}})
+	view := s.View()
+	if !strings.Contains(view, `No results for "zzqx"`) {
+		t.Errorf("expected no-results message, got:\n%s", view)
+	}
+	if strings.Contains(view, "Searching") {
+		t.Error("must not claim to be searching once empty results are in")
+	}
+	// Typing more invalidates the old results → searching again.
+	s.input.SetValue("zzqxy")
+	if !strings.Contains(s.View(), "Searching") {
+		t.Error("a newer query should show 'Searching…' again")
+	}
+}
+
+func TestSearchViewSingleCharPrompt(t *testing.T) {
+	s := NewSearch(120, 40)
+	s.input.SetValue("a")
+	if !strings.Contains(s.View(), "Keep typing") {
+		t.Error("one character is below the search threshold; say so instead of 'Searching…'")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar queue section + filter
+// ---------------------------------------------------------------------------
+
+func TestSidebarQueueSectionShowsQueueNotLibrary(t *testing.T) {
+	s := NewSidebar(30, 40)
+	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}, {ID: "p2", Name: "Jazz"}})
+	s.SetSection(SectionQueue)
+	s.SetQueueTracks([]source.Track{{ID: "t1", Name: "Song One", Artist: "Band"}})
+	s.SetSection(SectionLibrary)
+
+	// Switching back to the queue must not show library rows under QUEUE.
+	s.SetSection(SectionQueue)
+	items := s.list.Items()
+	if len(items) != 1 {
+		t.Fatalf("queue section shows %d items, want 1 (the last-known queue)", len(items))
+	}
+	if _, ok := items[0].(queueItem); !ok {
+		t.Errorf("queue section shows %T, want queueItem", items[0])
+	}
+}
+
+func TestSidebarQueueSectionEmptyTitle(t *testing.T) {
+	s := NewSidebar(30, 40)
+	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}})
+	s.SetSection(SectionQueue)
+	if len(s.list.Items()) != 0 {
+		t.Error("queue with nothing fetched yet must not display library rows")
+	}
+	if s.list.Title != "QUEUE (empty)" {
+		t.Errorf("title = %q", s.list.Title)
+	}
+}
+
+func TestSidebarFilterAppliesToQueueWhenShown(t *testing.T) {
+	s := NewSidebar(30, 40)
+	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}, {ID: "p2", Name: "Songbook"}})
+	s.SetSection(SectionQueue)
+	s.SetQueueTracks([]source.Track{
+		{ID: "t1", Name: "Song One", Artist: "Band"},
+		{ID: "t2", Name: "Other", Artist: "Rocket"},
+		{ID: "t3", Name: "Third", Artist: "Nobody"},
+	})
+
+	s.SetFilter("song")
+	items := s.list.Items()
+	if len(items) != 1 {
+		t.Fatalf("filter on queue returned %d items, want 1 (track title match)", len(items))
+	}
+	if qi, ok := items[0].(queueItem); !ok || qi.track.ID != "t1" {
+		t.Errorf("filtered queue item = %#v, want track t1", items[0])
+	}
+
+	s.SetFilter("rock") // matches artist "Rocket", not the "Rock" playlist
+	items = s.list.Items()
+	if len(items) != 1 {
+		t.Fatalf("artist filter returned %d items, want 1", len(items))
+	}
+	if qi, ok := items[0].(queueItem); !ok || qi.track.ID != "t2" {
+		t.Errorf("filtered by artist = %#v, want track t2", items[0])
+	}
+
+	s.ClearFilter()
+	if len(s.list.Items()) != 3 {
+		t.Error("ClearFilter should restore the full queue")
+	}
+	if _, ok := s.list.Items()[0].(queueItem); !ok {
+		t.Error("ClearFilter on the queue section must restore queue items, not playlists")
+	}
+}
+
+func TestSidebarFilterStillWorksOnLibrary(t *testing.T) {
+	s := NewSidebar(30, 40)
+	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}, {ID: "p2", Name: "Jazz"}})
+	s.SetFilter("ja")
+	if n := len(s.list.Items()); n != 1 {
+		t.Fatalf("library filter returned %d, want 1", n)
+	}
+	s.ClearFilter()
+	if n := len(s.list.Items()); n != 2 {
+		t.Fatalf("ClearFilter restored %d, want 2", n)
 	}
 }

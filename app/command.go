@@ -19,6 +19,18 @@ const (
 	CmdRecent
 )
 
+// commandHelp is the user-facing list of : commands shown in the help overlay.
+// Keep in sync with ParseCommand.
+var commandHelp = []helpBinding{
+	{":vol N", "set volume 0-100"},
+	{":shuffle", "toggle shuffle"},
+	{":repeat X", "off / all / one"},
+	{":device", "switch device"},
+	{":search Q", "search Spotify"},
+	{":recent", "recently played"},
+	{":q", "quit"},
+}
+
 type Command struct {
 	Type   CmdType
 	IntArg int

@@ -112,6 +112,24 @@ const (
 	GActionRecent          // gr — load recently played
 )
 
+// gMotion is a two-key g-prefix motion: the second key, the action it
+// resolves to, and its help text. This table is the single source of truth
+// for both GTracker and the help overlay.
+type gMotion struct {
+	Key    string
+	Action GAction
+	Desc   string
+}
+
+// gMotions lists every supported g-prefix motion in help-display order.
+var gMotions = []gMotion{
+	{"g", GActionTop, "top"},
+	{"l", GActionLibrary, "library"},
+	{"q", GActionQueue, "queue"},
+	{"c", GActionCurrent, "jump to playing"},
+	{"r", GActionRecent, "recently played"},
+}
+
 // GTracker tracks g-prefix two-key motions (gg, gl, gq, gc, gr).
 type GTracker struct {
 	pending bool
@@ -125,26 +143,17 @@ func (t *GTracker) Feed(k string) GAction {
 	if !t.pending {
 		if k == "g" {
 			t.pending = true
-			return GActionNone
 		}
 		return GActionNone
 	}
 	// We have a pending "g" — resolve the second key.
 	t.pending = false
-	switch k {
-	case "g":
-		return GActionTop
-	case "l":
-		return GActionLibrary
-	case "q":
-		return GActionQueue
-	case "c":
-		return GActionCurrent
-	case "r":
-		return GActionRecent
-	default:
-		return GActionNone
+	for _, m := range gMotions {
+		if m.Key == k {
+			return m.Action
+		}
 	}
+	return GActionNone
 }
 
 // Pending returns whether the tracker is waiting for a second key after "g".

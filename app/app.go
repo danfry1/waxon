@@ -90,6 +90,16 @@ type (
 		url string
 		img image.Image
 	}
+	// artErrorMsg reports a failed artwork download. Art is cosmetic, so it is
+	// only logged — but it must not masquerade as a successful control action.
+	artErrorMsg struct {
+		url string
+		err error
+	}
+	// noPlaybackMsg means the poll succeeded but nothing is playing anywhere.
+	// Distinct from trackUpdateMsg so device-level state (volume/shuffle/
+	// repeat) isn't zeroed by an empty update.
+	noPlaybackMsg struct{}
 )
 
 type trackLikedMsg struct {
@@ -159,11 +169,12 @@ type Model struct {
 	volume             int
 	shuffleOn          bool
 	repeatMode         source.RepeatMode
-	liked              bool // whether the currently playing track is liked
+	liked              bool            // whether the currently playing track is liked
+	likedCache         map[string]bool // saved state of tracks we've looked up or changed this session
 	deviceName         string
 	toast              Toast
 	actionsReturn      Mode                      // mode to return to when the actions popup closes
-	navStack           []NavState                // browser-like back navigation history
+	navStack           []navEntry                // browser-like back navigation history
 	trackCache         map[string]cachedPlaylist // playlist ID → cached tracks
 	pagination         *paginationState          // non-nil while a playlist is being lazily loaded
 
@@ -215,6 +226,7 @@ func NewModel(src source.RichSource) Model {
 		volume:          50,
 		repeatMode:      source.RepeatOff,
 		trackCache:      make(map[string]cachedPlaylist),
+		likedCache:      make(map[string]bool),
 	}
 	// Pre-create the panes at a default size so data arriving before the first
 	// WindowSizeMsg (instant demo data, or a fast initial load) has a valid
@@ -255,6 +267,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fetchCurrentTrack(),
 			tea.Tick(interval, func(t time.Time) tea.Msg { return pollTickMsg(t) }),
 		)
+
+	case noPlaybackMsg:
+		m.consecutiveErrors = 0
+		m.track = nil
+		m.playbackContextURI = ""
+		m.albumart.Clear()
+		m.deviceName = ""
+		m.liked = false
+		return m, nil
 
 	case trackUpdateMsg:
 		m.consecutiveErrors = 0
@@ -313,6 +334,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case artErrorMsg:
+		slog.Warn("artwork fetch failed", "url", msg.url, "error", msg.err)
+		return m, nil
+
 	case playlistsLoadedMsg:
 		m.playlists = msg.playlists
 		// sidebar may not exist yet if WindowSizeMsg hasn't arrived;
@@ -331,6 +356,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tracksLoadedMsg:
+		m.noteLikedTracks(msg.playlistID, msg.tracks)
 		if msg.playlistID != "" {
 			m.trackCache[msg.playlistID] = cachedPlaylist{
 				tracks:    msg.tracks,
@@ -366,6 +392,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, jumpCmd
 
 	case moreTracksLoadedMsg:
+		m.noteLikedTracks(msg.playlistID, msg.tracks)
 		if m.pagination != nil && m.pagination.playlistID == msg.playlistID {
 			m.tracklist.AppendTracks(msg.tracks)
 			m.pagination.loaded += len(msg.tracks)
@@ -492,6 +519,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case recentTracksLoadedMsg:
+		m.pagination = nil
 		m.tracklist.SetTracks(msg.tracks, "Recently Played", "")
 		m.tracklist.SetHeaderInfo(FormatTrackListInfo(msg.tracks))
 		m.tracklist.SetArt("")
@@ -548,8 +576,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.track != nil && m.track.ID == msg.trackID {
 			m.liked = msg.liked
 		}
+		m.likedCache[msg.trackID] = msg.liked
 		// Invalidate cached Liked Songs so navigating there shows fresh data
-		delete(m.trackCache, "liked")
+		delete(m.trackCache, likedPlaylistID)
 		if msg.liked {
 			m.toast.Show("Saved to Liked Songs", "", ToastSuccess)
 		} else {
@@ -560,6 +589,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case trackLikeStatusMsg:
 		if m.track != nil && m.track.ID == msg.trackID {
 			m.liked = msg.liked
+		}
+		m.likedCache[msg.trackID] = msg.liked
+		if m.actions != nil && m.actions.TrackID() == msg.trackID {
+			m.actions.SetLiked(msg.liked)
 		}
 		return m, nil
 
@@ -658,7 +691,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape || msg.String() == "?" {
+	if msg.Type == tea.KeyEscape || msg.String() == "?" || msg.String() == "q" {
 		m.mode = ModeNormal
 	}
 	return m, nil
@@ -1052,8 +1085,7 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 				m.toast.Show("No track selected", "", ToastError)
 				return m, scheduleAutoDismiss()
 			}
-			liked := m.liked && m.track != nil && m.track.ID == track.ID
-			return m, m.toggleLike(track.ID, liked)
+			return m, m.likeToggleCmd(track.ID)
 		}
 		// From sidebar, like the currently playing track
 		if m.track != nil {
