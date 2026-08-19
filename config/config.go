@@ -31,7 +31,14 @@ func Dir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "waxon")
 	}
-	return filepath.Join(os.Getenv("HOME"), ".config", "waxon")
+	// os.UserHomeDir knows the platform convention ($HOME on Unix,
+	// %USERPROFILE% on Windows); $HOME alone is empty on Windows and would
+	// make the path relative to the working directory.
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("HOME")
+	}
+	return filepath.Join(home, ".config", "waxon")
 }
 
 // DefaultPath returns the path to the config file (~/.config/waxon/config.json).

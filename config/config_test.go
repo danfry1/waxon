@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -102,6 +103,9 @@ func TestLoadExtraFields(t *testing.T) {
 }
 
 func TestLoadPermissionError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 000 does not make a file unreadable on Windows")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 
@@ -117,6 +121,20 @@ func TestLoadPermissionError(t *testing.T) {
 	_, err := loadFrom(path)
 	if err == nil {
 		t.Fatal("expected error for unreadable config file")
+	}
+}
+
+func TestDirUsesUserHomeDirNotHOME(t *testing.T) {
+	// On Windows $HOME is unset; the path must still be absolute.
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	if runtime.GOOS != "windows" {
+		// On Unix, os.UserHomeDir also reads $HOME — give it a value via the
+		// variable it actually uses so the test stays meaningful.
+		t.Setenv("HOME", t.TempDir())
+	}
+	if d := Dir(); !filepath.IsAbs(d) {
+		t.Errorf("Dir() = %q, want an absolute path", d)
 	}
 }
 

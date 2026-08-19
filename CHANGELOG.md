@@ -24,6 +24,11 @@ Each release's section is also used verbatim as the GitHub Release notes.
   Actions bumped to current majors and Dependabot keeps them (and Go modules)
   updated.
 
+### Fixed
+
+- On Windows the config and token paths were relative to the working directory
+  (`$HOME` is unset there); they now resolve under the user's profile directory.
+
 ## [1.6.0] - 2026-08-19
 
 ### Added
