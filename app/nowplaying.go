@@ -81,6 +81,8 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 	var sections []string
 
 	switch {
+	case artW == 0:
+		// No room for the art/lyrics region at all (minimum-height terminal).
 	case lyr.active:
 		sections = append(sections, renderLyricsBlock(lyr, artW, artH, textAccent, dimStyle, textBg))
 	case artBlock != "" && artW > 0:
@@ -282,6 +284,9 @@ func activeLyricLine(lines []source.LyricLine, pos time.Duration) int {
 // effect); plain lyrics render evenly. Loading, error, and not-found states
 // render as a single centered message.
 func renderLyricsBlock(lyr npLyrics, w, h int, accent lipgloss.Color, dim lipgloss.Style, bg lipgloss.Color) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
 	switch {
 	case lyr.loading:
 		return centeredMessageBlock("Loading lyrics…", w, h, dim)
@@ -349,6 +354,9 @@ func parseHexColor(c lipgloss.Color) (r, g, b uint8, ok bool) {
 // centeredMessageBlock renders msg on the middle row of an otherwise-blank
 // h-row block.
 func centeredMessageBlock(msg string, w, h int, dim lipgloss.Style) string {
+	if h <= 0 || w <= 0 {
+		return ""
+	}
 	rows := make([]string, h)
 	rows[h/2] = dim.Render(truncate(msg, w))
 	return strings.Join(rows, "\n")

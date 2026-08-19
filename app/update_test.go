@@ -5908,3 +5908,60 @@ func TestNowPlayingArtShrinksToFit(t *testing.T) {
 		}
 	}
 }
+
+func TestNowPlayingAtMinimumSizeDoesNotPanic(t *testing.T) {
+	// Width ≥ minTermWidth, height == minTermHeight: the art region collapses
+	// to zero. Every NP state (art, vinyl, lyrics loading/error/empty/lines)
+	// must render without panicking and without overflowing.
+	for _, sz := range [][2]int{{40, 10}, {60, 10}, {40, 12}, {120, 11}} {
+		m := newTestModel(&StubSource{})
+		m.width, m.height = sz[0], sz[1]
+		m.layoutResize()
+		m.track = &source.Track{ID: "t", Name: "Song", Artist: "Band", Album: "LP", Duration: time.Minute, Playing: true}
+		m.npSourceImg = image.NewRGBA(image.Rect(0, 0, 4, 4))
+		m.renderNPArt()
+		states := []func(*Model){
+			func(m *Model) { m.mode = ModeNowPlaying },
+			func(m *Model) { m.vinylMode = true },
+			func(m *Model) { m.vinylMode = false; m.lyricsView = true; m.lyricsLoading = true },
+			func(m *Model) { m.lyricsLoading = false; m.lyricsErr = errors.New("x") },
+			func(m *Model) { m.lyricsErr = nil; m.lyrics = &source.Lyrics{} },
+			func(m *Model) {
+				m.lyrics = &source.Lyrics{Synced: true, Lines: []source.LyricLine{{Text: "la"}, {Text: "la la"}}}
+			},
+		}
+		for i, apply := range states {
+			apply(&m)
+			v := m.View()
+			for _, line := range strings.Split(v, "\n") {
+				if lw := lipgloss.Width(line); lw > sz[0] {
+					t.Errorf("%dx%d state %d: line overflows (%d)", sz[0], sz[1], i, lw)
+				}
+			}
+		}
+	}
+}
+
+func TestStatusBarWithArtNeverWrapsNarrow(t *testing.T) {
+	// Height ≥ MinTermRows uses the art layout even on narrow terminals.
+	for _, w := range []int{40, 45, 60} {
+		m := newTestModel(&StubSource{})
+		m.width, m.height = w, 30
+		m.layoutResize()
+		m.track = &source.Track{
+			Name: "A Very Long Track Title That Goes On", Artist: "Some Lengthy Artist Name",
+			Album: "An Album Name Also Long", Duration: 301 * time.Second, Position: 30 * time.Second,
+			Playing: true, DeviceName: "Living Room Speaker",
+		}
+		m.deviceName = "Living Room Speaker"
+		v := m.View()
+		if n := strings.Count(v, "\n") + 1; n > 30 {
+			t.Errorf("width %d: view is %d rows tall (wrapped status bar?)", w, n)
+		}
+		for _, line := range strings.Split(v, "\n") {
+			if lw := lipgloss.Width(line); lw > w {
+				t.Errorf("width %d: line overflows (%d)", w, lw)
+			}
+		}
+	}
+}

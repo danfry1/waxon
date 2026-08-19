@@ -1233,11 +1233,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 		return m.handleOverlayMouse(msg)
 	}
 
-	statusRows := 2
-	if m.height >= MinTermRows {
-		statusRows = ArtHeight
-	}
-	contentH := m.height - statusRows
+	contentH := m.height - m.statusRows()
 
 	switch msg.Button {
 	case tea.MouseButtonLeft:
@@ -1456,6 +1452,19 @@ const (
 	minTermHeight = 10
 )
 
+// artStatusBar reports whether the bottom area uses the tall layout with
+// album art (needs both height and width; narrow terminals use the compact
+// two-row bar so nothing wraps).
+func (m Model) artStatusBar() bool { return m.height >= MinTermRows && !m.narrow() }
+
+// statusRows is how many rows the bottom (status) area occupies.
+func (m Model) statusRows() int {
+	if m.artStatusBar() {
+		return ArtHeight
+	}
+	return 2
+}
+
 // narrow reports whether the terminal is too narrow for two panes.
 func (m Model) narrow() bool { return m.width < narrowWidth }
 
@@ -1481,11 +1490,7 @@ func (m *Model) layoutResize() {
 	}
 
 	// Reserve rows for the bottom area
-	statusRows := 2
-	if m.height >= MinTermRows {
-		statusRows = ArtHeight
-	}
-	contentH := m.height - statusRows
+	contentH := m.height - m.statusRows()
 
 	if m.sidebar.width == 0 {
 		m.sidebar = NewSidebar(sidebarW, contentH)
@@ -1619,7 +1624,7 @@ func (m Model) View() string {
 
 	// Now-playing area
 	var view string
-	if m.height >= MinTermRows {
+	if m.artStatusBar() {
 		artView := m.albumart.View()
 		if artView == "" {
 			artView = PlaceholderArt(ArtWidth, ArtHeight)
