@@ -103,6 +103,10 @@ func applyUserConfig() app.Options {
 	}
 	app.ApplyTheme(palette)
 	app.SetArtMode(app.DetectArtMode())
+	if dir := app.DefaultImageCacheDir(); dir != "" {
+		app.SetImageCacheDir(dir)
+		go app.PruneImageCache()
+	}
 
 	if len(cfg.Keys) > 0 {
 		km, err := app.KeyMapFromOverrides(cfg.Keys)

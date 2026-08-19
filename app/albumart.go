@@ -1,12 +1,10 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
-	"io"
 	"math"
 	"net/http"
 	"strconv"
@@ -64,30 +62,6 @@ func (a *AlbumArt) SetURL(url string) {
 
 func (a AlbumArt) View() string {
 	return a.rendered
-}
-
-// FetchImage downloads and decodes an image from a URL.
-// Uses a dedicated client with timeout and a body size limit to prevent
-// hangs and OOM from slow or malicious servers.
-func FetchImage(ctx context.Context, url string) (image.Image, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := httpImageClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetch image: HTTP %d", resp.StatusCode)
-	}
-	limited := io.LimitReader(resp.Body, maxImageBytes)
-	img, _, err := image.Decode(limited)
-	if err != nil {
-		return nil, err
-	}
-	return img, nil
 }
 
 // ArtMode selects how album art is emitted. Half-block art needs per-cell

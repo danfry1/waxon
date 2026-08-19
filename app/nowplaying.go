@@ -32,19 +32,9 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 		return ""
 	}
 
-	// Extract accent color
-	accent := CurrentAccent()
-	if albumImg != nil {
-		if c := DominantColor(albumImg); c != "" {
-			accent = c
-		}
-	}
-
-	// Compute blurred background (per terminal row)
-	var bgRows []rgb
-	if albumImg != nil {
-		bgRows = computeBgRows(albumImg, height)
-	}
+	// Accent colour and blurred background depend only on the image and the
+	// terminal height, but View runs every 500ms tick — memoise them.
+	accent, bgRows := npDerived(albumImg, height)
 
 	// Render art block — vinyl uses bgRows for outside-circle pixels
 	if vinylMode && albumImg != nil {
@@ -148,6 +138,35 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 	}
 
 	return sb.String()
+}
+
+// npDerivedMemo caches the per-image derivations for the Now Playing view.
+// View is only ever called from the Bubbletea render goroutine, so a single
+// unguarded entry is sufficient.
+var npDerivedMemo struct {
+	img    image.Image
+	height int
+	accent lipgloss.Color
+	rows   []rgb
+}
+
+// npDerived returns the accent colour and background gradient rows for img
+// at the given height, recomputing only when either changes.
+func npDerived(img image.Image, height int) (lipgloss.Color, []rgb) {
+	if img == nil {
+		return CurrentAccent(), nil
+	}
+	if npDerivedMemo.img == img && npDerivedMemo.height == height && npDerivedMemo.rows != nil {
+		return npDerivedMemo.accent, npDerivedMemo.rows
+	}
+	accent := CurrentAccent()
+	if c := DominantColor(img); c != "" {
+		accent = c
+	}
+	rows := computeBgRows(img, height)
+	npDerivedMemo.img, npDerivedMemo.height = img, height
+	npDerivedMemo.accent, npDerivedMemo.rows = accent, rows
+	return accent, rows
 }
 
 // computeBgRows generates one background color per terminal row from a blurred

@@ -19,10 +19,7 @@ func fullTrackToSource(item spotifyapi.FullTrack) source.Track {
 		artist = item.Artists[0].Name
 		artistID = string(item.Artists[0].ID)
 	}
-	artworkURL := ""
-	if len(item.Album.Images) > 0 {
-		artworkURL = item.Album.Images[0].URL
-	}
+	artworkURL := pickImageURL(zmb3Images(item.Album.Images), trackArtMinPx)
 	return source.Track{
 		ID:         string(item.ID),
 		URI:        string(item.URI),

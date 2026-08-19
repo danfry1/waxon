@@ -22,9 +22,7 @@ func TestApiTrackToSource_FullFields(t *testing.T) {
 	}
 	tr.Album.ID = "album456"
 	tr.Album.Name = "Best Album"
-	tr.Album.Images = []struct {
-		URL string `json:"url"`
-	}{{URL: "https://img.spotify.com/cover.jpg"}}
+	tr.Album.Images = []apiImage{{URL: "https://img.spotify.com/cover.jpg"}}
 	tr.Artists = []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
@@ -297,5 +295,28 @@ func assertEqual(t *testing.T, field, got, want string) {
 	t.Helper()
 	if got != want {
 		t.Errorf("%s = %q, want %q", field, got, want)
+	}
+}
+
+func TestPickImageURL(t *testing.T) {
+	imgs := []apiImage{{URL: "640", Width: 640}, {URL: "300", Width: 300}, {URL: "64", Width: 64}}
+	cases := []struct {
+		name string
+		imgs []apiImage
+		min  int
+		want string
+	}{
+		{"smallest >= 300", imgs, 300, "300"},
+		{"smallest >= 64", imgs, 64, "64"},
+		{"smallest >= 100 picks 300", imgs, 100, "300"},
+		{"nothing big enough falls back to first/largest", imgs, 1000, "640"},
+		{"unknown sizes fall back to first", []apiImage{{URL: "a"}, {URL: "b"}}, 64, "a"},
+		{"empty", nil, 64, ""},
+		{"skips empty urls", []apiImage{{URL: "", Width: 64}, {URL: "x", Width: 64}}, 64, "x"},
+	}
+	for _, c := range cases {
+		if got := pickImageURL(c.imgs, c.min); got != c.want {
+			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		}
 	}
 }
