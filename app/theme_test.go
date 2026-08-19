@@ -1,12 +1,14 @@
 package app
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/danfry1/waxon/source"
 )
 
 func TestEveryThemeIsCompleteAndValid(t *testing.T) {
@@ -147,7 +149,7 @@ func TestKeyMapFromOverrides(t *testing.T) {
 }
 
 func TestKeyOverridesDriveTheModelAndHelp(t *testing.T) {
-	km, _ := KeyMapFromOverrides(map[string]string{"quit": "ctrl+q", "help": "F1"})
+	km, _ := KeyMapFromOverrides(map[string]string{"quit": "ctrl+q", "help": "f1", "bottom": "end"})
 	m := newTestModel(&StubSource{}).WithOptions(Options{Keys: &km})
 	// Default q no longer quits; ctrl+q does.
 	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
@@ -157,6 +159,21 @@ func TestKeyOverridesDriveTheModelAndHelp(t *testing.T) {
 	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
 	if !result.(Model).quitting || cmd == nil {
 		t.Error("ctrl+q should quit")
+	}
+	// bottom is rebound: G no longer jumps, end does.
+	m.focusPane = PaneTrackList
+	tracks := make([]source.Track, 30)
+	for i := range tracks {
+		tracks[i] = source.Track{ID: fmt.Sprint(i), Name: "t"}
+	}
+	m.tracklist.SetTracks(tracks, "L", "")
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	if mm := result.(Model); mm.tracklist.Cursor() != 0 {
+		t.Error("G should be inert once bottom is rebound")
+	}
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if mm := result.(Model); mm.tracklist.Cursor() != 29 {
+		t.Error("end should jump to bottom after rebinding")
 	}
 	// Help overlay reflects the override.
 	m.mode = ModeHelp

@@ -1036,7 +1036,7 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.gtracker.Feed("g")
 		return m, nil
 	}
-	if msg.String() == "G" {
+	if key.Matches(msg, m.keys.Bottom) {
 		if m.focusPane == PaneSidebar {
 			m.sidebar, _ = m.sidebar.Update(tea.KeyMsg{Type: tea.KeyEnd})
 		} else {
