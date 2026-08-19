@@ -61,7 +61,8 @@ type Sidebar struct {
 	height     int
 }
 
-func NewSidebar(width, height int) Sidebar {
+// sidebarDelegate builds the list delegate from the live palette.
+func sidebarDelegate() list.DefaultDelegate {
 	delegate := list.NewDefaultDelegate()
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
 		Foreground(ColorAccent).
@@ -69,6 +70,17 @@ func NewSidebar(width, height int) Sidebar {
 	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
 		Foreground(ColorTextSec).
 		BorderForeground(ColorAccent)
+	return delegate
+}
+
+// Restyle re-applies palette-derived styles after a theme change.
+func (s *Sidebar) Restyle() {
+	s.list.SetDelegate(sidebarDelegate())
+	s.list.Styles.Title = StyleSectionHeader
+}
+
+func NewSidebar(width, height int) Sidebar {
+	delegate := sidebarDelegate()
 
 	l := list.New(nil, delegate, width-2, height-2)
 	l.Title = "LIBRARY"

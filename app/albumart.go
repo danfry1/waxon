@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // httpImageClient is a dedicated HTTP client for image downloads with a
@@ -89,11 +90,93 @@ func FetchImage(ctx context.Context, url string) (image.Image, error) {
 	return img, nil
 }
 
+// ArtMode selects how album art is emitted. Half-block art needs per-cell
+// colours; on terminals without true colour we approximate with the 256
+// colour cube, and with no colour at all we skip art (callers fall back to a
+// placeholder) rather than print garbage.
+type ArtMode int
+
+const (
+	ArtTrueColor ArtMode = iota
+	ArtANSI256
+	ArtOff
+)
+
+var artMode = ArtTrueColor
+
+// SetArtMode sets how album art is rendered (see DetectArtMode).
+func SetArtMode(m ArtMode) { artMode = m }
+
+// DetectArtMode picks an ArtMode from the terminal's colour profile as
+// detected by lipgloss (which honours NO_COLOR, COLORTERM, TERM).
+func DetectArtMode() ArtMode {
+	switch lipgloss.ColorProfile() {
+	case termenv.TrueColor:
+		return ArtTrueColor
+	case termenv.ANSI256:
+		return ArtANSI256
+	default:
+		return ArtOff
+	}
+}
+
+// writeCell emits one half-block cell: top pixel as foreground, bottom as
+// background, using the active ArtMode's escape sequences.
+func writeCell(sb *strings.Builder, top, bot rgb) {
+	switch artMode {
+	case ArtANSI256:
+		sb.WriteString("\x1b[38;5;")
+		sb.WriteString(strconv.Itoa(ansi256(top)))
+		sb.WriteString("m\x1b[48;5;")
+		sb.WriteString(strconv.Itoa(ansi256(bot)))
+		sb.WriteString("m▀")
+	default:
+		sb.WriteString("\x1b[38;2;")
+		sb.WriteString(decLUT[top.R])
+		sb.WriteByte(';')
+		sb.WriteString(decLUT[top.G])
+		sb.WriteByte(';')
+		sb.WriteString(decLUT[top.B])
+		sb.WriteString("m\x1b[48;2;")
+		sb.WriteString(decLUT[bot.R])
+		sb.WriteByte(';')
+		sb.WriteString(decLUT[bot.G])
+		sb.WriteByte(';')
+		sb.WriteString(decLUT[bot.B])
+		sb.WriteString("m▀")
+	}
+}
+
+// ansi256 maps an RGB colour to the nearest xterm-256 index: the 24-step
+// grey ramp for near-greys, otherwise the 6×6×6 colour cube.
+func ansi256(c rgb) int {
+	r, g, b := int(c.R), int(c.G), int(c.B)
+	if absInt(r-g) < 10 && absInt(g-b) < 10 && absInt(r-b) < 10 {
+		v := (r + g + b) / 3
+		if v < 8 {
+			return 16 // cube black
+		}
+		if v > 238 {
+			return 231 // cube white
+		}
+		return 232 + (v-8)/10
+	}
+	q := func(v int) int { return (v*5 + 127) / 255 }
+	return 16 + 36*q(r) + 6*q(g) + q(b)
+}
+
+func absInt(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 // renderHalfBlocks converts an image to a string using Unicode half-block characters.
 // Each terminal row encodes 2 pixel rows: foreground = top pixel, background = bottom pixel.
 // Uses direct ANSI escape codes for performance (avoids per-pixel lipgloss allocation).
 func renderHalfBlocks(img image.Image, w, h int) string {
-	if w == 0 || h == 0 {
+	if w == 0 || h == 0 || artMode == ArtOff {
 		return ""
 	}
 	pixH := h * 2
@@ -104,21 +187,7 @@ func renderHalfBlocks(img image.Image, w, h int) string {
 	sb.Grow(w * h * 30)
 	for row := 0; row < pixH; row += 2 {
 		for col := range w {
-			top := scaled[row][col]
-			bot := scaled[row+1][col]
-			sb.WriteString("\x1b[38;2;")
-			sb.WriteString(decLUT[top.R])
-			sb.WriteByte(';')
-			sb.WriteString(decLUT[top.G])
-			sb.WriteByte(';')
-			sb.WriteString(decLUT[top.B])
-			sb.WriteString("m\x1b[48;2;")
-			sb.WriteString(decLUT[bot.R])
-			sb.WriteByte(';')
-			sb.WriteString(decLUT[bot.G])
-			sb.WriteByte(';')
-			sb.WriteString(decLUT[bot.B])
-			sb.WriteString("m▀")
+			writeCell(&sb, scaled[row][col], scaled[row+1][col])
 		}
 		sb.WriteString("\x1b[0m")
 		if row+2 < pixH {
@@ -395,21 +464,7 @@ func renderVinyl(img image.Image, angle float64, w, h int, bgRows []rgb) string 
 	sb.Grow(w * h * 30)
 	for row := 0; row < pixH; row += 2 {
 		for col := range w {
-			top := pixels[row][col]
-			bot := pixels[row+1][col]
-			sb.WriteString("\x1b[38;2;")
-			sb.WriteString(decLUT[top.R])
-			sb.WriteByte(';')
-			sb.WriteString(decLUT[top.G])
-			sb.WriteByte(';')
-			sb.WriteString(decLUT[top.B])
-			sb.WriteString("m\x1b[48;2;")
-			sb.WriteString(decLUT[bot.R])
-			sb.WriteByte(';')
-			sb.WriteString(decLUT[bot.G])
-			sb.WriteByte(';')
-			sb.WriteString(decLUT[bot.B])
-			sb.WriteString("m▀")
+			writeCell(&sb, pixels[row][col], pixels[row+1][col])
 		}
 		sb.WriteString("\x1b[0m")
 		if row+2 < pixH {

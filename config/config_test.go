@@ -218,3 +218,36 @@ func TestMerge(t *testing.T) {
 		t.Errorf("merge with update: ClientID = %q, want %q", got.ClientID, "new-id")
 	}
 }
+
+func TestMergePreservesThemeColorsKeys(t *testing.T) {
+	existing := Config{ClientID: "id", Theme: "nord", Colors: map[string]string{"accent": "#123456"}, Keys: map[string]string{"next": "n"}}
+	// Updating only the client ID must not drop theme/colors/keys.
+	got := merge(existing, Config{ClientID: "new"})
+	if got.Theme != "nord" || got.Colors["accent"] != "#123456" || got.Keys["next"] != "n" {
+		t.Errorf("merge dropped fields: %+v", got)
+	}
+	// Updating theme alone keeps the rest.
+	got = merge(existing, Config{Theme: "gruvbox"})
+	if got.Theme != "gruvbox" || got.ClientID != "id" || got.Keys["next"] != "n" {
+		t.Errorf("merge: %+v", got)
+	}
+	// A non-nil map replaces wholesale (so users can remove overrides).
+	got = merge(existing, Config{Colors: map[string]string{}})
+	if len(got.Colors) != 0 {
+		t.Errorf("empty map should replace: %+v", got.Colors)
+	}
+}
+
+func TestSaveThemeRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := saveTo(path, Config{Theme: "dracula", Keys: map[string]string{"quit": "q,ctrl+c"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Theme != "dracula" || got.Keys["quit"] != "q,ctrl+c" {
+		t.Errorf("round trip: %+v", got)
+	}
+}

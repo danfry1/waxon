@@ -17,6 +17,7 @@ const (
 	CmdDevice
 	CmdSearch
 	CmdRecent
+	CmdTheme
 )
 
 // commandHelp is the user-facing list of : commands shown in the help overlay.
@@ -28,6 +29,7 @@ var commandHelp = []helpBinding{
 	{":device", "switch device"},
 	{":search Q", "search Spotify"},
 	{":recent", "recently played"},
+	{":theme NAME", "switch colour theme"},
 	{":q", "quit"},
 }
 
@@ -91,6 +93,12 @@ func ParseCommand(input string) (Command, error) {
 
 	case "recent":
 		return Command{Type: CmdRecent}, nil
+
+	case "theme", "themes", "colorscheme", "colourscheme":
+		if len(args) != 1 {
+			return Command{}, fmt.Errorf("usage: theme <%s>", strings.Join(ThemeNames(), "|"))
+		}
+		return Command{Type: CmdTheme, StrArg: args[0]}, nil
 
 	default:
 		return Command{}, fmt.Errorf("unknown command: %s", cmd)

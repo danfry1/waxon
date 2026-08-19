@@ -26,6 +26,9 @@ func runDemo() {
 	fmt.Println("  Starting waxon in demo mode...")
 	fmt.Println("")
 
+	// Demo mode ignores the user's config (recordings must be reproducible)
+	// and never persists :theme changes.
+	app.SetArtMode(app.DetectArtMode())
 	m := app.NewModel(src)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
