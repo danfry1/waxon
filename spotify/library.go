@@ -170,6 +170,19 @@ func (e *APIError) HTTPStatus() int {
 }
 
 func (p *PlayerSource) apiGet(ctx context.Context, path string, v any) error {
+	found, err := p.apiGetRetry(ctx, path, v, 0)
+	if err == nil && !found {
+		// Callers of apiGet expect a body; treat 204 as "nothing" by leaving v
+		// zero-valued, which is what every current caller wants.
+		return nil
+	}
+	return err
+}
+
+// apiGetOptional is apiGet for endpoints that answer 204 No Content when
+// there is nothing to report (e.g. /me/player with no active session).
+// found is false on 204.
+func (p *PlayerSource) apiGetOptional(ctx context.Context, path string, v any) (found bool, err error) {
 	return p.apiGetRetry(ctx, path, v, 0)
 }
 
@@ -179,14 +192,14 @@ const maxRetries = 2
 // waits are returned as an error instead of silently stalling a fetch.
 const maxRetryAfterSeconds = 30
 
-func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, attempt int) error {
+func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, attempt int) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+path, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer resp.Body.Close()
 	limited := io.LimitReader(resp.Body, maxAPIResponseBytes)
@@ -205,27 +218,34 @@ func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, atte
 			// only extends the penalty, and blocking a UI fetch that long isn't
 			// useful either. Give up and let the caller surface the error.
 			slog.Warn("rate limited by Spotify API, Retry-After too long", "path", path, "retry_after_seconds", wait)
-			return &APIError{StatusCode: resp.StatusCode, Path: path, Body: "rate limited; retry after " + strconv.Itoa(wait) + "s", RetryAfter: wait}
+			return false, &APIError{StatusCode: resp.StatusCode, Path: path, Body: "rate limited; retry after " + strconv.Itoa(wait) + "s", RetryAfter: wait}
 		}
 		slog.Warn("rate limited by Spotify API, retrying", "path", path, "wait_seconds", wait, "attempt", attempt+1)
 		select {
 		case <-time.After(time.Duration(wait) * time.Second):
 		case <-ctx.Done():
-			return ctx.Err()
+			return false, ctx.Err()
 		}
 		return p.apiGetRetry(ctx, path, v, attempt+1)
 	}
 
+	if resp.StatusCode == http.StatusNoContent {
+		return false, nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(limited)
 		slog.Debug("API error", "path", path, "status", resp.StatusCode)
 		apiErr := &APIError{StatusCode: resp.StatusCode, Path: path, Body: string(body)}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			apiErr.RetryAfter, _ = strconv.Atoi(resp.Header.Get("Retry-After"))
+			slog.Warn("rate limited by Spotify API", "path", path, "retry_after_seconds", apiErr.RetryAfter)
 		}
-		return apiErr
+		return false, apiErr
 	}
-	return json.NewDecoder(limited).Decode(v)
+	if err := json.NewDecoder(limited).Decode(v); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (p *PlayerSource) Playlists(ctx context.Context) ([]source.Playlist, error) {

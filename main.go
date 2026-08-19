@@ -71,6 +71,7 @@ func main() {
 	}
 
 	opts := applyUserConfig()
+	opts.SharedClientID = effectiveClientID() == myauth.DefaultClientID
 	m := app.NewModel(src).WithOptions(opts)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithReportFocus())
 	if _, err := p.Run(); err != nil {
@@ -150,6 +151,15 @@ func newSource() (*myspotify.PlayerSource, bool) {
 
 	cp := myspotify.NewClient(clientID, token, tokenPath)
 	return myspotify.NewPlayerSource(cp), true
+}
+
+// effectiveClientID is the client ID waxon will use: the configured one, or
+// the bundled shared ID when none is set.
+func effectiveClientID() string {
+	if id := resolveClientID(); id != "" {
+		return id
+	}
+	return myauth.DefaultClientID
 }
 
 // resolveClientID returns the Client ID from the env var (takes priority)

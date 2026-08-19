@@ -291,11 +291,9 @@ cmd + alt - left  : waxon prev
 cmd + alt - l     : waxon like
 ```
 
-## Using Your Own Spotify App (Optional)
+## Using Your Own Spotify App (Recommended if you see rate limits)
 
-waxon works out of the box with no configuration — it ships with a shared client ID used by several open-source Spotify clients. Most users don't need to change anything.
-
-If you'd prefer to use your own Spotify developer app:
+waxon works out of the box with no configuration — it ships with a shared client ID used by several open-source Spotify clients. Spotify rate-limits that shared app as a whole, so at busy times you may see *Spotify rate limit* toasts or sluggish controls. A personal client ID has its own quota and takes two minutes to set up:
 
 1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and create an app
 2. Set the redirect URI to `http://127.0.0.1:27228/callback`
@@ -306,6 +304,18 @@ If you'd prefer to use your own Spotify developer app:
    ```
 
 The client ID is saved to `~/.config/waxon/config.json` automatically, so you only need to set the environment variable once during setup.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| *Spotify rate limit* / *Spotify is rate limiting* toasts | Spotify is throttling the app. waxon backs off automatically and honours Spotify's `Retry-After`. If it keeps happening, the shared client ID is busy — [use your own](#using-your-own-spotify-app-recommended-if-you-see-rate-limits). |
+| *No active Spotify device* | Spotify must be open somewhere (desktop, phone, speaker). waxon picks the only available device automatically or asks with `D`. |
+| *Permission needed — run `waxon auth`* | Your saved token predates a feature that needs extra permissions (e.g. playlist editing). Re-run `waxon auth` once. |
+| *Session expired* | Token revoked or refresh failed. Re-run `waxon auth`. |
+| Nothing renders / garbled colours | Set a true-colour or 256-colour `TERM`, or `NO_COLOR=1` for monochrome. Minimum size is 40×10. |
+
+Debug log: `WAXON_LOG=/tmp/waxon.log waxon` (includes rate-limit `Retry-After` values).
 
 ## Environment Variables
 
