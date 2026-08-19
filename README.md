@@ -31,6 +31,9 @@ brew install danfry1/tap/waxon
 > Recent Homebrew versions refuse to load formulae from third-party taps until
 > they're trusted. If you see `Error: Refusing to load formula ... from
 > untrusted tap`, run the `brew trust danfry1/tap` line above (once) and retry.
+>
+> **Upgrading from ≤ 1.6.0?** waxon moved from a formula to a cask. Once:
+> `brew uninstall --formula waxon && brew install danfry1/tap/waxon`.
 
 **Nix** (flakes):
 
