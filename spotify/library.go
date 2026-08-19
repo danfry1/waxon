@@ -148,7 +148,14 @@ type APIError struct {
 	StatusCode int
 	Path       string
 	Body       string
+	// RetryAfter is the server's Retry-After in seconds for 429 responses
+	// (0 when absent or not a rate limit).
+	RetryAfter int
 }
+
+// RetryAfterSeconds implements the optional interface the UI uses to honour
+// rate-limit cooldowns.
+func (e *APIError) RetryAfterSeconds() int { return e.RetryAfter }
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("spotify API %s: %d %s", e.Path, e.StatusCode, e.Body)
@@ -194,7 +201,7 @@ func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, atte
 			// only extends the penalty, and blocking a UI fetch that long isn't
 			// useful either. Give up and let the caller surface the error.
 			slog.Warn("rate limited by Spotify API, Retry-After too long", "path", path, "retry_after_seconds", wait)
-			return &APIError{StatusCode: resp.StatusCode, Path: path, Body: "rate limited; retry after " + strconv.Itoa(wait) + "s"}
+			return &APIError{StatusCode: resp.StatusCode, Path: path, Body: "rate limited; retry after " + strconv.Itoa(wait) + "s", RetryAfter: wait}
 		}
 		slog.Warn("rate limited by Spotify API, retrying", "path", path, "wait_seconds", wait, "attempt", attempt+1)
 		select {
@@ -208,7 +215,11 @@ func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, atte
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(limited)
 		slog.Debug("API error", "path", path, "status", resp.StatusCode)
-		return &APIError{StatusCode: resp.StatusCode, Path: path, Body: string(body)}
+		apiErr := &APIError{StatusCode: resp.StatusCode, Path: path, Body: string(body)}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			apiErr.RetryAfter, _ = strconv.Atoi(resp.Header.Get("Retry-After"))
+		}
+		return apiErr
 	}
 	return json.NewDecoder(limited).Decode(v)
 }
