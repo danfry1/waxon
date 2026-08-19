@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danfry1/waxon/source"
 	spotifyapi "github.com/zmb3/spotify/v2"
 )
 
@@ -1432,5 +1433,82 @@ func TestLikedTracksPageError(t *testing.T) {
 	_, _, err := ps.LikedTracksPage(context.Background(), 0, 50)
 	if err == nil {
 		t.Fatal("expected error for server failure")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CurrentPlayback (raw /me/player)
+// ---------------------------------------------------------------------------
+
+func TestCurrentPlaybackParsesState(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/me/player", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{
+			"device": {"name": "Kitchen", "volume_percent": 42},
+			"repeat_state": "context", "shuffle_state": true,
+			"context": {"uri": "spotify:playlist:abc"},
+			"progress_ms": 61000, "is_playing": true, "currently_playing_type": "track",
+			"item": {"id": "t1", "uri": "spotify:track:t1", "name": "Song", "duration_ms": 200000,
+			         "album": {"id": "al", "name": "LP", "images": [{"url": "http://img/640", "width": 640}, {"url": "http://img/300", "width": 300}]},
+			         "artists": [{"id": "a1", "name": "Band"}]}
+		}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	ps := newTestPlayerSource(srv.URL)
+
+	st, err := ps.CurrentPlayback(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st == nil || st.Track == nil {
+		t.Fatal("expected playback state")
+	}
+	if st.Track.Name != "Song" || st.Track.Artist != "Band" || st.Track.Position != 61*time.Second ||
+		!st.Track.Playing || st.Track.DeviceName != "Kitchen" || st.Track.ArtworkURL != "http://img/300" {
+		t.Errorf("track = %+v", *st.Track)
+	}
+	if st.Volume != 42 || !st.ShuffleOn || st.RepeatMode != source.RepeatContext || st.ContextURI != "spotify:playlist:abc" {
+		t.Errorf("state = %+v", *st)
+	}
+}
+
+func TestCurrentPlaybackNothingPlayingIs204(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/me/player", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	st, err := newTestPlayerSource(srv.URL).CurrentPlayback(context.Background())
+	if err != nil || st != nil {
+		t.Errorf("204 should be (nil, nil), got %+v %v", st, err)
+	}
+}
+
+func TestCurrentPlaybackEpisodeIsNotATrack(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/me/player", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"is_playing": true, "currently_playing_type": "episode", "item": null}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	st, err := newTestPlayerSource(srv.URL).CurrentPlayback(context.Background())
+	if err != nil || st != nil {
+		t.Errorf("episode should be reported as nothing playing, got %+v %v", st, err)
+	}
+}
+
+func TestCurrentPlaybackRateLimitCarriesRetryAfter(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/me/player", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "900")
+		w.WriteHeader(429)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	_, err := newTestPlayerSource(srv.URL).CurrentPlayback(context.Background())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 429 || apiErr.RetryAfterSeconds() != 900 {
+		t.Fatalf("expected 429 APIError with Retry-After 900, got %v", err)
 	}
 }

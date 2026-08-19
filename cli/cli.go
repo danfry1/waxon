@@ -129,8 +129,19 @@ func friendly(err error) string {
 		return "Spotify Premium is required for playback control"
 	case errors.Is(err, source.ErrNoActiveDevice):
 		return "no active Spotify device — open Spotify on any device, or run 'waxon devices' and 'waxon device <name>'"
+	case isRateLimited(err):
+		return "Spotify is rate limiting requests — try again shortly; if it persists, use your own client ID (see README)"
 	}
 	return err.Error()
+}
+
+// isRateLimited reports an HTTP 429 from either API path.
+func isRateLimited(err error) bool {
+	var hse interface{ HTTPStatus() int }
+	if errors.As(err, &hse) && hse.HTTPStatus() == 429 {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "rate limit")
 }
 
 // withDevice runs fn and, if it fails because no device is active, tries to

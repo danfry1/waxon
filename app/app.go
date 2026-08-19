@@ -251,6 +251,8 @@ type Model struct {
 	consecutiveErrors int
 	// rateLimitedUntil is set on a 429; polling pauses until then.
 	rateLimitedUntil time.Time
+	// rateLimitHits counts 429s this session (drives the client-ID hint).
+	rateLimitHits int
 	// blurred is true while the terminal window doesn't have focus.
 	blurred bool
 	// refreshPending counts post-control re-polls still scheduled, so a burst
@@ -302,6 +304,9 @@ type Options struct {
 	ColorOverrides Palette
 	// SaveTheme persists a theme name chosen with :theme. nil = don't persist.
 	SaveTheme func(name string) error
+	// SharedClientID is true when waxon is using the bundled (shared) Spotify
+	// client ID. Rate-limit messages then suggest switching to a personal one.
+	SharedClientID bool
 }
 
 // WithOptions returns a copy of m with opts applied.
@@ -790,7 +795,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case isAuthError(msg.err):
 			m.toast.Show("Session expired", "Run 'waxon auth' to reconnect", ToastError)
 		case isRateLimitError(msg.err):
-			m.toast.Show("Spotify is rate limiting", "Try again in a few seconds", ToastError)
+			m.toast.Show("Spotify is rate limiting", m.rateLimitHint(msg.err), ToastError)
 		default:
 			if title, detail, ok := friendlyPlaybackError(msg.err); ok {
 				m.toast.Show(title, detail, ToastError)
@@ -814,7 +819,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.noteRateLimit(msg.err)
 			m.consecutiveErrors--
 			if first {
-				m.toast.Show("Spotify rate limit", "Pausing updates for a moment", ToastInfo)
+				m.toast.Show("Spotify rate limit", m.rateLimitHint(msg.err), ToastInfo)
 				return m, scheduleAutoDismiss()
 			}
 			return m, nil
@@ -1766,6 +1771,7 @@ func (m *Model) noteRateLimit(err error) {
 	if !isRateLimitError(err) {
 		return
 	}
+	m.rateLimitHits++
 	wait := rateLimitCooldown
 	var ra retryAfterError
 	if errors.As(err, &ra) && ra.RetryAfterSeconds() > 0 {
@@ -1775,6 +1781,31 @@ func (m *Model) noteRateLimit(err error) {
 	if until.After(m.rateLimitedUntil) {
 		m.rateLimitedUntil = until
 	}
+}
+
+// rateLimitHint explains a 429 and, when the wait is long or we are on the
+// shared client ID, points at the fix (a personal client ID — README).
+func (m Model) rateLimitHint(err error) string {
+	wait := 0
+	var ra retryAfterError
+	if errors.As(err, &ra) {
+		wait = ra.RetryAfterSeconds()
+	}
+	var sb strings.Builder
+	switch {
+	case wait >= 3600:
+		fmt.Fprintf(&sb, "Spotify asks to wait %dh", wait/3600)
+	case wait >= 90:
+		fmt.Fprintf(&sb, "Spotify asks to wait %dm", wait/60)
+	case wait > 0:
+		fmt.Fprintf(&sb, "Retrying in %ds", wait)
+	default:
+		sb.WriteString("Pausing updates for a moment")
+	}
+	if m.opts.SharedClientID && (wait >= 60 || m.rateLimitHits >= 2) {
+		sb.WriteString(" · shared app is busy — use your own client ID (README)")
+	}
+	return sb.String()
 }
 
 // basePollInterval picks the steady-state poll cadence from what the user can

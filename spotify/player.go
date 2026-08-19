@@ -51,21 +51,43 @@ func NewPlayerSource(cp ClientPair) *PlayerSource {
 	}
 }
 
+// apiPlayerState mirrors the fields of GET /me/player that waxon uses.
+type apiPlayerState struct {
+	Device struct {
+		Name          string `json:"name"`
+		VolumePercent int    `json:"volume_percent"`
+	} `json:"device"`
+	RepeatState  string `json:"repeat_state"`
+	ShuffleState bool   `json:"shuffle_state"`
+	Context      *struct {
+		URI string `json:"uri"`
+	} `json:"context"`
+	ProgressMS int64 `json:"progress_ms"`
+	IsPlaying  bool  `json:"is_playing"`
+	// CurrentlyPlayingType is "track", "episode", "ad" or "unknown".
+	CurrentlyPlayingType string    `json:"currently_playing_type"`
+	Item                 *apiTrack `json:"item"`
+}
+
+// CurrentPlayback reads GET /me/player through waxon's own API path (rather
+// than the zmb3 client) so rate-limit responses keep their Retry-After and
+// 204 "nothing playing" is distinguished from errors.
 func (p *PlayerSource) CurrentPlayback(ctx context.Context) (*source.PlaybackState, error) {
-	state, err := p.client.PlayerState(ctx)
+	var state apiPlayerState
+	found, err := p.apiGetOptional(ctx, "/me/player", &state)
 	if err != nil {
 		return nil, fmt.Errorf("player state: %w", err)
 	}
-	if state == nil || state.Item == nil {
+	if !found || state.Item == nil || state.Item.ID == "" ||
+		(state.CurrentlyPlayingType != "" && state.CurrentlyPlayingType != "track") {
+		// Nothing playing, or an episode/ad we can't represent as a track.
 		return nil, nil
 	}
 
-	track := fullTrackToSource(*state.Item)
-	track.Position = time.Duration(state.Progress) * time.Millisecond
-	track.Playing = state.Playing
-	if state.Device.Name != "" {
-		track.DeviceName = state.Device.Name
-	}
+	track := apiTrackToSource(*state.Item)
+	track.Position = time.Duration(state.ProgressMS) * time.Millisecond
+	track.Playing = state.IsPlaying
+	track.DeviceName = state.Device.Name
 
 	repeatMode := source.RepeatOff
 	switch state.RepeatState {
@@ -74,13 +96,16 @@ func (p *PlayerSource) CurrentPlayback(ctx context.Context) (*source.PlaybackSta
 	case "track":
 		repeatMode = source.RepeatTrack
 	}
-
+	contextURI := ""
+	if state.Context != nil {
+		contextURI = state.Context.URI
+	}
 	return &source.PlaybackState{
 		Track:      &track,
-		Volume:     int(state.Device.Volume),
+		Volume:     state.Device.VolumePercent,
 		ShuffleOn:  state.ShuffleState,
 		RepeatMode: repeatMode,
-		ContextURI: string(state.PlaybackContext.URI),
+		ContextURI: contextURI,
 	}, nil
 }
 
