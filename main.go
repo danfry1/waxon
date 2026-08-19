@@ -28,7 +28,13 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "auth":
-			runAuth()
+			opts, err := parseAuthFlags(os.Args[2:])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				cleanup()
+				os.Exit(2) //nolint:gocritic // cleanup called above
+			}
+			runAuthWith(newOnboarding(), opts)
 			return
 		case "debug":
 			runDebug()
@@ -141,6 +147,18 @@ func newSource() (*myspotify.PlayerSource, bool) {
 	token, err := myauth.LoadToken(tokenPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			// First run: go straight into setup instead of bouncing the user
+			// to a command they haven't heard of yet.
+			o := newOnboarding()
+			if o.interactive {
+				fmt.Fprintln(o.out, "  Welcome to waxon — let's connect your Spotify account.")
+				runAuthFlow(o, authOptions{}, true)
+				token, err = myauth.LoadToken(tokenPath)
+			}
+		}
+	}
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintln(os.Stderr, "No Spotify token found. Run 'waxon auth' to connect your account.")
 		} else {
 			fmt.Fprintf(os.Stderr, "Failed to read token: %v\n", err)
@@ -175,24 +193,9 @@ func resolveClientID() string {
 	return cfg.ClientID
 }
 
-func runAuth() {
-	fmt.Println("")
-	fmt.Println("  Connecting your Spotify account...")
-
-	authenticate()
-
-	fmt.Println("")
-	fmt.Println("  You're all set! Run 'waxon' to start.")
-	fmt.Println("")
-}
-
-// authenticate performs the OAuth flow and saves the token. Returns the token path.
-func authenticate() string {
-	clientID := resolveClientID()
-	if clientID == "" {
-		clientID = myauth.DefaultClientID
-	}
-
+// authenticateWith runs the OAuth flow for clientID and saves the token and
+// client ID.
+func authenticateWith(clientID string) {
 	token, err := myauth.Authenticate(clientID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Authentication failed: %v\n", err)
@@ -209,8 +212,6 @@ func authenticate() string {
 	if err := config.Save(config.Config{ClientID: clientID}); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save config: %v\n", err)
 	}
-
-	return tokenPath
 }
 
 func runDebug() {
@@ -290,7 +291,7 @@ func printUsage() {
 
 Usage:
   waxon          Launch the TUI
-  waxon auth     Connect or re-connect your Spotify account
+  waxon auth     Connect your Spotify account (guided; --own | --shared | --client-id ID)
   waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
   waxon themes   List colour themes (set with "theme" in config.json or :theme)

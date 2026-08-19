@@ -1054,25 +1054,25 @@ func TestPaneString(t *testing.T) {
 
 func TestRateLimitHintMentionsClientIDWhenShared(t *testing.T) {
 	m := newTestModel(&StubSource{}).WithOptions(Options{SharedClientID: true})
-	if hint := m.rateLimitHint(rateLimitErr{retry: 1800}); !strings.Contains(hint, "30m") || !strings.Contains(hint, "client ID") {
+	if hint := m.rateLimitHint(rateLimitErr{retry: 1800}); !strings.Contains(hint, "30m") || !strings.Contains(hint, "waxon auth --own") {
 		t.Errorf("long wait on shared ID should explain and point at the README: %q", hint)
 	}
 	if hint := m.rateLimitHint(rateLimitErr{retry: 7200}); !strings.Contains(hint, "2h") {
 		t.Errorf("hours: %q", hint)
 	}
 	// Short wait, first hit: no nagging.
-	if hint := m.rateLimitHint(rateLimitErr{retry: 5}); strings.Contains(hint, "client ID") || !strings.Contains(hint, "5s") {
+	if hint := m.rateLimitHint(rateLimitErr{retry: 5}); strings.Contains(hint, "waxon auth") || !strings.Contains(hint, "5s") {
 		t.Errorf("short first hit: %q", hint)
 	}
 	// Repeated hits on the shared ID: nag.
 	m.rateLimitHits = 3
-	if hint := m.rateLimitHint(rateLimitErr{}); !strings.Contains(hint, "client ID") {
+	if hint := m.rateLimitHint(rateLimitErr{}); !strings.Contains(hint, "waxon auth --own") {
 		t.Errorf("repeat hits on shared ID should suggest a personal one: %q", hint)
 	}
 	// Personal client ID: never suggests switching.
 	m = newTestModel(&StubSource{}).WithOptions(Options{SharedClientID: false})
 	m.rateLimitHits = 5
-	if hint := m.rateLimitHint(rateLimitErr{retry: 7200}); strings.Contains(hint, "client ID") {
+	if hint := m.rateLimitHint(rateLimitErr{retry: 7200}); strings.Contains(hint, "waxon auth") {
 		t.Errorf("personal ID should not be told to switch: %q", hint)
 	}
 }

@@ -8,6 +8,14 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+
+- Guided setup: `waxon auth` (and the first run of `waxon`) asks whether to use
+  your own Spotify app or the shared one, and walks through creating a personal
+  app step by step — the recommended path, since Spotify rate-limits the shared
+  app. `--own`, `--shared` and `--client-id` skip the questions;
+  `WAXON_NO_BROWSER=1` prints URLs instead of opening a browser (SSH).
+
 ## [1.7.0] - 2026-08-19
 
 ### Added

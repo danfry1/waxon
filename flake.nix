@@ -28,7 +28,7 @@
 
           # Hash of the Go module dependencies. When go.mod/go.sum change,
           # set this to "" and copy the hash nix prints.
-          vendorHash = "sha256-FuqRZe/sHWHgGfTTHfra5p2Y0/wjg2V8HFI5NCXi1Dw=";
+          vendorHash = "sha256-ub8VHazMiIFCJmeN6jdxYRaHwLgMzbE9YmFUD/KEnJY=";
 
           ldflags = [
             "-s"
