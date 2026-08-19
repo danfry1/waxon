@@ -38,9 +38,10 @@ func NewClient(clientID string, token *oauth2.Token, tokenPath string) ClientPai
 	httpClient := oauth2.NewClient(context.Background(), persistSource)
 	httpClient.Timeout = 15 * time.Second
 
-	// WithRetry makes the zmb3 client honour 429 Retry-After on its own calls
-	// (player controls, search, library writes); without it a rate limit
-	// surfaced as an immediate raw error.
-	client := spotifyapi.New(httpClient, spotifyapi.WithRetry(true))
+	// Deliberately NOT using spotifyapi.WithRetry(true): the zmb3 client
+	// retries 429s forever and sleeps for the full Retry-After with no cap,
+	// so a long rate-limit would pile up stuck poll goroutines. Rate limits on
+	// this path surface as errors and the poll loop's backoff handles them.
+	client := spotifyapi.New(httpClient)
 	return ClientPair{Spotify: client, HTTP: httpClient}
 }
