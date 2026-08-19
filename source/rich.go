@@ -33,7 +33,6 @@ type LibrarySource interface {
 // SearchSource provides search and browse capabilities.
 type SearchSource interface {
 	Search(ctx context.Context, query string) (*SearchResults, error)
-	AudioFeatures(ctx context.Context, trackID string) (*AudioFeatures, error)
 	GetArtist(ctx context.Context, artistID string) (*ArtistPage, error)
 	GetAlbum(ctx context.Context, albumID string) (*AlbumPage, error)
 }
@@ -115,14 +114,6 @@ type SearchResults struct {
 	Tracks  []Track
 	Artists []SearchArtist
 	Albums  []SearchAlbum
-}
-
-type AudioFeatures struct {
-	Energy       float64
-	Valence      float64
-	Danceability float64
-	Tempo        float64
-	Acousticness float64
 }
 
 // LyricLine is a single line of lyrics. For synced lyrics, Time is the offset

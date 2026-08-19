@@ -122,6 +122,10 @@ func (p *PlayerSource) apiGet(ctx context.Context, path string, v any) error {
 
 const maxRetries = 2
 
+// maxRetryAfterSeconds is the longest Retry-After we honour inline. Longer
+// waits are returned as an error instead of silently stalling a fetch.
+const maxRetryAfterSeconds = 30
+
 func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, attempt int) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+path, nil)
 	if err != nil {
@@ -139,9 +143,16 @@ func (p *PlayerSource) apiGetRetry(ctx context.Context, path string, v any, atte
 		_, _ = io.ReadAll(limited) // drain body
 		wait := 1
 		if ra := resp.Header.Get("Retry-After"); ra != "" {
-			if parsed, err := strconv.Atoi(ra); err == nil && parsed > 0 && parsed <= 10 {
+			if parsed, err := strconv.Atoi(ra); err == nil && parsed > 0 {
 				wait = parsed
 			}
+		}
+		if wait > maxRetryAfterSeconds {
+			// Spotify occasionally asks for minutes or hours; hammering it sooner
+			// only extends the penalty, and blocking a UI fetch that long isn't
+			// useful either. Give up and let the caller surface the error.
+			slog.Warn("rate limited by Spotify API, Retry-After too long", "path", path, "retry_after_seconds", wait)
+			return &APIError{StatusCode: resp.StatusCode, Path: path, Body: "rate limited; retry after " + strconv.Itoa(wait) + "s"}
 		}
 		slog.Warn("rate limited by Spotify API, retrying", "path", path, "wait_seconds", wait, "attempt", attempt+1)
 		select {
@@ -362,7 +373,12 @@ func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.
 		} `json:"items"`
 	}
 	var albums []source.ArtistAlbum
-	if err := p.apiGet(ctx, "/artists/"+artistID+"/albums?include_groups=album,single&limit=20", &albumsResp); err == nil {
+	albumsErr := p.apiGet(ctx, "/artists/"+artistID+"/albums?include_groups=album,single&limit=20", &albumsResp)
+	if albumsErr != nil {
+		// The artist page is still useful without the discography; log rather
+		// than fail the whole view, but don't swallow it silently.
+		slog.Warn("artist discography fetch failed", "artist", artistID, "error", albumsErr)
+	} else {
 		for _, a := range albumsResp.Items {
 			year := a.ReleaseDate
 			if len(year) >= 4 {

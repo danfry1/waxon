@@ -136,6 +136,38 @@ func TestApiGetRateLimit(t *testing.T) {
 	}
 }
 
+func TestApiGetRateLimitLongRetryAfterFailsFast(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(429)
+		fmt.Fprint(w, `rate limited`)
+	}))
+	defer srv.Close()
+
+	ps := newTestPlayerSource(srv.URL)
+	start := time.Now()
+	var v struct{}
+	err := ps.apiGet(context.Background(), "/slow", &v)
+	if err == nil {
+		t.Fatal("expected error for a Retry-After beyond the inline limit")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 429 {
+		t.Fatalf("expected 429 APIError, got %v", err)
+	}
+	if !strings.Contains(apiErr.Body, "120s") {
+		t.Errorf("error should carry the Retry-After value, got %q", apiErr.Body)
+	}
+	if c := atomic.LoadInt32(&calls); c != 1 {
+		t.Errorf("expected a single call (no hammering), got %d", c)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Error("must not sleep for a long Retry-After")
+	}
+}
+
 func TestApiGetRateLimitExhausted(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -836,7 +868,6 @@ func newTestPlayerSourceWithClient(serverURL string) *PlayerSource {
 	return &PlayerSource{
 		client:     client,
 		httpClient: httpClient,
-		features:   NewFeatureCache(client),
 	}
 }
 
@@ -1127,153 +1158,6 @@ func TestGetArtistAlbumFallback(t *testing.T) {
 	// Albums should be empty (fallback on error)
 	if len(page.Albums) != 0 {
 		t.Errorf("expected 0 albums on error, got %d", len(page.Albums))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// FeatureCache.Get with real API (via zmb3 client + httptest)
-// ---------------------------------------------------------------------------
-
-func TestFeatureCacheGetViaMock(t *testing.T) {
-	var callCount int32
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/audio-features/", func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&callCount, 1)
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
-			"audio_features": [
-				{
-					"energy": 0.85,
-					"valence": 0.72,
-					"danceability": 0.65,
-					"tempo": 128.0,
-					"acousticness": 0.15,
-					"id": "track123"
-				}
-			]
-		}`)
-	})
-
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	ps := newTestPlayerSourceWithClient(srv.URL)
-
-	// First call: cache miss, calls API
-	af, err := ps.features.Get(context.Background(), "track123")
-	if err != nil {
-		t.Fatalf("Get returned error: %v", err)
-	}
-	if af == nil {
-		t.Fatal("expected non-nil AudioFeatures")
-	}
-	// The zmb3 library uses float32 internally, so we compare against
-	// float64(float32(x)) to avoid precision mismatch.
-	if af.Energy != float64(float32(0.85)) {
-		t.Errorf("Energy = %f, want ~0.85", af.Energy)
-	}
-	if af.Valence != float64(float32(0.72)) {
-		t.Errorf("Valence = %f, want ~0.72", af.Valence)
-	}
-	if af.Danceability != float64(float32(0.65)) {
-		t.Errorf("Danceability = %f, want ~0.65", af.Danceability)
-	}
-	if af.Tempo != float64(float32(128.0)) {
-		t.Errorf("Tempo = %f, want ~128.0", af.Tempo)
-	}
-	if af.Acousticness != float64(float32(0.15)) {
-		t.Errorf("Acousticness = %f, want ~0.15", af.Acousticness)
-	}
-
-	if c := atomic.LoadInt32(&callCount); c != 1 {
-		t.Errorf("expected 1 API call, got %d", c)
-	}
-
-	// Second call: cache hit, should NOT call API again
-	af2, err := ps.features.Get(context.Background(), "track123")
-	if err != nil {
-		t.Fatalf("Get (cached) returned error: %v", err)
-	}
-	if af2 != af {
-		t.Error("expected same pointer from cache")
-	}
-
-	if c := atomic.LoadInt32(&callCount); c != 1 {
-		t.Errorf("expected still 1 API call after cache hit, got %d", c)
-	}
-}
-
-func TestFeatureCacheGetAPIError(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/audio-features/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(500)
-		fmt.Fprint(w, `{"error":"internal error"}`)
-	})
-
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	ps := newTestPlayerSourceWithClient(srv.URL)
-
-	af, err := ps.features.Get(context.Background(), "badtrack")
-	if err == nil {
-		t.Fatal("expected error from API")
-	}
-	if af != nil {
-		t.Errorf("expected nil AudioFeatures on error, got %+v", af)
-	}
-
-	// Verify nothing was cached (error should not be cached)
-	ps.features.mu.Lock()
-	_, inCache := ps.features.cache["badtrack"]
-	_, inFlight := ps.features.inflight["badtrack"]
-	ps.features.mu.Unlock()
-
-	if inCache {
-		t.Error("errored trackID should not be in cache")
-	}
-	if inFlight {
-		t.Error("errored trackID should not be in inflight")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// AudioFeatures through PlayerSource method
-// ---------------------------------------------------------------------------
-
-func TestAudioFeaturesViaPlayerSource(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/audio-features/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
-			"audio_features": [
-				{
-					"energy": 0.5,
-					"valence": 0.5,
-					"danceability": 0.5,
-					"tempo": 100.0,
-					"acousticness": 0.5,
-					"id": "af-track"
-				}
-			]
-		}`)
-	})
-
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	ps := newTestPlayerSourceWithClient(srv.URL)
-
-	af, err := ps.AudioFeatures(context.Background(), "af-track")
-	if err != nil {
-		t.Fatalf("AudioFeatures returned error: %v", err)
-	}
-	if af == nil {
-		t.Fatal("expected non-nil AudioFeatures")
-	}
-	if af.Tempo != 100.0 {
-		t.Errorf("Tempo = %f, want 100.0", af.Tempo)
 	}
 }
 

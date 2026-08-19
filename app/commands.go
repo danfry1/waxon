@@ -27,7 +27,7 @@ func (m Model) fetchCurrentTrack() tea.Cmd {
 			return pollErrorMsg{err}
 		}
 		if ps == nil {
-			return trackUpdateMsg{}
+			return noPlaybackMsg{}
 		}
 		return trackUpdateMsg{
 			track:      ps.Track,
@@ -190,6 +190,66 @@ func (m Model) toggleLike(trackID string, currentlyLiked bool) tea.Cmd {
 	}
 }
 
+// toggleLikeByLookup toggles the saved state of a track whose current state is
+// unknown: it asks Spotify first, then saves or removes accordingly. Used for
+// tracks other than the one playing (whose state is tracked in m.liked).
+func (m Model) toggleLikeByLookup(trackID string) tea.Cmd {
+	src := m.source
+	ctx := m.ctx
+	return func() tea.Msg {
+		saved, err := src.IsTrackSaved(ctx, trackID)
+		if err != nil {
+			return trackErrorMsg{err}
+		}
+		if saved {
+			err = src.RemoveTrack(ctx, trackID)
+		} else {
+			err = src.SaveTrack(ctx, trackID)
+		}
+		if err != nil {
+			return trackErrorMsg{err}
+		}
+		return trackLikedMsg{trackID: trackID, liked: !saved}
+	}
+}
+
+// likeToggleCmd picks the right toggle for a track: the playing track's state
+// is known (m.liked), anything else is looked up first so "f" on a track that
+// is already saved removes it instead of re-saving.
+func (m Model) likeToggleCmd(trackID string) tea.Cmd {
+	if liked, known := m.likedStatus(trackID); known {
+		return m.toggleLike(trackID, liked)
+	}
+	return m.toggleLikeByLookup(trackID)
+}
+
+// likedPlaylistID is the sentinel playlist ID the sidebar uses for Liked Songs
+// (mirrors spotify.LikedPlaylistID).
+const likedPlaylistID = "liked"
+
+// noteLikedTracks records that every track in a Liked Songs page is saved, so
+// like/unlike on those rows doesn't need a lookup.
+func (m *Model) noteLikedTracks(playlistID string, tracks []source.Track) {
+	if playlistID != likedPlaylistID {
+		return
+	}
+	for _, t := range tracks {
+		if t.ID != "" {
+			m.likedCache[t.ID] = true
+		}
+	}
+}
+
+// likedStatus reports whether trackID is saved, and whether that is actually
+// known (playing track, or a status we've fetched/changed this session).
+func (m Model) likedStatus(trackID string) (liked, known bool) {
+	if m.track != nil && m.track.ID == trackID {
+		return m.liked, true
+	}
+	liked, known = m.likedCache[trackID]
+	return liked, known
+}
+
 func (m Model) checkLikeStatus(trackID string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
@@ -285,7 +345,7 @@ func (m Model) fetchArtwork(url string) tea.Cmd {
 		if img == nil {
 			img, err = FetchImage(ctx, url)
 			if err != nil {
-				return controlDoneMsg{} // art fetch errors are non-fatal
+				return artErrorMsg{url: url, err: err}
 			}
 		}
 		return artworkLoadedMsg{url: url, img: img}
@@ -306,7 +366,7 @@ func (m Model) fetchPlaylistArt(url string) tea.Cmd {
 		if img == nil {
 			img, err = FetchImage(ctx, url)
 			if err != nil {
-				return controlDoneMsg{} // art fetch errors are non-fatal
+				return artErrorMsg{url: url, err: err}
 			}
 		}
 		return playlistArtLoadedMsg{url: url, img: img}
@@ -486,11 +546,16 @@ func (m Model) openActions() (Model, tea.Cmd) {
 			m.tracklist.SetLoading(track.Name)
 			return m, m.fetchAlbumPage(track.AlbumID)
 		}
-		liked := m.liked && m.track != nil && m.track.ID == track.ID
+		liked, known := m.likedStatus(track.ID)
 		popup := NewTrackActions(track.Name, track.Artist, track.URI, m.tracklist.ContextURI(), track.ArtistID, track.AlbumID, liked, m.width, m.height)
 		m.actions = &popup
 		m.actionsReturn = ModeNormal
 		m.mode = ModeActions
+		if !known && track.ID != "" {
+			// Look the state up so the popup's label is right; the action itself
+			// re-checks, so this is purely cosmetic.
+			return m, m.checkLikeStatus(track.ID)
+		}
 		return m, nil
 	}
 
@@ -540,8 +605,7 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 			m.toast.Show("No track selected", "", ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		liked := m.liked && m.track != nil && m.track.ID == subj.trackID
-		return m, m.toggleLike(subj.trackID, liked)
+		return m, m.likeToggleCmd(subj.trackID)
 	case ActionGoArtist:
 		if subj.artistID == "" {
 			m.toast.Show("No artist info available", "", ToastError)
