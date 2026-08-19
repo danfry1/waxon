@@ -206,7 +206,7 @@ func (r *Runner) status(ctx context.Context, args []string) error {
 	waybar := fs.Bool("waybar", false, "print waybar custom-module JSON (text/alt/class/tooltip/percentage)")
 	format := fs.String("format", DefaultStatusFormat, "output template")
 	withLiked := fs.Bool("liked", false, "also look up whether the track is liked (extra request)")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(args); err != nil || (*asJSON && *waybar) {
 		return usageError("status [--json|--waybar] [--format TEMPLATE] [--liked]")
 	}
 
@@ -608,17 +608,38 @@ func (r *Runner) search(ctx context.Context, args []string) error {
 		res = &source.SearchResults{}
 	}
 	if *asJSON {
-		type jt struct {
-			Name, Artist, Album, URI, ID string
-			DurationMS                   int64 `json:"duration_ms"`
+		type jTrack struct {
+			Name       string `json:"name"`
+			Artist     string `json:"artist"`
+			Album      string `json:"album"`
+			URI        string `json:"uri"`
+			ID         string `json:"id"`
+			DurationMS int64  `json:"duration_ms"`
+		}
+		type jArtist struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+			URI  string `json:"uri"`
+		}
+		type jAlbum struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Artist string `json:"artist"`
+			URI    string `json:"uri"`
 		}
 		out := struct {
-			Tracks  []jt                  `json:"tracks"`
-			Artists []source.SearchArtist `json:"artists"`
-			Albums  []source.SearchAlbum  `json:"albums"`
-		}{Artists: res.Artists, Albums: res.Albums}
+			Tracks  []jTrack  `json:"tracks"`
+			Artists []jArtist `json:"artists"`
+			Albums  []jAlbum  `json:"albums"`
+		}{Tracks: []jTrack{}, Artists: []jArtist{}, Albums: []jAlbum{}} // never null
 		for _, t := range res.Tracks {
-			out.Tracks = append(out.Tracks, jt{t.Name, t.Artist, t.Album, t.URI, t.ID, t.Duration.Milliseconds()})
+			out.Tracks = append(out.Tracks, jTrack{t.Name, t.Artist, t.Album, t.URI, t.ID, t.Duration.Milliseconds()})
+		}
+		for _, a := range res.Artists {
+			out.Artists = append(out.Artists, jArtist{a.ID, a.Name, "spotify:artist:" + a.ID})
+		}
+		for _, a := range res.Albums {
+			out.Albums = append(out.Albums, jAlbum{a.ID, a.Name, a.Artist, "spotify:album:" + a.ID})
 		}
 		return json.NewEncoder(r.Out).Encode(out)
 	}
@@ -652,10 +673,17 @@ func (r *Runner) devices(ctx context.Context, args []string) error {
 		return err
 	}
 	if *asJSON {
-		if devs == nil {
-			devs = []source.Device{}
+		type jDevice struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Type   string `json:"type"`
+			Active bool   `json:"active"`
 		}
-		return json.NewEncoder(r.Out).Encode(devs)
+		out := make([]jDevice, 0, len(devs)) // never null
+		for _, d := range devs {
+			out = append(out, jDevice{d.ID, d.Name, d.Type, d.IsActive})
+		}
+		return json.NewEncoder(r.Out).Encode(out)
 	}
 	if len(devs) == 0 {
 		fmt.Fprintln(r.Out, "no devices — open Spotify on any device")

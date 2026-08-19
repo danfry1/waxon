@@ -190,6 +190,12 @@ func TestStatusWaybar(t *testing.T) {
 	}
 }
 
+func TestStatusJSONAndWaybarAreExclusive(t *testing.T) {
+	if code, _, _ := run(t, &stub{state: playing()}, "status", "--json", "--waybar"); code != ExitUsage {
+		t.Error("--json and --waybar together should be a usage error")
+	}
+}
+
 func TestStatusLikedPlaceholderRequiresFlag(t *testing.T) {
 	s := &stub{state: playing(), saved: map[string]bool{"t1": true}}
 	_, out, _ := run(t, s, "status", "--format", "[{liked}]")
@@ -367,9 +373,27 @@ func TestSearchOutput(t *testing.T) {
 		}
 	}
 	_, out, _ = run(t, s, "search", "--json", "hit")
-	var js map[string]any
+	var js struct {
+		Tracks  []map[string]any `json:"tracks"`
+		Artists []map[string]any `json:"artists"`
+		Albums  []map[string]any `json:"albums"`
+	}
 	if err := json.Unmarshal([]byte(out), &js); err != nil {
 		t.Fatalf("bad json: %v", err)
+	}
+	if js.Tracks[0]["name"] != "Hit" || js.Tracks[0]["uri"] != "spotify:track:x1" || js.Tracks[0]["duration_ms"] != float64(125000) {
+		t.Errorf("track keys should be lowercase/snake_case: %v", js.Tracks[0])
+	}
+	if js.Artists[0]["name"] != "Star" || js.Artists[0]["uri"] != "spotify:artist:a1" {
+		t.Errorf("artist keys: %v", js.Artists[0])
+	}
+	if js.Albums[0]["artist"] != "Star" || js.Albums[0]["uri"] != "spotify:album:al1" {
+		t.Errorf("album keys: %v", js.Albums[0])
+	}
+	// Empty categories are [] not null so jq '.artists[]' never errors.
+	_, out, _ = run(t, &stub{results: &source.SearchResults{Tracks: []source.Track{{Name: "x"}}}}, "search", "--json", "x")
+	if !strings.Contains(out, `"artists":[]`) || !strings.Contains(out, `"albums":[]`) {
+		t.Errorf("empty categories must be [], got %q", out)
 	}
 	_, out, _ = run(t, &stub{results: &source.SearchResults{}}, "search", "zzz")
 	if out != "no results\n" {
@@ -397,6 +421,14 @@ func TestDevices(t *testing.T) {
 	_, out, _ = run(t, &stub{}, "devices", "--json")
 	if strings.TrimSpace(out) != "[]" {
 		t.Errorf("empty --json should be [], got %q", out)
+	}
+	_, out, _ = run(t, s, "devices", "--json")
+	var jd []map[string]any
+	if err := json.Unmarshal([]byte(out), &jd); err != nil || len(jd) != 2 {
+		t.Fatalf("bad devices json %q: %v", out, err)
+	}
+	if jd[0]["name"] != "Laptop" || jd[0]["active"] != true || jd[0]["id"] != "d2" || jd[0]["type"] != "Computer" {
+		t.Errorf("device keys should be lowercase: %v", jd[0])
 	}
 }
 
