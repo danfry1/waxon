@@ -52,7 +52,7 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 	}
 
 	// Compute a single bg color for the text area (bottom-center of gradient)
-	textBg := lipgloss.Color("#191414")
+	textBg := ColorBg
 	if bgRows != nil {
 		// Use a row from the lower third for text bg
 		textRowIdx := min(len(bgRows)-1, height*3/4)
@@ -65,8 +65,8 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 
 	// Build foreground content — text elements get explicit bg
 	titleStyle := lipgloss.NewStyle().Foreground(textAccent).Bold(true).Background(textBg)
-	subtitleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(textBg)
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#B3B3B3")).Background(textBg)
+	subtitleStyle := lipgloss.NewStyle().Foreground(ColorText).Background(textBg)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextSec).Background(textBg)
 
 	var sections []string
 
@@ -250,7 +250,7 @@ func renderLyricsBlock(lyr npLyrics, w, h int, accent lipgloss.Color, dim lipglo
 	lines := lyr.lyrics.Lines
 	focus := clampInt(lyr.line, 0, len(lines)-1)
 	start := focus - h/2 // center the focus line vertically
-	baseText := lipgloss.Color("#FFFFFF")
+	baseText := ColorText
 
 	rows := make([]string, h)
 	for row := range h {

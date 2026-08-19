@@ -202,5 +202,5 @@ func (a ActionsPopup) View() string {
 
 	overlay := border.Render(content)
 	return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, overlay,
-		lipgloss.WithWhitespaceBackground(lipgloss.Color("#000000")))
+		overlayBackdrop())
 }

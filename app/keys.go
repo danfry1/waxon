@@ -1,6 +1,12 @@
 package app
 
-import "github.com/charmbracelet/bubbles/key"
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/key"
+)
 
 type KeyMap struct {
 	// Navigation
@@ -164,4 +170,79 @@ func (t *GTracker) Pending() bool {
 // Reset clears any pending state.
 func (t *GTracker) Reset() {
 	t.pending = false
+}
+
+// keyBindingFields maps config action names to KeyMap fields. Names are what
+// users write in config.json under "keys". g/G motions and the g-prefix table
+// are fixed and not listed here.
+func (k *KeyMap) keyBindingFields() map[string]*key.Binding {
+	return map[string]*key.Binding{
+		"up": &k.Up, "down": &k.Down, "bottom": &k.Bottom,
+		"half_up": &k.HalfUp, "half_down": &k.HalfDown,
+		"focus_left": &k.FocusLeft, "focus_right": &k.FocusRight, "cycle_pane": &k.CyclePane,
+		"enter": &k.Enter, "play_pause": &k.PlayPause, "next": &k.Next, "prev": &k.Prev,
+		"seek_fwd": &k.SeekFwd, "seek_back": &k.SeekBack,
+		"add_queue": &k.AddQueue, "like": &k.Like, "actions": &k.Actions, "devices": &k.Devices,
+		"back": &k.Back, "filter": &k.Filter, "search": &k.Search, "command": &k.Command,
+		"help": &k.Help, "now_playing": &k.NowPlaying, "quit": &k.Quit, "escape": &k.Escape,
+		"section1": &k.Section1, "section2": &k.Section2,
+	}
+}
+
+// KeyActionNames returns the configurable action names, sorted.
+func KeyActionNames() []string {
+	k := DefaultKeyMap()
+	fields := k.keyBindingFields()
+	names := make([]string, 0, len(fields))
+	for n := range fields {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// KeyMapFromOverrides returns the default KeyMap with the given overrides
+// applied. Each value is a comma-separated list of keys as Bubbletea names
+// them ("j", "down", "ctrl+d", "space", "enter", "esc", "tab", "backspace").
+// Unknown action names or empty key lists are errors so typos don't silently
+// leave a default in place.
+func KeyMapFromOverrides(overrides map[string]string) (KeyMap, error) {
+	k := DefaultKeyMap()
+	fields := k.keyBindingFields()
+	for action, spec := range overrides {
+		b, ok := fields[action]
+		if !ok {
+			return k, fmt.Errorf("unknown key action %q (available: %s)", action, strings.Join(KeyActionNames(), ", "))
+		}
+		var keys []string
+		for _, part := range strings.Split(spec, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			if strings.EqualFold(part, "space") {
+				part = " "
+			}
+			keys = append(keys, part)
+		}
+		if len(keys) == 0 {
+			return k, fmt.Errorf("key action %q has no keys", action)
+		}
+		desc := b.Help().Desc
+		*b = key.NewBinding(key.WithKeys(keys...), key.WithHelp(displayKey(keys[0]), desc))
+	}
+	return k, nil
+}
+
+// displayKey renders a Bubbletea key name the way the help text shows it.
+func displayKey(k string) string {
+	switch k {
+	case " ":
+		return "space"
+	case "ctrl+u":
+		return "C-u"
+	case "ctrl+d":
+		return "C-d"
+	}
+	return strings.Replace(k, "ctrl+", "C-", 1)
 }

@@ -59,18 +59,7 @@ func NewTrackList(width, height int) TrackList {
 		table.WithHeight(height-4),
 	)
 
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(ColorBorder).
-		BorderBottom(true).
-		Foreground(ColorTextDim).
-		Bold(false)
-	s.Selected = s.Selected.
-		Foreground(ColorAccent).
-		Background(ColorSurface).
-		Bold(true)
-	t.SetStyles(s)
+	t.SetStyles(trackTableStyles())
 
 	tl := TrackList{
 		table:  t,
@@ -83,6 +72,28 @@ func NewTrackList(width, height int) TrackList {
 	// header border adds a row that WithHeight alone doesn't account for).
 	tl.table.SetHeight(tl.tableHeight())
 	return tl
+}
+
+// trackTableStyles builds the table styles from the live palette.
+func trackTableStyles() table.Styles {
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(ColorBorder).
+		BorderBottom(true).
+		Foreground(ColorTextDim).
+		Bold(false)
+	s.Selected = s.Selected.
+		Foreground(ColorAccent).
+		Background(ColorSurface).
+		Bold(true)
+	return s
+}
+
+// Restyle re-applies palette-derived styles after a theme change.
+func (tl *TrackList) Restyle() {
+	tl.table.SetStyles(trackTableStyles())
+	tl.rebuildRows()
 }
 
 func (tl *TrackList) SetLoading(title string) {

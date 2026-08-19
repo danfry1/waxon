@@ -227,5 +227,5 @@ func viewHelp(k KeyMap, width, height int) string {
 
 	overlay := border.Render(content)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, overlay,
-		lipgloss.WithWhitespaceBackground(lipgloss.Color("#000000")))
+		overlayBackdrop())
 }

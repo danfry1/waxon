@@ -47,7 +47,7 @@ waxon auth    # Connect your Spotify account (one-time setup)
 waxon         # Launch the TUI
 ```
 
-Requires a **Spotify Premium** account and a terminal with **true color** support.
+Requires a **Spotify Premium** account. True-colour terminals get the full look; 256-colour and `NO_COLOR` terminals are supported with graceful fallbacks.
 
 waxon is a remote control for Spotify Connect: it plays through whatever Spotify
 client is running (desktop app, phone, speaker). If nothing is active when you
@@ -181,7 +181,30 @@ Enter command mode by pressing `:`, then type a command.
 | `:device`               | Open device switcher |
 | `:search <query>`       | Search Spotify       |
 | `:recent`               | Recently played      |
+| `:theme <name>`         | Switch colour theme (saved to config) |
 | `:q`                    | Quit                 |
+
+## Configuration
+
+waxon reads `~/.config/waxon/config.json` (`$XDG_CONFIG_HOME` respected; `waxon config` prints the path). Everything is optional:
+
+```json
+{
+  "theme": "catppuccin-mocha",
+  "colors": { "accent": "#F5C2E7" },
+  "keys":   { "next": "l,right", "prev": "h,left", "quit": "ctrl+q" }
+}
+```
+
+**Themes** — built in: `spotify` (default), `catppuccin-mocha`, `catppuccin-latte`, `gruvbox`, `tokyonight`, `nord`, `dracula`, `rose-pine` (`waxon themes` lists them; waxon doesn't paint the terminal background, so pick a light theme like `catppuccin-latte` for a light terminal). Switch live with `:theme <name>` — it's saved to your config. `colors` overrides individual palette entries on top of any theme: `accent`, `bg`, `surface`, `text`, `text_sec`, `text_dim`, `border`, `error`, `mode_search`, `mode_filter`, `overlay`.
+
+<p align="center">
+  <img src="demo/recordings/themes.gif" alt="switching themes with :theme" width="800">
+</p>
+
+**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `F1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back add_queue like actions devices back filter search command help now_playing quit escape section1 section2`. The `g`-prefix motions (`gg gl gq gc gr`) are fixed. The `?` help overlay always shows your live bindings.
+
+**Colour fallback** — colours degrade automatically on 256-colour terminals and are dropped under `NO_COLOR`; album art uses the 256-colour cube where true colour isn't available and is skipped entirely on monochrome terminals.
 
 ## Scripting & Status Bars
 

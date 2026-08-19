@@ -158,6 +158,7 @@ type Model struct {
 	devices         *DevicePicker
 	pendingRetry    tea.Cmd // playback command to replay once a device is picked
 	keys            KeyMap
+	opts            Options
 	gtracker        GTracker
 	cmdInput        string
 	filterInput     string
@@ -237,6 +238,49 @@ func NewModel(src source.RichSource) Model {
 	m.layoutResize()
 	m.width, m.height = 0, 0
 	return m
+}
+
+// Options customises a Model beyond its data source.
+type Options struct {
+	// Keys replaces the default keybindings (see KeyMapFromOverrides).
+	Keys *KeyMap
+	// ColorOverrides are applied on top of whichever theme is active, so
+	// switching themes with :theme keeps the user's tweaks.
+	ColorOverrides Palette
+	// SaveTheme persists a theme name chosen with :theme. nil = don't persist.
+	SaveTheme func(name string) error
+}
+
+// WithOptions returns a copy of m with opts applied.
+func (m Model) WithOptions(opts Options) Model {
+	m.opts = opts
+	if opts.Keys != nil {
+		m.keys = *opts.Keys
+	}
+	return m
+}
+
+// setTheme applies a named theme (plus the configured colour overrides) to the
+// live UI and reports the outcome as a toast.
+func (m *Model) setTheme(name string) tea.Cmd {
+	p, err := ResolveTheme(name, m.opts.ColorOverrides)
+	if err != nil {
+		m.toast.Show(err.Error(), "", ToastError)
+		return scheduleAutoDismiss()
+	}
+	ApplyTheme(p)
+	m.tracklist.Restyle()
+	m.sidebar.Restyle()
+	detail := ""
+	if m.opts.SaveTheme != nil {
+		if err := m.opts.SaveTheme(name); err != nil {
+			detail = "not saved: " + err.Error()
+		} else {
+			detail = "saved to config"
+		}
+	}
+	m.toast.Show("Theme: "+strings.ToLower(name), detail, ToastSuccess)
+	return scheduleAutoDismiss()
 }
 
 func (m Model) Init() tea.Cmd {
@@ -1482,7 +1526,7 @@ func (m Model) View() string {
 
 	// Help overlay replaces everything
 	if m.mode == ModeHelp {
-		return ViewHelp(m.width, m.height)
+		return viewHelp(m.keys, m.width, m.height)
 	}
 
 	// Now Playing overlay replaces everything

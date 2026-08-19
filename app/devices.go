@@ -118,7 +118,7 @@ func (d DevicePicker) View() string {
 
 	overlay := border.Render(content)
 	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center, overlay,
-		lipgloss.WithWhitespaceBackground(lipgloss.Color("#000000")))
+		overlayBackdrop())
 }
 
 // deviceIcon returns an icon for the device type.

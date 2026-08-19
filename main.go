@@ -42,6 +42,14 @@ func main() {
 		case "help", "--help", "-h":
 			printUsage()
 			return
+		case "themes":
+			for _, name := range app.ThemeNames() {
+				fmt.Println(name)
+			}
+			return
+		case "config":
+			fmt.Println(config.DefaultPath())
+			return
 		}
 		if cli.IsCommand(os.Args[1]) {
 			src, ok := newSource()
@@ -62,12 +70,52 @@ func main() {
 		os.Exit(1) //nolint:gocritic // cleanup called above
 	}
 
-	m := app.NewModel(src)
+	opts := applyUserConfig()
+	m := app.NewModel(src).WithOptions(opts)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// applyUserConfig reads theme/colour/key settings from the config file,
+// applies the theme and art mode globally, and returns the Model options.
+// Problems are reported on stderr and fall back to defaults rather than
+// refusing to start — a typo in config.json shouldn't lock anyone out.
+func applyUserConfig() app.Options {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v (using defaults)\n", err)
+	}
+	var opts app.Options
+
+	overrides, err := app.PaletteFromMap(cfg.Colors)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: config colors: %v (ignored)\n", err)
+		overrides = app.Palette{}
+	}
+	opts.ColorOverrides = overrides
+	palette, err := app.ResolveTheme(cfg.Theme, overrides)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v (using %s)\n", err, app.DefaultThemeName)
+		palette, _ = app.ResolveTheme(app.DefaultThemeName, overrides)
+	}
+	app.ApplyTheme(palette)
+	app.SetArtMode(app.DetectArtMode())
+
+	if len(cfg.Keys) > 0 {
+		km, err := app.KeyMapFromOverrides(cfg.Keys)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: config keys: %v (using defaults)\n", err)
+		} else {
+			opts.Keys = &km
+		}
+	}
+	opts.SaveTheme = func(name string) error {
+		return config.Save(config.Config{Theme: name})
+	}
+	return opts
 }
 
 // newSource builds the Spotify-backed source from the saved token. On failure
@@ -231,6 +279,8 @@ Usage:
   waxon auth     Connect or re-connect your Spotify account
   waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
+  waxon themes   List colour themes (set with "theme" in config.json or :theme)
+  waxon config   Print the config file path
   waxon help     Show this help
 
 ` + cli.Usage() + `

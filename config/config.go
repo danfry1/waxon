@@ -13,6 +13,16 @@ import (
 // "not set" from the zero value.
 type Config struct {
 	ClientID string `json:"client_id,omitempty"`
+
+	// Theme is the name of a built-in palette (see `waxon themes`).
+	Theme string `json:"theme,omitempty"`
+	// Colors overrides individual palette entries on top of Theme, keyed by
+	// palette field name (accent, bg, surface, text, text_sec, text_dim,
+	// border, error, mode_search, mode_filter, overlay) with #RRGGBB values.
+	Colors map[string]string `json:"colors,omitempty"`
+	// Keys overrides keybindings, keyed by action name (up, down, next, …)
+	// with a comma-separated list of keys, e.g. {"next": "n,right"}.
+	Keys map[string]string `json:"keys,omitempty"`
 }
 
 // Dir returns the waxon config directory, following XDG conventions:
@@ -82,6 +92,15 @@ func merge(existing, updates Config) Config {
 	result := existing
 	if updates.ClientID != "" {
 		result.ClientID = updates.ClientID
+	}
+	if updates.Theme != "" {
+		result.Theme = updates.Theme
+	}
+	if updates.Colors != nil {
+		result.Colors = updates.Colors
+	}
+	if updates.Keys != nil {
+		result.Keys = updates.Keys
 	}
 	return result
 }

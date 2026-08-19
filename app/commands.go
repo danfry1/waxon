@@ -520,6 +520,8 @@ func (m *Model) executeCommand(input string) tea.Cmd {
 	case CmdRecent:
 		m.pushNav()
 		return m.fetchRecentlyPlayed()
+	case CmdTheme:
+		return m.setTheme(cmd.StrArg)
 	case CmdSearch:
 		s := NewSearch(m.width, m.height)
 		m.search = &s

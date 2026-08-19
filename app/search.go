@@ -236,7 +236,7 @@ func (s Search) View() string {
 
 	overlay := border.Render(content)
 	return lipgloss.Place(s.width, s.height, lipgloss.Center, lipgloss.Center, overlay,
-		lipgloss.WithWhitespaceBackground(lipgloss.Color("#000000")))
+		overlayBackdrop())
 }
 
 // renderTrackRow renders a single track result row.
