@@ -86,7 +86,9 @@ scoops:
 checksum:
   name_template: "checksums.txt"
 
-# Release notes come from CHANGELOG.md (see the release workflow), not from
-# the commit list.
+# Release notes come from CHANGELOG.md: the workflow passes the tag's section
+# via --release-notes, which replaces goreleaser's generated changelog. (Do not
+# set changelog.disable — that empties the release body even when notes are
+# supplied.)
 changelog:
-  disable: true
+  sort: asc
