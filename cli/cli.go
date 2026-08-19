@@ -189,14 +189,25 @@ type statusJSON struct {
 	Liked      *bool  `json:"liked,omitempty"`
 }
 
+// waybarJSON is the shape waybar's custom modules expect with return-type
+// "json": text is rendered, alt selects a format-icon, class styles via CSS.
+type waybarJSON struct {
+	Text       string `json:"text"`
+	Alt        string `json:"alt"`
+	Class      string `json:"class"`
+	Tooltip    string `json:"tooltip,omitempty"`
+	Percentage int    `json:"percentage"`
+}
+
 func (r *Runner) status(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	asJSON := fs.Bool("json", false, "print JSON")
+	waybar := fs.Bool("waybar", false, "print waybar custom-module JSON (text/alt/class/tooltip/percentage)")
 	format := fs.String("format", DefaultStatusFormat, "output template")
 	withLiked := fs.Bool("liked", false, "also look up whether the track is liked (extra request)")
 	if err := fs.Parse(args); err != nil {
-		return usageError("status [--json] [--format TEMPLATE] [--liked]")
+		return usageError("status [--json|--waybar] [--format TEMPLATE] [--liked]")
 	}
 
 	ps, err := r.Src.CurrentPlayback(ctx)
@@ -204,8 +215,11 @@ func (r *Runner) status(ctx context.Context, args []string) error {
 		return err
 	}
 	if ps == nil || ps.Track == nil {
-		if *asJSON {
+		switch {
+		case *asJSON:
 			return json.NewEncoder(r.Out).Encode(statusJSON{Repeat: string(source.RepeatOff)})
+		case *waybar:
+			return json.NewEncoder(r.Out).Encode(waybarJSON{Class: "idle", Alt: "idle"})
 		}
 		// Nothing playing: print nothing so status bars stay blank.
 		return nil
@@ -216,6 +230,23 @@ func (r *Runner) status(ctx context.Context, args []string) error {
 		if l, lerr := r.Src.IsTrackSaved(ctx, t.ID); lerr == nil {
 			liked = &l
 		}
+	}
+	if *waybar {
+		state := "paused"
+		if t.Playing {
+			state = "playing"
+		}
+		text := FormatStatus(*format, ps, liked)
+		if *format == DefaultStatusFormat {
+			text = t.Name + " — " + t.Artist // waybar supplies its own icon via format-icons
+		}
+		return json.NewEncoder(r.Out).Encode(waybarJSON{
+			Text:       text,
+			Alt:        state,
+			Class:      state,
+			Tooltip:    fmt.Sprintf("%s\n%s — %s\n%s / %s", t.Name, t.Artist, t.Album, fmtDur(t.Position), fmtDur(t.Duration)),
+			Percentage: progressPercent(t),
+		})
 	}
 	if *asJSON {
 		repeat := ps.RepeatMode
@@ -683,7 +714,7 @@ func (r *Runner) device(ctx context.Context, args []string) error {
 func Usage() string {
 	return strings.TrimSpace(`
 Playback commands (scriptable, no TUI):
-  waxon status [--json] [--format T] [--liked]
+  waxon status [--json|--waybar] [--format T] [--liked]
                                 Now playing. Default format: "` + DefaultStatusFormat + `"
                                 Placeholders: {title} {artist} {album} {position} {duration}
                                 {progress} {state} {icon} {device} {volume} {shuffle}

@@ -165,6 +165,31 @@ func TestStatusJSON(t *testing.T) {
 	}
 }
 
+func TestStatusWaybar(t *testing.T) {
+	st := playing()
+	st.Track.Name = `Say "Hi"` // quotes must be JSON-escaped, not break the object
+	_, out, _ := run(t, &stub{state: st}, "status", "--waybar")
+	var wb waybarJSON
+	if err := json.Unmarshal([]byte(out), &wb); err != nil {
+		t.Fatalf("invalid waybar JSON %q: %v", out, err)
+	}
+	if wb.Text != `Say "Hi" — Band` || wb.Alt != "playing" || wb.Class != "playing" || wb.Percentage != 37 ||
+		!strings.Contains(wb.Tooltip, "1:30 / 4:00") {
+		t.Errorf("unexpected waybar payload: %+v", wb)
+	}
+	// Custom --format is honoured for the text field.
+	_, out, _ = run(t, &stub{state: st}, "status", "--waybar", "--format", "{artist}")
+	_ = json.Unmarshal([]byte(out), &wb)
+	if wb.Text != "Band" {
+		t.Errorf("text = %q, want custom format", wb.Text)
+	}
+	// Idle still emits a valid object so waybar can hide/style it.
+	_, out, _ = run(t, &stub{}, "status", "--waybar")
+	if err := json.Unmarshal([]byte(out), &wb); err != nil || wb.Class != "idle" || wb.Text != "" {
+		t.Errorf("idle waybar payload %q (%v)", out, err)
+	}
+}
+
 func TestStatusLikedPlaceholderRequiresFlag(t *testing.T) {
 	s := &stub{state: playing(), saved: map[string]bool{"t1": true}}
 	_, out, _ := run(t, s, "status", "--format", "[{liked}]")

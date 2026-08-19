@@ -191,6 +191,7 @@ waybar/polybar, hotkey daemons and shell scripts without opening the TUI.
 ```
 waxon status                      # ▶ Let It Happen — Tame Impala
 waxon status --json               # {"playing":true,"title":...,"progress":37,...}
+waxon status --waybar             # {"text":"…","alt":"playing","class":"playing",...}
 waxon status --format '{icon} {title} [{position}/{duration}]'
 waxon play | pause | toggle | next | prev
 waxon play daft punk get lucky    # search, then play the first match
@@ -221,24 +222,21 @@ set -g status-right '#(waxon status --format "{icon} {title} — {artist}") | %H
 set -g status-interval 5
 ```
 
-**waybar** (`~/.config/waybar/config`):
+**waybar** (`~/.config/waybar/config`) — `--waybar` emits the
+`text/alt/class/tooltip/percentage` object waybar expects:
 
 ```json
 "custom/spotify": {
-  "exec": "waxon status --json",
+  "exec": "waxon status --waybar",
   "return-type": "json",
   "format": "{icon} {}",
-  "format-icons": {"playing": "", "paused": ""},
+  "format-icons": {"playing": "", "paused": "", "idle": ""},
   "on-click": "waxon toggle",
   "on-scroll-up": "waxon vol +5",
   "on-scroll-down": "waxon vol -5",
   "interval": 5
 }
 ```
-
-(waybar reads the `text`/`alt`/`class` keys; map them with a tiny wrapper —
-`waxon status --format '{"text":"{title} — {artist}","alt":"{state}","class":"{state}"}'`
-— or use `--format` directly for a plain-text module.)
 
 **Hotkeys** (skhd on macOS / sxhkd on Linux):
 
