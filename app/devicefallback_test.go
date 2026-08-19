@@ -136,6 +136,26 @@ func TestDeviceChoicesMultipleDevicesOpensPickerWithPending(t *testing.T) {
 	}
 }
 
+func TestDeviceChoicesKeepsManuallyOpenedPicker(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	picker := NewDevicePicker([]source.Device{{ID: "d1", Name: "A"}, {ID: "d2", Name: "B"}}, m.width, m.height)
+	picker.MoveDown() // user already moved the cursor
+	m.devices = &picker
+	m.mode = ModeDevices
+
+	result, _ := m.Update(deviceChoicesMsg{
+		devices: []source.Device{{ID: "d1", Name: "A"}, {ID: "d2", Name: "B"}},
+		retry:   func() tea.Msg { return controlDoneMsg{} },
+	})
+	model := result.(Model)
+	if model.devices.Selected() == nil || model.devices.Selected().ID != "d2" {
+		t.Error("late recovery result must not reset the user's picker cursor")
+	}
+	if model.pendingRetry == nil {
+		t.Error("the user's choice should still replay the failed command")
+	}
+}
+
 func TestDevicePickerEnterWithPendingRetryActivates(t *testing.T) {
 	m := newTestModel(&StubSource{})
 	picker := NewDevicePicker([]source.Device{{ID: "d1", Name: "A"}, {ID: "d2", Name: "B"}}, m.width, m.height)

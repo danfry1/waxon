@@ -91,6 +91,14 @@ func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
 		m.toast.Show("Playing on "+dev.Name, "", ToastInfo)
 		return m, tea.Batch(scheduleAutoDismiss(), m.activateAndRetry(dev.ID, msg.retry))
 	default:
+		if m.mode == ModeDevices && m.devices != nil {
+			// The user already opened the picker (D) while the lookup was in
+			// flight. Keep their picker and cursor; just make their choice also
+			// replay the failed command.
+			m.devices.SetPrompt("No active device — pick one to continue")
+			m.pendingRetry = msg.retry
+			return m, nil
+		}
 		picker := NewDevicePicker(msg.devices, m.width, m.height)
 		picker.SetPrompt("No active device — pick one to continue")
 		m.devices = &picker
