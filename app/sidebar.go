@@ -106,6 +106,20 @@ func (s *Sidebar) SetPlaylists(playlists []source.Playlist) {
 	s.refreshVisible()
 }
 
+// AdjustPlaylistCount changes a playlist's displayed track count in place
+// (optimistic update after an add/remove, before the library is refetched).
+func (s *Sidebar) AdjustPlaylistCount(playlistID string, delta int) {
+	for i, item := range s.allItems {
+		if si, ok := item.(sidebarItem); ok && si.playlist.ID == playlistID {
+			si.playlist.TrackCount = max(0, si.playlist.TrackCount+delta)
+			s.allItems[i] = si
+		}
+	}
+	if s.section == SectionLibrary {
+		s.refreshVisible()
+	}
+}
+
 // SetPlaylistIcons updates the library playlist items with rendered art icons.
 // Merges into allItems (the library set) rather than the live list, so icons
 // are preserved correctly even if the user switched to the queue view.

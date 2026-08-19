@@ -6071,6 +6071,23 @@ func TestAddToPlaylistFlow(t *testing.T) {
 	if cmd == nil {
 		t.Error("expected a playlist refresh")
 	}
+	// The count updates immediately, without waiting for Spotify's listing
+	// (which lags edits) — both in the model and the sidebar.
+	for _, pl := range m.playlists {
+		if pl.ID == "mine" && pl.TrackCount != 4 {
+			t.Errorf("model count = %d, want 4", pl.TrackCount)
+		}
+	}
+	m.sidebar.SetPlaylists(testPlaylists())
+	m.sidebar.AdjustPlaylistCount("mine", 1)
+	if !strings.Contains(m.sidebar.View(true), "4 tracks") {
+		t.Error("sidebar should show the bumped count")
+	}
+	// A later refreshPlaylistsMsg reconciles from the API.
+	_, cmd = m.Update(refreshPlaylistsMsg{})
+	if _, ok := cmd().(playlistsLoadedMsg); !ok {
+		t.Error("refreshPlaylistsMsg should reload playlists")
+	}
 }
 
 func TestRemoveFromPlaylistRefreshesCurrentView(t *testing.T) {
@@ -6107,27 +6124,22 @@ func TestRemoveFromPlaylistRefreshesCurrentView(t *testing.T) {
 	if !strings.Contains(m.toast.View(120), "Removed from My Mix") {
 		t.Errorf("toast = %q", m.toast.View(120))
 	}
-	// The batch refreshes this playlist's tracks (we are viewing it) and the library.
 	if cmd == nil {
-		t.Fatal("expected refresh commands")
+		t.Fatal("expected follow-up commands")
 	}
-	// The batch also carries the 3s toast auto-dismiss tick; run the tree in
-	// the background and wait only for the refetch we care about.
-	var mu sync.Mutex
-	count := func() int { mu.Lock(); defer mu.Unlock(); return fetches }
+	// The removed row disappears immediately, without waiting for Spotify.
+	if len(m.tracklist.tracks) != 1 || m.tracklist.tracks[0].ID != "t2" {
+		t.Errorf("row should be removed locally: %+v", m.tracklist.tracks)
+	}
+	// The authoritative refetch happens on the delayed refresh tick.
 	stub.PlaylistTracksPageFn = func(context.Context, string, int, int) ([]source.Track, int, error) {
-		mu.Lock()
 		fetches++
-		mu.Unlock()
 		return []source.Track{{ID: "t2", Name: "Other"}}, 1, nil
 	}
-	go runCmdTree(cmd)
-	deadline := time.Now().Add(2 * time.Second)
-	for count() < 1 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if count() != 1 {
-		t.Errorf("expected the current playlist to be refetched once, got %d", count())
+	_, cmd = m.Update(refreshPlaylistsMsg{})
+	runCmdTree(cmd)
+	if fetches != 1 {
+		t.Errorf("expected the current playlist to be refetched once on refresh, got %d", fetches)
 	}
 }
 

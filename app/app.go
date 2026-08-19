@@ -166,7 +166,16 @@ type playlistChangedMsg struct {
 	playlistName string
 	trackName    string
 	added        bool
+	position     int // row removed (remove only; -1 if unknown)
 }
+
+// refreshPlaylistsMsg asks for a (delayed) reload of the library list.
+type refreshPlaylistsMsg struct{}
+
+// playlistRefreshDelay is how long to wait after a playlist edit before
+// re-reading the library: Spotify's listing endpoint lags writes by a few
+// seconds, so an immediate refresh just reads the old counts back.
+const playlistRefreshDelay = 4 * time.Second
 
 // playlistCreatedMsg reports a newly created playlist.
 type playlistCreatedMsg struct {
@@ -189,13 +198,16 @@ type Model struct {
 	actions         *ActionsPopup
 	devices         *DevicePicker
 	playlistPick    *PlaylistPicker
-	pickReturn      Mode    // mode to return to when the playlist picker closes
-	pendingRetry    tea.Cmd // playback command to replay once a device is picked
-	keys            KeyMap
-	opts            Options
-	gtracker        GTracker
-	cmdInput        string
-	filterInput     string
+	pickReturn      Mode // mode to return to when the playlist picker closes
+	// pendingViewRefresh is a playlist whose open view should be refetched on
+	// the next delayed library refresh (after an add/remove).
+	pendingViewRefresh string
+	pendingRetry       tea.Cmd // playback command to replay once a device is picked
+	keys               KeyMap
+	opts               Options
+	gtracker           GTracker
+	cmdInput           string
+	filterInput        string
 
 	track              *source.Track
 	playbackContextURI string // URI of the playlist/album the current track plays from
@@ -589,23 +601,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case playlistChangedMsg:
 		// The cached track list for that playlist is stale now.
 		delete(m.trackCache, msg.playlistID)
-		var cmds []tea.Cmd
+		cmds := make([]tea.Cmd, 0, 2)
 		cmds = append(cmds, scheduleAutoDismiss())
 		if msg.added {
 			m.toast.Show("Added to "+msg.playlistName, msg.trackName, ToastSuccess)
 		} else {
 			m.toast.Show("Removed from "+msg.playlistName, msg.trackName, ToastInfo)
 		}
-		// Refresh the view if it's showing that playlist, and the sidebar counts.
+		// Update the count immediately; Spotify's playlist listing lags edits by
+		// a few seconds, so the reconciling refresh is delayed.
+		delta := -1
+		if msg.added {
+			delta = 1
+		}
+		for i := range m.playlists {
+			if m.playlists[i].ID == msg.playlistID {
+				m.playlists[i].TrackCount = max(0, m.playlists[i].TrackCount+delta)
+			}
+		}
+		m.sidebar.AdjustPlaylistCount(msg.playlistID, delta)
+		// If that playlist is on screen, reflect a removal immediately; the
+		// authoritative refetch (which also picks up additions) runs with the
+		// delayed refresh below.
 		if m.tracklist.ContextURI() == "spotify:playlist:"+msg.playlistID {
-			for _, pl := range m.playlists {
-				if pl.ID == msg.playlistID {
-					cmds = append(cmds, m.fetchPlaylistTracks(pl))
-					break
+			if !msg.added && msg.position >= 0 {
+				m.tracklist.RemoveAt(msg.position)
+				m.tracklist.SetHeaderInfo(FormatTrackListInfo(m.tracklist.tracks))
+			}
+			m.pendingViewRefresh = msg.playlistID
+		}
+		cmds = append(cmds, tea.Tick(playlistRefreshDelay, func(time.Time) tea.Msg { return refreshPlaylistsMsg{} }))
+		return m, tea.Batch(cmds...)
+
+	case refreshPlaylistsMsg:
+		cmds := []tea.Cmd{m.refreshPlaylists()}
+		if id := m.pendingViewRefresh; id != "" {
+			m.pendingViewRefresh = ""
+			if m.tracklist.ContextURI() == "spotify:playlist:"+id {
+				delete(m.trackCache, id)
+				for _, pl := range m.playlists {
+					if pl.ID == id {
+						cmds = append(cmds, m.fetchPlaylistTracks(pl))
+						break
+					}
 				}
 			}
 		}
-		cmds = append(cmds, m.refreshPlaylists())
 		return m, tea.Batch(cmds...)
 
 	case playlistCreatedMsg:
