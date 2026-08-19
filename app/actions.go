@@ -43,6 +43,7 @@ type ActionsPopup struct {
 	artistID   string // first artist's Spotify ID for "Go to Artist"
 	albumID    string // album's Spotify ID for "Go to Album"
 	playlistID string // playlist the track is listed in (for remove), may be empty
+	position   int    // row index of the track in that playlist (-1 unknown)
 	width      int
 	height     int
 }
@@ -54,6 +55,7 @@ type TrackActionContext struct {
 	PlaylistID   string
 	PlaylistName string
 	Editable     bool
+	Position     int // row index of the track within the playlist (-1 if unknown)
 }
 
 // NewTrackActions returns an ActionsPopup configured for a track. contextURI is
@@ -90,6 +92,7 @@ func NewTrackActionsIn(trackName, artistName, uri, contextURI, artistID, albumID
 	return ActionsPopup{
 		items:      items,
 		playlistID: in.PlaylistID,
+		position:   in.Position,
 		title:      title,
 		name:       trackName,
 		trackID:    trackIDFromURI(uri),
@@ -182,6 +185,9 @@ func (a ActionsPopup) ContextURI() string {
 
 // PlaylistID returns the playlist the track is listed in, if any.
 func (a ActionsPopup) PlaylistID() string { return a.playlistID }
+
+// Position returns the track's row index within that playlist (-1 if unknown).
+func (a ActionsPopup) Position() int { return a.position }
 
 // ArtistID returns the artist ID stored in the popup.
 func (a ActionsPopup) ArtistID() string {

@@ -38,7 +38,7 @@ type StubSource struct {
 	RemoveTrackFn        func(context.Context, string) error
 	IsTrackSavedFn       func(context.Context, string) (bool, error)
 	AddToPlaylistFn      func(context.Context, string, string) error
-	RemoveFromPlaylistFn func(context.Context, string, string) error
+	RemoveFromPlaylistFn func(context.Context, string, string, int) error
 	CreatePlaylistFn     func(context.Context, string) (source.Playlist, error)
 }
 
@@ -231,9 +231,9 @@ func (s *StubSource) AddToPlaylist(ctx context.Context, playlistID, trackID stri
 	return nil
 }
 
-func (s *StubSource) RemoveFromPlaylist(ctx context.Context, playlistID, trackID string) error {
+func (s *StubSource) RemoveFromPlaylist(ctx context.Context, playlistID, trackID string, position int) error {
 	if s.RemoveFromPlaylistFn != nil {
-		return s.RemoveFromPlaylistFn(ctx, playlistID, trackID)
+		return s.RemoveFromPlaylistFn(ctx, playlistID, trackID, position)
 	}
 	return nil
 }

@@ -189,6 +189,7 @@ type Model struct {
 	actions         *ActionsPopup
 	devices         *DevicePicker
 	playlistPick    *PlaylistPicker
+	pickReturn      Mode    // mode to return to when the playlist picker closes
 	pendingRetry    tea.Cmd // playback command to replay once a device is picked
 	keys            KeyMap
 	opts            Options
@@ -981,6 +982,7 @@ func (m Model) handleKeyActions(msg tea.KeyMsg) (Model, tea.Cmd) {
 			artistID:   m.actions.ArtistID(),
 			albumID:    m.actions.AlbumID(),
 			playlistID: m.actions.PlaylistID(),
+			position:   m.actions.Position(),
 		}
 		action := m.actions.Selected()
 		m.actions = nil
@@ -1049,13 +1051,13 @@ func (m Model) handleKeyPlaylistPick(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
 		m.playlistPick = nil
-		m.mode = ModeNormal
+		m.mode = m.pickReturn
 		return m, nil
 	case tea.KeyEnter:
 		pl := m.playlistPick.Selected()
 		trackID, trackName := m.playlistPick.TrackID(), m.playlistPick.TrackName()
 		m.playlistPick = nil
-		m.mode = ModeNormal
+		m.mode = m.pickReturn
 		if pl == nil {
 			return m, nil
 		}
@@ -1534,7 +1536,7 @@ func (m Model) closeOverlay() (Model, tea.Cmd) {
 		m.mode = ModeNormal
 	case ModePlaylistPick:
 		m.playlistPick = nil
-		m.mode = ModeNormal
+		m.mode = m.pickReturn
 	case ModeHelp, ModeNowPlaying:
 		m.mode = ModeNormal
 	}

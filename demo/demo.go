@@ -585,14 +585,14 @@ func (d *DemoSource) AddToPlaylist(_ context.Context, playlistID, trackID string
 	return errors.New("playlist not found")
 }
 
-func (d *DemoSource) RemoveFromPlaylist(_ context.Context, playlistID, trackID string) error {
+func (d *DemoSource) RemoveFromPlaylist(_ context.Context, playlistID, trackID string, position int) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tracks := d.tracksByPL[playlistID]
 	kept := tracks[:0]
 	removed := 0
-	for _, t := range tracks {
-		if t.ID == trackID {
+	for i, t := range tracks {
+		if t.ID == trackID && (position < 0 || i == position) {
 			removed++
 			continue
 		}

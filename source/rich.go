@@ -42,7 +42,10 @@ type SearchSource interface {
 // predates them so the UI can ask the user to re-authenticate.
 type PlaylistSource interface {
 	AddToPlaylist(ctx context.Context, playlistID, trackID string) error
-	RemoveFromPlaylist(ctx context.Context, playlistID, trackID string) error
+	// RemoveFromPlaylist removes the occurrence of trackID at position (its
+	// 0-based index in the playlist). A negative position removes every
+	// occurrence — callers should only use that when the position is unknown.
+	RemoveFromPlaylist(ctx context.Context, playlistID, trackID string, position int) error
 	CreatePlaylist(ctx context.Context, name string) (Playlist, error)
 }
 

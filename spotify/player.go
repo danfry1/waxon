@@ -217,8 +217,16 @@ func (p *PlayerSource) AddToPlaylist(ctx context.Context, playlistID, trackID st
 	return wrapScopeError(err)
 }
 
-func (p *PlayerSource) RemoveFromPlaylist(ctx context.Context, playlistID, trackID string) error {
-	_, err := p.client.RemoveTracksFromPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
+func (p *PlayerSource) RemoveFromPlaylist(ctx context.Context, playlistID, trackID string, position int) error {
+	if position < 0 {
+		// Removes every occurrence; only used when the row position is unknown.
+		_, err := p.client.RemoveTracksFromPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
+		return wrapScopeError(err)
+	}
+	// Position-based removal touches just the selected row, so duplicates of
+	// the same track elsewhere in the playlist are left alone.
+	tracks := []spotifyapi.TrackToRemove{{URI: "spotify:track:" + trackID, Positions: []int{position}}}
+	_, err := p.client.RemoveTracksFromPlaylistOpt(ctx, spotifyapi.ID(playlistID), tracks, "")
 	return wrapScopeError(err)
 }
 

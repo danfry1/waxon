@@ -6077,8 +6077,11 @@ func TestRemoveFromPlaylistRefreshesCurrentView(t *testing.T) {
 	var removed []string
 	fetches := 0
 	stub := &StubSource{
-		RemoveFromPlaylistFn: func(_ context.Context, pl, tr string) error { removed = append(removed, pl+"/"+tr); return nil },
-		PlaylistsFn:          func(context.Context) ([]source.Playlist, error) { return testPlaylists(), nil },
+		RemoveFromPlaylistFn: func(_ context.Context, pl, tr string, pos int) error {
+			removed = append(removed, fmt.Sprintf("%s/%s@%d", pl, tr, pos))
+			return nil
+		},
+		PlaylistsFn: func(context.Context) ([]source.Playlist, error) { return testPlaylists(), nil },
 	}
 	m := newTestModel(stub)
 	m.playlists = testPlaylists()
@@ -6096,8 +6099,8 @@ func TestRemoveFromPlaylistRefreshesCurrentView(t *testing.T) {
 	if pc, ok := msg.(playlistChangedMsg); !ok || pc.added || pc.playlistID != "mine" {
 		t.Fatalf("got %#v", msg)
 	}
-	if len(removed) != 1 || removed[0] != "mine/t1" {
-		t.Errorf("removed = %v", removed)
+	if len(removed) != 1 || removed[0] != "mine/t1@0" {
+		t.Errorf("removed = %v (want the selected row's position, not all occurrences)", removed)
 	}
 	result, cmd = m.Update(msg)
 	m = result.(Model)
@@ -6142,6 +6145,64 @@ func runCmdTree(cmd tea.Cmd) {
 			go func(c tea.Cmd) { defer wg.Done(); runCmdTree(c) }(c)
 		}
 		wg.Wait()
+	}
+}
+
+func TestRemoveUsesRowPositionUnderFilterAndDuplicates(t *testing.T) {
+	var gotPos int
+	stub := &StubSource{RemoveFromPlaylistFn: func(_ context.Context, _, _ string, pos int) error { gotPos = pos; return nil }}
+	m := newTestModel(stub)
+	m.playlists = testPlaylists()
+	m.focusPane = PaneTrackList
+	// The same track appears at rows 0 and 2; the user filters and selects the
+	// second copy.
+	m.tracklist.SetTracks([]source.Track{
+		{ID: "dup", Name: "Same Song", URI: "spotify:track:dup"},
+		{ID: "x", Name: "Other"},
+		{ID: "dup", Name: "Same Song", URI: "spotify:track:dup"},
+	}, "My Mix", "spotify:playlist:mine")
+	m.tracklist.SetFilter("same")
+	m.tracklist.MoveDown(1) // second filtered row = playlist position 2
+	if m.tracklist.SelectedIndex() != 2 {
+		t.Fatalf("SelectedIndex = %d, want 2", m.tracklist.SelectedIndex())
+	}
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = result.(Model)
+	for m.actions.Selected().Type != ActionRemoveFromPlaylist {
+		m.actions.MoveDown()
+	}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	cmd()
+	if gotPos != 2 {
+		t.Errorf("removal position = %d, want 2 (only the selected duplicate)", gotPos)
+	}
+}
+
+func TestPlaylistPickerReturnsToNowPlaying(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.playlists = testPlaylists()
+	m.track = &source.Track{ID: "t1", Name: "Song", URI: "spotify:track:t1"}
+	m.mode = ModeNowPlaying
+	// o in Now Playing → actions → Add to Playlist…
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	m = result.(Model)
+	for m.actions.Selected().Type != ActionAddToPlaylist {
+		m.actions.MoveDown()
+	}
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+	if m.mode != ModePlaylistPick {
+		t.Fatalf("mode = %v", m.mode)
+	}
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if result.(Model).mode != ModeNowPlaying {
+		t.Error("Esc from the picker should return to Now Playing")
+	}
+	// Same for Enter.
+	m.mode = ModePlaylistPick
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if result.(Model).mode != ModeNowPlaying {
+		t.Error("picking a playlist should return to Now Playing")
 	}
 }
 
