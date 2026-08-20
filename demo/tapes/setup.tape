@@ -18,7 +18,7 @@ Sleep 3s
 # Option 1: your own app
 Enter
 Sleep 4s
-Type "bbce036082e24e78ad3905c86ce5946b"
+Type "0123456789abcdef0123456789abcdef"
 Sleep 600ms
 Enter
 Sleep 3s
