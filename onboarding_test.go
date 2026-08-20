@@ -9,7 +9,7 @@ import (
 	myauth "github.com/danfry1/waxon/auth"
 )
 
-const personalID = "bbce036082e24e78ad3905c86ce5946b"
+const personalID = "0123456789abcdef0123456789abcdef"
 
 func newTestOnboarding(input string, interactive bool) (onboarding, *bytes.Buffer, *[]string) {
 	var out bytes.Buffer
