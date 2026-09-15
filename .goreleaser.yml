@@ -47,8 +47,8 @@ nfpms:
     bindir: /usr/bin
 
 # Homebrew: a Cask (the current goreleaser mechanism; `brews` formulas are
-# deprecated). Casks install plain binaries on macOS and Linux, and the post
-# install hook clears macOS's quarantine flag so the unsigned binary runs.
+# deprecated). Casks install plain binaries on macOS and Linux, and a post
+# install step clears macOS's quarantine flag so the unsigned binary runs.
 homebrew_casks:
   - name: waxon
     repository:
@@ -61,12 +61,21 @@ homebrew_casks:
     # Replaces the Formula of the same name from earlier releases: remove
     # Formula/waxon.rb from the tap after the first cask release so
     # `brew install danfry1/tap/waxon` resolves to the cask.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/waxon"]
-          end
+    #
+    # Homebrew deprecated the raw-Ruby `postflight` stanza that
+    # `hooks.post.install` emits (every brew command then warns "Calling
+    # `postflight` is deprecated! Use `postflight_steps` instead."). Until
+    # goreleaser gains a `hooks.post.install_steps` option
+    # (goreleaser/goreleaser#6873), emit the declarative `postflight_steps`
+    # stanza through custom_block instead. `{{staged_path}}` is a Homebrew
+    # install-steps token; the rendered cask is itself a Go template, so it
+    # is written as a quoted literal to survive rendering.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/waxon"]
+        end
+      end
 
 # Windows: Scoop manifest in danfry1/scoop-bucket. The token is minted per run
 # from a GitHub App by the release workflow; when it isn't configured the
