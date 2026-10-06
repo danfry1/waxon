@@ -8,6 +8,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-10-06
+
 ### Fixed
 
 - Artist pages show the discography again. Spotify now rejects more than 10
@@ -22,6 +24,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
   works: Enter plays the playlist, `o` plays it or opens it in Spotify. If
   Spotify refuses playback too, waxon says that rather than reporting a
   missing device.
+- Homebrew no longer warns about a deprecated `postflight` stanza when
+  loading the waxon cask.
 
 ## [1.8.0] - 2026-08-19
 
@@ -203,7 +207,8 @@ Initial release: vim-modal Spotify TUI with PKCE auth, library and queue
 sidebar, track list, search, device picker, Now Playing view with album art,
 and command mode.
 
-[Unreleased]: https://github.com/danfry1/waxon/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/danfry1/waxon/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/danfry1/waxon/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/danfry1/waxon/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/danfry1/waxon/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/danfry1/waxon/compare/v1.5.0...v1.6.0
