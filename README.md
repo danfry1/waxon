@@ -340,7 +340,7 @@ waxon works out of the box with no configuration — it ships with a shared clie
 
 The client ID is saved to `~/.config/waxon/config.json` automatically, so you only need to set the environment variable once during setup.
 
-> **Note:** new developer apps are in Spotify's *development mode*, which only allows the current API endpoints. waxon uses those (with legacy fallbacks for older apps), so playback, search, queue, liking and playlist editing all work. The one thing Spotify blocks for development-mode apps with no replacement is an artist's *top tracks* — artist pages show the discography instead.
+> **Note:** new developer apps are in Spotify's *development mode*, which only allows the current API endpoints. waxon uses those (with legacy fallbacks for older apps), so playback, search, queue, liking and playlist editing all work. Spotify blocks two things for development-mode apps with no replacement: an artist's *top tracks* (artist pages show the discography instead), and the track list of playlists you don't own or collaborate on, including Spotify's own editorial playlists (waxon says so; Enter still plays the playlist, and `o` can open it in Spotify).
 
 ## Troubleshooting
 
@@ -349,6 +349,7 @@ The client ID is saved to `~/.config/waxon/config.json` automatically, so you on
 | *Spotify rate limit* / *Spotify is rate limiting* toasts | Spotify is throttling the app. waxon backs off automatically and honours Spotify's `Retry-After`. If it keeps happening, the shared client ID is busy — [use your own](#using-your-own-spotify-app-recommended-if-you-see-rate-limits). |
 | *No active Spotify device* | Spotify must be open somewhere (desktop, phone, speaker). waxon picks the only available device automatically or asks with `D`. |
 | *Not available with this Spotify app* | Spotify blocks that endpoint for development-mode (personal) apps — currently only artists' top tracks. |
+| A followed playlist shows no tracks | Spotify only lets development-mode (personal) apps list playlists you own or collaborate on. Press Enter to play it anyway, or `o` to open it in Spotify. |
 | *Permission needed — run `waxon auth`* | Your saved token predates a feature that needs extra permissions (e.g. playlist editing). Re-run `waxon auth` once. |
 | *Session expired* | Token revoked or refresh failed. Re-run `waxon auth`. |
 | Nothing renders / garbled colours | Set a true-colour or 256-colour `TERM`, or `NO_COLOR=1` for monochrome. Minimum size is 40×10. |

@@ -181,6 +181,12 @@ var ErrInsufficientScope = errors.New("missing permission — run 'waxon auth' t
 // this where the shared ID does not.
 var ErrForbidden = errors.New("not permitted for this Spotify app")
 
+// ErrPlaylistRestricted is returned when Spotify won't share a playlist's
+// tracks with this app. Development-mode apps can only read playlists the
+// user owns or collaborates on; others (including Spotify's own editorial
+// playlists) can still be played as a whole, just not listed.
+var ErrPlaylistRestricted = errors.New("spotify doesn't share this playlist's tracks with this app")
+
 // ErrPremiumRequired is returned by playback commands when the account is
 // not Spotify Premium; the Web API only permits playback control for Premium.
 var ErrPremiumRequired = errors.New("premium account required for playback control")

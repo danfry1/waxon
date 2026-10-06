@@ -32,6 +32,7 @@ type TrackList struct {
 	title       string
 	subtitle    string // optional second line (e.g. genres, artist name)
 	headerInfo  string // optional third line (e.g. "30 tracks · 1h 42m")
+	notice      string // shown in place of an empty table (e.g. why there are no tracks)
 	contextURI  string // playlist/album URI for play context
 	artBlock    string // rendered playlist/album art
 	loading     bool   // true while fetching tracks
@@ -138,6 +139,7 @@ func (tl *TrackList) SetLoading(title string) {
 	tl.loading = true
 	tl.title = title
 	tl.tracks = nil
+	tl.notice = ""
 	tl.filtered, tl.filteredIdx = nil, nil
 	tl.allRows = nil
 	tl.cursor = 0
@@ -153,6 +155,16 @@ func (tl *TrackList) SetSubtitle(s string) {
 	tl.subtitle = s
 }
 
+// SetNotice sets a message shown instead of the (empty) track table.
+func (tl *TrackList) SetNotice(s string) {
+	tl.notice = s
+}
+
+// HasNotice reports whether the list is showing a notice instead of tracks.
+func (tl *TrackList) HasNotice() bool {
+	return tl.notice != "" && len(tl.tracks) == 0
+}
+
 func (tl *TrackList) SetHeaderInfo(info string) {
 	tl.headerInfo = info
 	tl.table.SetHeight(tl.tableHeight())
@@ -165,6 +177,7 @@ func (tl *TrackList) SetTracks(tracks []source.Track, title, contextURI string) 
 	tl.title = title
 	tl.subtitle = ""
 	tl.headerInfo = ""
+	tl.notice = ""
 	tl.contextURI = contextURI
 
 	// Re-apply active filter when tracks are refreshed
@@ -507,6 +520,8 @@ func (tl TrackList) View(active bool) string {
 	if tl.loading {
 		loadingMsg := StyleDimText.Render("\n  Loading...")
 		content = header + "\n" + loadingMsg
+	} else if tl.HasNotice() {
+		content = header + "\n\n" + StyleDimText.PaddingLeft(2).Width(max(1, tl.width-4)).Render(tl.notice)
 	} else {
 		content = header + "\n" + tl.table.View()
 	}
@@ -603,6 +618,7 @@ type NavState struct {
 	title      string
 	subtitle   string
 	headerInfo string
+	notice     string
 	contextURI string
 	artBlock   string
 	cursor     int
@@ -617,6 +633,7 @@ func (tl *TrackList) GetState(pane Pane) NavState {
 		title:      tl.title,
 		subtitle:   tl.subtitle,
 		headerInfo: tl.headerInfo,
+		notice:     tl.notice,
 		contextURI: tl.contextURI,
 		artBlock:   tl.artBlock,
 		cursor:     tl.cursor,
@@ -632,6 +649,7 @@ func (tl *TrackList) RestoreState(s NavState) {
 	tl.title = s.title
 	tl.subtitle = s.subtitle
 	tl.headerInfo = s.headerInfo
+	tl.notice = s.notice
 	tl.contextURI = s.contextURI
 	tl.artBlock = s.artBlock
 	tl.filtered, tl.filteredIdx = nil, nil
@@ -691,6 +709,30 @@ func FormatAlbumInfo(artist, year string, tracks []source.Track) string {
 
 // buildArtistTrackList constructs a combined track list from an artist page,
 // including top tracks, album rows, and section separators.
+// formatArtistInfo summarises an artist page: its top tracks when Spotify
+// provides them, otherwise the discography ("12 albums · 8 singles").
+func formatArtistInfo(page *source.ArtistPage) string {
+	if len(page.Tracks) > 0 {
+		return FormatTrackListInfo(page.Tracks)
+	}
+	var albums, singles int
+	for _, a := range page.Albums {
+		if a.Type == "Album" {
+			albums++
+		} else {
+			singles++
+		}
+	}
+	var parts []string
+	if albums > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s", albums, pluralize(albums, "album", "albums")))
+	}
+	if singles > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s", singles, pluralize(singles, "single", "singles")))
+	}
+	return strings.Join(parts, " · ")
+}
+
 func buildArtistTrackList(page *source.ArtistPage) []source.Track {
 	tracks := append([]source.Track{}, page.Tracks...)
 
@@ -703,8 +745,15 @@ func buildArtistTrackList(page *source.ArtistPage) []source.Track {
 		}
 	}
 
+	// A blank row separates sections, but not above the first one.
+	gap := func() {
+		if len(tracks) > 0 {
+			tracks = append(tracks, source.Track{IsSeparator: true})
+		}
+	}
+
 	if len(albums) > 0 {
-		tracks = append(tracks, source.Track{IsSeparator: true})
+		gap()
 		tracks = append(tracks, source.Track{
 			Name:        "Albums",
 			Artist:      fmt.Sprintf("%d %s", len(albums), pluralize(len(albums), "album", "albums")),
@@ -721,7 +770,7 @@ func buildArtistTrackList(page *source.ArtistPage) []source.Track {
 	}
 
 	if len(singles) > 0 {
-		tracks = append(tracks, source.Track{IsSeparator: true})
+		gap()
 		tracks = append(tracks, source.Track{
 			Name:        "Singles & EPs",
 			Artist:      fmt.Sprintf("%d %s", len(singles), pluralize(len(singles), "single", "singles")),

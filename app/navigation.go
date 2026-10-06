@@ -56,7 +56,7 @@ type navEntry struct {
 
 // pushNav saves the current tracklist state onto the navigation stack.
 func (m *Model) pushNav() {
-	if len(m.tracklist.tracks) == 0 {
+	if len(m.tracklist.tracks) == 0 && !m.tracklist.HasNotice() {
 		return
 	}
 	entry := navEntry{state: m.tracklist.GetState(m.focusPane)}

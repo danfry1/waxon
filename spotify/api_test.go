@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -580,26 +582,25 @@ func TestGetArtistParsing(t *testing.T) {
 
 	mux.HandleFunc("/v1/artists/art42/albums", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
-			"items": [
-				{
-					"id": "disc1",
-					"name": "Debut Album",
-					"release_date": "2020-03-15",
-					"total_tracks": 12,
-					"album_type": "album",
-					"images": [{"url": "https://img/debut.jpg"}]
-				},
-				{
-					"id": "disc2",
-					"name": "Hot Single",
-					"release_date": "2021-07",
-					"total_tracks": 1,
-					"album_type": "single",
-					"images": []
-				}
-			]
-		}`)
+		if r.URL.Query().Get("include_groups") == "single" {
+			fmt.Fprint(w, `{"items": [{
+				"id": "disc2",
+				"name": "Hot Single",
+				"release_date": "2021-07",
+				"total_tracks": 1,
+				"album_type": "single",
+				"images": []
+			}]}`)
+			return
+		}
+		fmt.Fprint(w, `{"items": [{
+			"id": "disc1",
+			"name": "Debut Album",
+			"release_date": "2020-03-15",
+			"total_tracks": 12,
+			"album_type": "album",
+			"images": [{"url": "https://img/debut.jpg"}]
+		}]}`)
 	})
 
 	mux.HandleFunc("/v1/artists/art42", func(w http.ResponseWriter, r *http.Request) {
@@ -1524,6 +1525,10 @@ func TestGetArtistWithoutTopTracksOn403(t *testing.T) {
 		fmt.Fprint(w, `{"error":{"status":403,"message":"Forbidden"}}`)
 	})
 	mux.HandleFunc("/v1/artists/a1/albums", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("include_groups") != "album" {
+			fmt.Fprint(w, `{"items":[]}`)
+			return
+		}
 		fmt.Fprint(w, `{"items":[{"id":"al1","name":"LP","release_date":"2001-01-01","album_type":"album","images":[]}]}`)
 	})
 	srv := httptest.NewServer(mux)
@@ -1670,5 +1675,148 @@ func TestForbiddenOnBothPathsIsErrForbidden(t *testing.T) {
 	ps := newTestPlayerSourceWithClient(srv.URL)
 	if err := ps.SaveTrack(context.Background(), "abc"); !errors.Is(err, source.ErrForbidden) {
 		t.Errorf("expected ErrForbidden after both paths refused, got %v", err)
+	}
+}
+
+func TestGetArtistPagesDiscographyAtSpotifysLimit(t *testing.T) {
+	var mu sync.Mutex
+	var requests []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/artists/a1", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":"a1","name":"Artist"}`)
+	})
+	mux.HandleFunc("/v1/artists/a1/top-tracks", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+	})
+	mux.HandleFunc("/v1/artists/a1/albums", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, r.URL.RawQuery)
+		mu.Unlock()
+		q := r.URL.Query()
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		if limit > 10 {
+			w.WriteHeader(400)
+			fmt.Fprint(w, `{"error":{"status":400,"message":"Invalid limit"}}`)
+			return
+		}
+		offset, _ := strconv.Atoi(q.Get("offset"))
+		group := q.Get("include_groups")
+		total := map[string]int{"album": 25, "single": 30}[group]
+		var items []string
+		for i := offset; i < min(offset+limit, total); i++ {
+			items = append(items, fmt.Sprintf(`{"id":"%s%d","name":"%s %d","album_type":"%s"}`, group, i, group, i, group))
+		}
+		next := "null"
+		if offset+limit < total {
+			next = `"more"`
+		}
+		fmt.Fprintf(w, `{"items":[%s],"next":%s,"total":%d}`, strings.Join(items, ","), next, total)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	page, err := newTestPlayerSource(srv.URL).GetArtist(context.Background(), "a1")
+	if err != nil {
+		t.Fatalf("GetArtist: %v", err)
+	}
+	var albums, singles int
+	for _, a := range page.Albums {
+		if a.Type == "Single" {
+			singles++
+		} else {
+			albums++
+		}
+	}
+	// A long album list must not crowd out singles.
+	if albums != maxArtistAlbums || singles != maxArtistSingles {
+		t.Errorf("got %d albums and %d singles, want %d and %d", albums, singles, maxArtistAlbums, maxArtistSingles)
+	}
+	if page.Albums[0].ID != "album0" {
+		t.Errorf("albums should come first, got %q", page.Albums[0].ID)
+	}
+	if len(requests) != 3 {
+		t.Errorf("expected 3 page requests (2 album, 1 single), got %v", requests)
+	}
+}
+
+func TestGetArtistShortDiscographyStopsAtLastPage(t *testing.T) {
+	var calls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/artists/a2", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":"a2","name":"New Artist"}`)
+	})
+	mux.HandleFunc("/v1/artists/a2/top-tracks", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"tracks":[]}`)
+	})
+	mux.HandleFunc("/v1/artists/a2/albums", func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Query().Get("include_groups") == "album" {
+			fmt.Fprint(w, `{"items":[{"id":"x","name":"Debut","album_type":"album"}],"next":null}`)
+			return
+		}
+		fmt.Fprint(w, `{"items":[],"next":null}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	page, err := newTestPlayerSource(srv.URL).GetArtist(context.Background(), "a2")
+	if err != nil || len(page.Albums) != 1 {
+		t.Fatalf("got %v, %d albums; want 1", err, len(page.Albums))
+	}
+	if n := calls.Load(); n != 2 {
+		t.Errorf("expected one request per group, got %d", n)
+	}
+}
+
+func TestPlaylistWithoutContentsIsRestricted(t *testing.T) {
+	// Development-mode apps get a playlist they don't own with metadata but
+	// no "items", and 403 from both contents endpoints.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/playlists/other", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":"other","name":"Someone Else's Mix","owner":{"id":"them"}}`)
+	})
+	mux.HandleFunc("/v1/playlists/other/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+		fmt.Fprint(w, `{"error":{"status":403,"message":"Forbidden"}}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	_, _, err := newTestPlayerSource(srv.URL).PlaylistTracksPage(context.Background(), "other", 0, 50)
+	if !errors.Is(err, source.ErrPlaylistRestricted) {
+		t.Errorf("expected ErrPlaylistRestricted, got %v", err)
+	}
+}
+
+func TestEditorialPlaylistNotFoundIsRestricted(t *testing.T) {
+	// Spotify-owned playlists 404 outright for development-mode apps.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/playlists/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		fmt.Fprint(w, `{"error":{"status":404,"message":"Resource not found"}}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	_, _, err := newTestPlayerSource(srv.URL).PlaylistTracksPage(context.Background(), "37i9dQZF1DX", 0, 50)
+	if !errors.Is(err, source.ErrPlaylistRestricted) {
+		t.Errorf("expected ErrPlaylistRestricted, got %v", err)
+	}
+}
+
+func TestPlaylistWithoutEmbeddedItemsUsesItemsEndpoint(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/playlists/p2", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":"p2","name":"Mix"}`)
+	})
+	mux.HandleFunc("/v1/playlists/p2/items", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"items":[{"item":{"id":"t1","name":"S"}}],"total":1}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	tracks, total, err := newTestPlayerSource(srv.URL).PlaylistTracksPage(context.Background(), "p2", 0, 50)
+	if err != nil || total != 1 || len(tracks) != 1 {
+		t.Fatalf("got %v %d %d, want one track from /items", err, total, len(tracks))
 	}
 }

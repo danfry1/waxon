@@ -94,6 +94,13 @@ type (
 		playlistID string // non-empty when fetched from API (for caching)
 		total      int    // total tracks in playlist (0 if unknown/fully loaded)
 	}
+	// playlistRestrictedMsg means Spotify won't list this playlist's tracks
+	// for this app (source.ErrPlaylistRestricted). It can still be played.
+	playlistRestrictedMsg struct{ playlist source.Playlist }
+	// playlistUnplayableMsg means Spotify refused to play a playlist context
+	// even though a device is active (it doesn't expose that playlist to
+	// this app at all).
+	playlistUnplayableMsg struct{}
 )
 
 type recentTracksLoadedMsg struct {
@@ -232,7 +239,10 @@ type Model struct {
 	actionsReturn   Mode                      // mode to return to when the actions popup closes
 	navStack        []navEntry                // browser-like back navigation history
 	trackCache      map[string]cachedPlaylist // playlist ID → cached tracks
-	pagination      *paginationState          // non-nil while a playlist is being lazily loaded
+	// restrictedPlaylists holds playlists Spotify won't list for this app
+	// (source.ErrPlaylistRestricted), so reopening one doesn't refetch.
+	restrictedPlaylists map[string]bool
+	pagination          *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt       string      // large rendered art for now playing view
 	npArtURL    string      // URL of the art currently rendered for NP
@@ -280,18 +290,19 @@ func NewModel(src source.RichSource) Model {
 		ap = provider
 	}
 	m := Model{
-		ctx:             ctx,
-		cancel:          cancel,
-		source:          src,
-		artworkProvider: ap,
-		mode:            ModeNormal,
-		focusPane:       PaneSidebar,
-		keys:            DefaultKeyMap(),
-		albumart:        NewAlbumArt(),
-		volume:          50,
-		repeatMode:      source.RepeatOff,
-		trackCache:      make(map[string]cachedPlaylist),
-		likedCache:      make(map[string]bool),
+		ctx:                 ctx,
+		cancel:              cancel,
+		source:              src,
+		artworkProvider:     ap,
+		mode:                ModeNormal,
+		focusPane:           PaneSidebar,
+		keys:                DefaultKeyMap(),
+		albumart:            NewAlbumArt(),
+		volume:              50,
+		repeatMode:          source.RepeatOff,
+		trackCache:          make(map[string]cachedPlaylist),
+		restrictedPlaylists: make(map[string]bool),
+		likedCache:          make(map[string]bool),
 	}
 	// Pre-create the panes at a default size so data arriving before the first
 	// WindowSizeMsg (instant demo data, or a fast initial load) has a valid
@@ -507,6 +518,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, jumpCmd
 
+	case playlistRestrictedMsg:
+		m.restrictedPlaylists[msg.playlist.ID] = true
+		m.pagination = nil
+		// There are no tracks to jump to; don't leave a jump armed.
+		m.pendingJumpTrackID = ""
+		m.tracklist.SetTracks(nil, msg.playlist.Name, msg.playlist.URI)
+		m.tracklist.SetNotice(restrictedPlaylistNotice)
+		// Focus the notice so its "Enter: play" applies (and so it is the
+		// pane shown on narrow terminals) rather than leaving Enter on the
+		// sidebar, where it would only reopen the playlist.
+		m.focusPane = PaneTrackList
+		if n := msg.playlist.TrackCount; n > 0 {
+			m.tracklist.SetHeaderInfo(fmt.Sprintf("%d %s", n, pluralize(n, "track", "tracks")))
+		}
+		m.tracklist.SetArt("")
+		if msg.playlist.ImageURL != "" {
+			return m, m.fetchPlaylistArt(msg.playlist.ImageURL)
+		}
+		return m, nil
+
+	case playlistUnplayableMsg:
+		m.toast.Show("Spotify won't play this playlist from waxon", "Press o to open it in the Spotify app", ToastError)
+		return m, scheduleAutoDismiss()
+
 	case moreTracksLoadedMsg:
 		m.noteLikedTracks(msg.playlistID, msg.tracks)
 		if m.pagination != nil && m.pagination.playlistID == msg.playlistID {
@@ -540,7 +575,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pagination = nil
 			tracks := buildArtistTrackList(msg.page)
 			m.tracklist.SetTracks(tracks, msg.page.Name, "")
-			m.tracklist.SetHeaderInfo(FormatTrackListInfo(msg.page.Tracks))
+			m.tracklist.SetHeaderInfo(formatArtistInfo(msg.page))
+			if len(msg.page.Tracks) == 0 && len(tracks) > 1 {
+				// No top tracks: start on the first release, not its heading.
+				m.tracklist.GotoTop()
+				m.tracklist.MoveDown(1)
+			}
 			if len(msg.page.Genres) > 0 {
 				m.tracklist.SetSubtitle(strings.Join(msg.page.Genres, ", "))
 			}
@@ -1640,9 +1680,20 @@ func (m Model) handleEnter() (Model, tea.Cmd) {
 			}
 			return m, m.playTrack(track.URI, m.tracklist.ContextURI())
 		}
+		// A playlist whose tracks Spotify won't list can still be played whole.
+		if m.tracklist.HasNotice() && m.tracklist.ContextURI() != "" {
+			return m, m.playPlaylistFromStart(m.tracklist.ContextURI())
+		}
 	}
 	return m, nil
 }
+
+// restrictedPlaylistNotice explains an empty playlist view for
+// source.ErrPlaylistRestricted.
+const restrictedPlaylistNotice = "Spotify doesn't let this app list the tracks of playlists you don't own, " +
+	"but you can still play them.\n\n" +
+	"Enter  play this playlist\n" +
+	"o      more options (open in Spotify)"
 
 // renderNPArt (re)renders the Now Playing art for the current terminal size.
 func (m *Model) renderNPArt() {

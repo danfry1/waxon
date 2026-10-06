@@ -8,6 +8,21 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Artist pages show the discography again. Spotify now rejects more than 10
+  albums per request, so the request failed and the list came back empty.
+  waxon pages through it, fetching albums and singles separately so a long
+  album list doesn't hide recent singles. Without top tracks (blocked for
+  development-mode apps) the page opens on the first album and its header
+  summarises the discography.
+- Playlists you follow but don't own no longer open as an empty list or a
+  "Forbidden" error. Spotify doesn't let development-mode apps list their
+  tracks, so waxon says so, shows the track count, and offers what still
+  works: Enter plays the playlist, `o` plays it or opens it in Spotify. If
+  Spotify refuses playback too, waxon says that rather than reporting a
+  missing device.
+
 ## [1.8.0] - 2026-08-19
 
 ### Added

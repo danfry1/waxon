@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"os/exec"
@@ -77,8 +78,15 @@ func (m Model) fetchPlaylistTracks(pl source.Playlist) tea.Cmd {
 	}
 	src := m.source
 	ctx := m.ctx
+	restricted := m.restrictedPlaylists[pl.ID]
 	return func() tea.Msg {
+		if restricted {
+			return playlistRestrictedMsg{playlist: pl}
+		}
 		tracks, total, err := src.PlaylistTracksPage(ctx, pl.ID, 0, playlistPageSize)
+		if errors.Is(err, source.ErrPlaylistRestricted) {
+			return playlistRestrictedMsg{playlist: pl}
+		}
 		if err != nil {
 			return trackErrorMsg{err}
 		}
@@ -525,11 +533,32 @@ func (m Model) playPlaylistFromStart(contextURI string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
 	return deviceAware(func() tea.Msg {
-		if err := src.PlayTrack(ctx, contextURI, ""); err != nil {
+		err := src.PlayTrack(ctx, contextURI, "")
+		if errors.Is(err, source.ErrNoActiveDevice) && hasActiveDevice(ctx, src) {
+			// Spotify answers 404 both for "no device" and for a playlist it
+			// won't expose to this app; with a device active, it's the latter.
+			return playlistUnplayableMsg{}
+		}
+		if err != nil {
 			return trackErrorMsg{err}
 		}
 		return controlDoneMsg{}
 	})
+}
+
+// hasActiveDevice reports whether Spotify has an active playback device.
+// Lookup failures count as "no", leaving the normal device recovery in charge.
+func hasActiveDevice(ctx context.Context, src source.RichSource) bool {
+	devices, err := src.Devices(ctx)
+	if err != nil {
+		return false
+	}
+	for _, d := range devices {
+		if d.IsActive {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Command/Action Execution ---
@@ -602,6 +631,14 @@ func (m *Model) executeCommand(input string) tea.Cmd {
 }
 
 func (m Model) openActions() (Model, tea.Cmd) {
+	if m.focusPane == PaneTrackList && m.tracklist.HasNotice() && strings.HasPrefix(m.tracklist.ContextURI(), "spotify:playlist:") {
+		popup := NewPlaylistActions(m.tracklist.title, m.tracklist.ContextURI(), m.width, m.height)
+		popup.withoutLoadTracks()
+		m.actions = &popup
+		m.actionsReturn = ModeNormal
+		m.mode = ModeActions
+		return m, nil
+	}
 	if m.focusPane == PaneTrackList {
 		track := m.tracklist.SelectedTrack()
 		if track == nil || track.IsSeparator {
@@ -727,18 +764,16 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 		m.toast.Show("Copied to clipboard", subj.uri, ToastSuccess)
 		return m, scheduleAutoDismiss()
 	case ActionPlayPlaylist:
-		pl := m.sidebar.SelectedPlaylist()
-		if pl != nil {
-			return m, m.playPlaylistFromStart(pl.URI)
+		if subj.uri != "" {
+			return m, m.playPlaylistFromStart(subj.uri)
 		}
 	case ActionOpenPlaylistSpotify:
-		pl := m.sidebar.SelectedPlaylist()
-		if pl != nil && pl.URI != "" {
-			if err := openInSpotify(pl.URI); err != nil {
+		if subj.uri != "" {
+			if err := openInSpotify(subj.uri); err != nil {
 				m.toast.Show("Failed to open Spotify", err.Error(), ToastError)
 				return m, scheduleAutoDismiss()
 			}
-			m.toast.Show("Opened in Spotify", pl.Name, ToastSuccess)
+			m.toast.Show("Opened in Spotify", subj.name, ToastSuccess)
 			return m, scheduleAutoDismiss()
 		}
 	case ActionLoadTracks:
