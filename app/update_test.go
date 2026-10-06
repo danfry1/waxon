@@ -6328,3 +6328,226 @@ func TestOtherLikeStatusErrorsAreSilent(t *testing.T) {
 		t.Error("transient like-status failures should be logged only")
 	}
 }
+
+func TestRestrictedPlaylistShowsNoticeAndEnterPlaysIt(t *testing.T) {
+	var fetches int
+	var playedCtx, playedTrack string
+	stub := &StubSource{
+		PlaylistTracksPageFn: func(context.Context, string, int, int) ([]source.Track, int, error) {
+			fetches++
+			return nil, 0, fmt.Errorf("%w: 403", source.ErrPlaylistRestricted)
+		},
+		PlayTrackFn: func(_ context.Context, contextURI, trackURI string) error {
+			playedCtx, playedTrack = contextURI, trackURI
+			return nil
+		},
+	}
+	m := newTestModel(stub)
+	m.pendingJumpTrackID = "t1"
+
+	pl := source.Playlist{ID: "pl1", URI: "spotify:playlist:pl1", Name: "Someone Else's Mix", TrackCount: 155}
+	msg := m.fetchPlaylistTracks(pl)()
+	if _, ok := msg.(playlistRestrictedMsg); !ok {
+		t.Fatalf("expected playlistRestrictedMsg, got %T", msg)
+	}
+	result, _ := m.Update(msg)
+	m = result.(Model)
+
+	if m.pendingJumpTrackID != "" {
+		t.Error("pending jump should be dropped for a restricted playlist")
+	}
+	if _, cached := m.trackCache["pl1"]; cached {
+		t.Error("restricted playlist must not be cached as empty")
+	}
+	view := m.tracklist.View(true)
+	for _, want := range []string{"Someone Else's Mix", "155 tracks", "play this playlist", "open in Spotify"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+
+	m.focusPane = PaneTrackList
+	_, cmd := m.handleEnter()
+	if cmd == nil {
+		t.Fatal("Enter on a restricted playlist should play it")
+	}
+	if got := cmd(); got != (controlDoneMsg{}) {
+		t.Errorf("play returned %T, want controlDoneMsg", got)
+	}
+	if playedCtx != "spotify:playlist:pl1" || playedTrack != "" {
+		t.Errorf("played (%q, %q), want the whole playlist context", playedCtx, playedTrack)
+	}
+
+	// Reopening is answered from memory, without another API call.
+	if msg := m.fetchPlaylistTracks(pl)(); msg == nil {
+		t.Fatal("expected a message")
+	} else if _, ok := msg.(playlistRestrictedMsg); !ok {
+		t.Errorf("reopen: expected playlistRestrictedMsg, got %T", msg)
+	}
+	if fetches != 1 {
+		t.Errorf("restricted playlist fetched %d times, want 1", fetches)
+	}
+}
+
+func TestRestrictedPlaylistNoticeSurvivesBackNavigation(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	result, _ := m.Update(playlistRestrictedMsg{playlist: source.Playlist{ID: "pl1", URI: "spotify:playlist:pl1", Name: "Mix"}})
+	m = result.(Model)
+	m.pushNav()
+	m.tracklist.SetTracks([]source.Track{{ID: "t1", Name: "Other"}}, "Album", "spotify:album:a")
+	if !m.popNav() {
+		t.Fatal("popNav failed")
+	}
+	if !m.tracklist.HasNotice() {
+		t.Error("going back to a restricted playlist should show its notice again")
+	}
+}
+
+func TestPlayPlaylistRefusedWithActiveDeviceExplains(t *testing.T) {
+	stub := &StubSource{
+		PlayTrackFn: func(context.Context, string, string) error {
+			return fmt.Errorf("%w: 404", source.ErrNoActiveDevice)
+		},
+		DevicesFn: func(context.Context) ([]source.Device, error) {
+			return []source.Device{{ID: "d1", Name: "Mac", IsActive: true}}, nil
+		},
+	}
+	m := newTestModel(stub)
+	msg := m.playPlaylistFromStart("spotify:playlist:37i9dQZF1DX")()
+	if _, ok := msg.(playlistUnplayableMsg); !ok {
+		t.Fatalf("expected playlistUnplayableMsg, got %T", msg)
+	}
+	result, _ := m.Update(msg)
+	if view := result.(Model).View(); !strings.Contains(view, "won't play this playlist") {
+		t.Errorf("expected an explanatory toast:\n%s", view)
+	}
+}
+
+func TestPlayPlaylistWithNoActiveDeviceStillRecovers(t *testing.T) {
+	stub := &StubSource{
+		PlayTrackFn: func(context.Context, string, string) error {
+			return fmt.Errorf("%w: 404", source.ErrNoActiveDevice)
+		},
+		DevicesFn: func(context.Context) ([]source.Device, error) {
+			return []source.Device{{ID: "d1", Name: "Mac"}}, nil
+		},
+	}
+	m := newTestModel(stub)
+	if msg := m.playPlaylistFromStart("spotify:playlist:pl1")(); msg == nil {
+		t.Fatal("expected a message")
+	} else if _, ok := msg.(noActiveDeviceMsg); !ok {
+		t.Errorf("expected the device-recovery flow, got %T", msg)
+	}
+}
+
+func TestRestrictedPlaylistActionsPopup(t *testing.T) {
+	var playedCtx string
+	stub := &StubSource{
+		PlayTrackFn: func(_ context.Context, contextURI, _ string) error {
+			playedCtx = contextURI
+			return nil
+		},
+	}
+	m := newTestModel(stub)
+	result, _ := m.Update(playlistRestrictedMsg{playlist: source.Playlist{ID: "pl1", URI: "spotify:playlist:pl1", Name: "Mix"}})
+	m = result.(Model)
+	m.focusPane = PaneTrackList
+
+	m, _ = m.openActions()
+	if m.mode != ModeActions || m.actions == nil {
+		t.Fatal("o on a restricted playlist should open playlist actions")
+	}
+	for _, it := range m.actions.items {
+		if it.Type == ActionLoadTracks {
+			t.Error("restricted playlist actions should not offer Load Tracks")
+		}
+	}
+	if sel := m.actions.Selected(); sel.Type != ActionPlayPlaylist {
+		t.Fatalf("first action = %v, want Play Playlist", sel.Label)
+	}
+	_, cmd := m.executeAction(m.actions.Selected(), actionSubject{uri: m.actions.URI(), name: m.actions.Name()})
+	if cmd == nil {
+		t.Fatal("Play Playlist should return a command")
+	}
+	cmd()
+	if playedCtx != "spotify:playlist:pl1" {
+		t.Errorf("played %q, want the playlist from the popup", playedCtx)
+	}
+}
+
+func TestEnterOnEmptyPlaylistWithoutNoticeDoesNothing(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.tracklist.SetTracks(nil, "Empty", "spotify:playlist:empty")
+	m.focusPane = PaneTrackList
+	if _, cmd := m.handleEnter(); cmd != nil {
+		t.Error("Enter on an ordinary empty playlist should not start playback")
+	}
+}
+
+func TestArtistPageWithoutTopTracks(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	page := &source.ArtistPage{
+		Name: "Band",
+		Albums: []source.ArtistAlbum{
+			{ID: "a1", Name: "LP", Year: "2020", Type: "Album"},
+			{ID: "a2", Name: "LP2", Year: "2022", Type: "Album"},
+			{ID: "s1", Name: "Single", Year: "2023", Type: "Single"},
+		},
+	}
+	result, _ := m.Update(artistPageLoadedMsg{page: page})
+	m = result.(Model)
+
+	if first := m.tracklist.tracks[0]; first.Name != "Albums" {
+		t.Errorf("first row = %+v, want the Albums heading (no leading blank row)", first)
+	}
+	if sel := m.tracklist.SelectedTrack(); sel == nil || sel.AlbumID != "a1" {
+		t.Errorf("cursor should start on the first album, got %+v", sel)
+	}
+	if got := m.tracklist.headerInfo; got != "2 albums · 1 single" {
+		t.Errorf("header = %q, want discography summary", got)
+	}
+}
+
+func TestOpeningRestrictedPlaylistFocusesNoticeAndNeverAutoPlays(t *testing.T) {
+	var plays int
+	stub := &StubSource{
+		PlaylistTracksPageFn: func(context.Context, string, int, int) ([]source.Track, int, error) {
+			return nil, 0, source.ErrPlaylistRestricted
+		},
+		PlayTrackFn: func(context.Context, string, string) error {
+			plays++
+			return nil
+		},
+	}
+	m := newTestModel(stub)
+	m.width = 60 // narrow: only the focused pane is drawn
+	m.layoutResize()
+	pl := source.Playlist{ID: "pl1", URI: "spotify:playlist:pl1", Name: "Mix"}
+	m.sidebar.SetPlaylists([]source.Playlist{pl})
+	m.focusPane = PaneSidebar
+
+	// Enter twice from the sidebar (open, then open again): both only open.
+	for range 2 {
+		m.focusPane = PaneSidebar
+		var cmd tea.Cmd
+		m, cmd = m.handleEnter()
+		result, _ := m.Update(cmd())
+		m = result.(Model)
+	}
+	if plays != 0 {
+		t.Fatalf("opening a restricted playlist from the sidebar started playback %d times", plays)
+	}
+	if m.focusPane != PaneTrackList {
+		t.Error("the notice should take focus")
+	}
+	if !strings.Contains(m.View(), "play this playlist") {
+		t.Errorf("notice should be visible on a narrow terminal:\n%s", m.View())
+	}
+
+	// Enter on the focused notice plays.
+	_, cmd := m.handleEnter()
+	cmd()
+	if plays != 1 {
+		t.Errorf("Enter on the notice should play once, got %d", plays)
+	}
+}

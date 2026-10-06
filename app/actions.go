@@ -133,10 +133,23 @@ func NewPlaylistActions(playlistName, uri string, width, height int) ActionsPopu
 			{Type: ActionOpenPlaylistSpotify, Label: "Open in Spotify", Icon: "◎"},
 		},
 		title:  playlistName,
+		name:   playlistName,
 		uri:    uri,
 		width:  width,
 		height: height,
 	}
+}
+
+// withoutLoadTracks drops "Load Tracks" (for a playlist whose tracks Spotify
+// won't list).
+func (a *ActionsPopup) withoutLoadTracks() {
+	items := a.items[:0:0]
+	for _, it := range a.items {
+		if it.Type != ActionLoadTracks {
+			items = append(items, it)
+		}
+	}
+	a.items = items
 }
 
 // MoveDown moves the cursor down in the actions list.

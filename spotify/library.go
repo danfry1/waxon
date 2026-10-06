@@ -48,8 +48,10 @@ type apiSimplePlaylist struct {
 }
 
 type apiFullPlaylist struct {
-	Name  string `json:"name"`
-	Items struct {
+	Name string `json:"name"`
+	// Items is nil when Spotify withholds the contents: development-mode apps
+	// get only the metadata of playlists the user doesn't own or collaborate on.
+	Items *struct {
 		Items []apiPlaylistItem `json:"items"`
 		Total int               `json:"total"`
 	} `json:"items"`
@@ -356,13 +358,17 @@ func (p *PlayerSource) PlaylistTracksPage(ctx context.Context, id string, offset
 	if offset == 0 {
 		var full apiFullPlaylist
 		if err := p.apiGet(ctx, "/playlists/"+id, &full); err != nil {
-			return nil, 0, err
+			return nil, 0, restrictedPlaylistError(err)
 		}
-		tracks := make([]source.Track, 0, len(full.Items.Items))
-		for _, item := range full.Items.Items {
-			tracks = append(tracks, apiTrackToSource(item.Item))
+		if full.Items != nil {
+			tracks := make([]source.Track, 0, len(full.Items.Items))
+			for _, item := range full.Items.Items {
+				tracks = append(tracks, apiTrackToSource(item.Item))
+			}
+			return tracks, full.Items.Total, nil
 		}
-		return tracks, full.Items.Total, nil
+		// No contents in the response: ask the items endpoint, which either
+		// returns them (older response shape) or says why not.
 	}
 
 	var page struct {
@@ -378,7 +384,7 @@ func (p *PlayerSource) PlaylistTracksPage(ctx context.Context, id string, offset
 		}
 		path = fmt.Sprintf("/playlists/%s/tracks?offset=%d&limit=%d", id, offset, limit)
 		if err := p.apiGet(ctx, path, &page); err != nil {
-			return nil, 0, err
+			return nil, 0, restrictedPlaylistError(err)
 		}
 	}
 	tracks := make([]source.Track, 0, len(page.Items))
@@ -386,6 +392,17 @@ func (p *PlayerSource) PlaylistTracksPage(ctx context.Context, id string, offset
 		tracks = append(tracks, apiTrackToSource(item.Item))
 	}
 	return tracks, page.Total, nil
+}
+
+// restrictedPlaylistError maps Spotify's refusals to read a playlist's
+// contents onto source.ErrPlaylistRestricted. Development-mode apps get 403
+// for playlists the user doesn't own or collaborate on, and 404 for
+// Spotify-owned (editorial/algorithmic) playlists, even ones in the library.
+func restrictedPlaylistError(err error) error {
+	if isLegacyFallbackError(err) {
+		return fmt.Errorf("%w: %w", source.ErrPlaylistRestricted, err)
+	}
+	return err
 }
 
 func (p *PlayerSource) LikedTracksPage(ctx context.Context, offset, limit int) ([]source.Track, int, error) {
@@ -486,42 +503,11 @@ func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.
 
 	imageURL := pickImageURL(artist.Images, thumbArtMinPx)
 
-	// Fetch artist's albums (discography)
-	var albumsResp struct {
-		Items []struct {
-			ID          string     `json:"id"`
-			Name        string     `json:"name"`
-			ReleaseDate string     `json:"release_date"`
-			TotalTracks int        `json:"total_tracks"`
-			AlbumType   string     `json:"album_type"`
-			Images      []apiImage `json:"images"`
-		} `json:"items"`
-	}
-	var albums []source.ArtistAlbum
-	albumsErr := p.apiGet(ctx, "/artists/"+artistID+"/albums?include_groups=album,single&limit=20", &albumsResp)
+	albums, albumsErr := p.artistAlbums(ctx, artistID)
 	if albumsErr != nil {
 		// The artist page is still useful without the discography; log rather
 		// than fail the whole view, but don't swallow it silently.
 		slog.Warn("artist discography fetch failed", "artist", artistID, "error", albumsErr)
-	} else {
-		for _, a := range albumsResp.Items {
-			year := a.ReleaseDate
-			if len(year) >= 4 {
-				year = year[:4]
-			}
-			albumType := "Album"
-			if a.AlbumType == "single" {
-				albumType = "Single"
-			}
-			imgURL := pickImageURL(a.Images, thumbArtMinPx)
-			albums = append(albums, source.ArtistAlbum{
-				ID:       a.ID,
-				Name:     a.Name,
-				Year:     year,
-				Type:     albumType,
-				ImageURL: imgURL,
-			})
-		}
 	}
 
 	return &source.ArtistPage{
@@ -531,6 +517,79 @@ func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.
 		Tracks:   tracks,
 		Albums:   albums,
 	}, nil
+}
+
+// Spotify caps /artists/{id}/albums at 10 per page (larger limits are a 400
+// "Invalid limit"). Albums and singles are fetched as separate groups so a
+// long album list can't crowd out recent singles.
+const (
+	artistAlbumsPageSize = 10
+	maxArtistAlbums      = 20
+	maxArtistSingles     = 10
+)
+
+// artistAlbums fetches an artist's albums and singles, newest first within
+// each group. Both groups are fetched concurrently; on failure it returns
+// whatever loaded along with the first error.
+func (p *PlayerSource) artistAlbums(ctx context.Context, artistID string) ([]source.ArtistAlbum, error) {
+	type result struct {
+		albums []source.ArtistAlbum
+		err    error
+	}
+	singlesCh := make(chan result, 1)
+	go func() {
+		albums, err := p.artistAlbumGroup(ctx, artistID, "single", maxArtistSingles)
+		singlesCh <- result{albums, err}
+	}()
+	albums, err := p.artistAlbumGroup(ctx, artistID, "album", maxArtistAlbums)
+	singles := <-singlesCh
+	if err == nil {
+		err = singles.err
+	}
+	return append(albums, singles.albums...), err
+}
+
+// artistAlbumGroup pages through one include_groups value up to maxItems.
+func (p *PlayerSource) artistAlbumGroup(ctx context.Context, artistID, group string, maxItems int) ([]source.ArtistAlbum, error) {
+	var albums []source.ArtistAlbum
+	for offset := 0; offset < maxItems; offset += artistAlbumsPageSize {
+		limit := min(artistAlbumsPageSize, maxItems-offset)
+		var page struct {
+			Items []struct {
+				ID          string     `json:"id"`
+				Name        string     `json:"name"`
+				ReleaseDate string     `json:"release_date"`
+				AlbumType   string     `json:"album_type"`
+				Images      []apiImage `json:"images"`
+			} `json:"items"`
+			Next string `json:"next"`
+		}
+		path := fmt.Sprintf("/artists/%s/albums?include_groups=%s&limit=%d&offset=%d", artistID, group, limit, offset)
+		if err := p.apiGet(ctx, path, &page); err != nil {
+			return albums, err
+		}
+		for _, a := range page.Items {
+			year := a.ReleaseDate
+			if len(year) >= 4 {
+				year = year[:4]
+			}
+			albumType := "Album"
+			if a.AlbumType == "single" {
+				albumType = "Single"
+			}
+			albums = append(albums, source.ArtistAlbum{
+				ID:       a.ID,
+				Name:     a.Name,
+				Year:     year,
+				Type:     albumType,
+				ImageURL: pickImageURL(a.Images, thumbArtMinPx),
+			})
+		}
+		if page.Next == "" || len(page.Items) < limit {
+			break
+		}
+	}
+	return albums, nil
 }
 
 // GetAlbum fetches album details and tracks from the Spotify API.
