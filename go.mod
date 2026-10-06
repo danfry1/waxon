@@ -12,7 +12,7 @@ require (
 	github.com/mattn/go-isatty v0.0.24
 	github.com/muesli/termenv v0.16.0
 	github.com/zmb3/spotify/v2 v2.4.3
-	golang.org/x/oauth2 v0.36.0
+	golang.org/x/oauth2 v0.37.0
 )
 
 require (
