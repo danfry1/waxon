@@ -24,7 +24,7 @@ func TestDeviceAwareConvertsNoActiveDeviceError(t *testing.T) {
 
 func TestDeviceAwarePassesOtherMessagesThrough(t *testing.T) {
 	other := errors.New("boom")
-	cases := []tea.Msg{trackErrorMsg{other}, controlDoneMsg{}, queueDoneMsg{"x"}}
+	cases := []tea.Msg{trackErrorMsg{other}, controlDoneMsg{}, queueDoneMsg{trackName: "x"}}
 	for _, want := range cases {
 		got := deviceAware(func() tea.Msg { return want })()
 		if got != want {

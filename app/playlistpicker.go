@@ -24,6 +24,7 @@ type PlaylistPicker struct {
 	height    int
 	trackID   string // subject of the action
 	trackName string
+	trackIDs  []string // batch subject (visual mode); nil for one track
 }
 
 // pickerMaxRows is the most playlists shown at once.
@@ -113,6 +114,16 @@ func (p PlaylistPicker) Selected() *source.Playlist {
 	}
 	return nil
 }
+
+// NewPlaylistPickerBatch builds a picker that adds several tracks at once.
+func NewPlaylistPickerBatch(pls []source.Playlist, trackIDs []string, width, height int) PlaylistPicker {
+	p := NewPlaylistPicker(pls, "", fmt.Sprintf("%d %s", len(trackIDs), pluralize(len(trackIDs), "track", "tracks")), width, height)
+	p.trackIDs = trackIDs
+	return p
+}
+
+// TrackIDs returns the batch of tracks the picker is acting on, if any.
+func (p PlaylistPicker) TrackIDs() []string { return p.trackIDs }
 
 // TrackID returns the track the picker is acting on.
 func (p PlaylistPicker) TrackID() string { return p.trackID }

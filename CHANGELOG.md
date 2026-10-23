@@ -15,6 +15,13 @@ Each release's section is also used verbatim as the GitHub Release notes.
   Now Playing, and can be rebound as `vol_up`, `vol_down`, `shuffle` and
   `repeat`. Holding `+` sends a single volume change once you stop.
 - Click the progress bar in the status area to seek.
+- Visual mode: `v` in the track list selects a range of tracks. `a` queues
+  them in order, `f` likes them, `o` adds them to a playlist and `d` removes
+  them from your own playlist.
+- Count prefixes in the track list: `5j`, `3k`, `12G` and `12gg` work as in
+  vim. While the track list has focus, digits start a count; `1` and `2`
+  still switch to Library and Queue from the sidebar, as do `gl` and `gq`
+  from anywhere.
 
 ### Changed
 

@@ -41,6 +41,7 @@ type TrackList struct {
 	width       int
 	height      int
 	nowPlaying  string // ID of currently playing track
+	visual      int    // visual-mode anchor (display index); -1 when not selecting
 }
 
 // Column layout breakpoints, measured on the usable width inside the pane
@@ -106,6 +107,7 @@ func NewTrackList(width, height int) TrackList {
 		title:  "Tracks",
 		width:  width,
 		height: height,
+		visual: -1,
 	}
 	// Recompute the viewport height now that the bordered header style is
 	// applied, so the visible-row capacity is stable from the start (the
@@ -138,6 +140,7 @@ func (tl *TrackList) Restyle() {
 
 func (tl *TrackList) SetLoading(title string) {
 	tl.loading = true
+	tl.visual = -1
 	tl.title = title
 	tl.tracks = nil
 	tl.searchKeys = nil
@@ -181,6 +184,7 @@ func (tl *TrackList) SetTracks(tracks []source.Track, title, contextURI string) 
 	tl.tracks = tracks
 	tl.searchKeys = buildSearchKeys(tracks)
 	tl.title = title
+	tl.visual = -1 // a reloaded list invalidates the selection
 	tl.subtitle = ""
 	tl.headerInfo = ""
 	tl.notice = ""
@@ -303,8 +307,76 @@ func (tl *TrackList) syncViewport() {
 	tl.offset = clampInt(tl.offset, 0, max(0, n-visible))
 
 	end := min(tl.offset+visible, n)
-	tl.table.SetRows(tl.allRows[tl.offset:end])
+	window := tl.allRows[tl.offset:end]
+	if tl.visual >= 0 {
+		// Mark the selected range in the marker column. Only the visible
+		// window is touched, so moving the selection is cheap on long lists.
+		lo, hi := tl.VisualRange()
+		marked := make([]table.Row, len(window))
+		for i, row := range window {
+			marked[i] = row
+			if d := tl.offset + i; d >= lo && d <= hi && row[0] != "▶" && tl.selectable(d) {
+				r := append(table.Row(nil), row...)
+				r[0] = "┃"
+				marked[i] = r
+			}
+		}
+		window = marked
+	}
+	tl.table.SetRows(window)
 	tl.table.SetCursor(tl.cursor - tl.offset)
+}
+
+// StartVisual anchors a visual selection at the cursor.
+func (tl *TrackList) StartVisual() {
+	tl.visual = tl.cursor
+	tl.syncViewport()
+}
+
+// EndVisual drops the visual selection.
+func (tl *TrackList) EndVisual() {
+	tl.visual = -1
+	tl.syncViewport()
+}
+
+// Visual reports whether a visual selection is active.
+func (tl *TrackList) Visual() bool { return tl.visual >= 0 }
+
+// VisualRange returns the selected display rows, inclusive.
+func (tl *TrackList) VisualRange() (lo, hi int) {
+	return min(tl.visual, tl.cursor), max(tl.visual, tl.cursor)
+}
+
+// selectable reports whether display row d is a playable track (not a
+// separator or discography album row).
+func (tl *TrackList) selectable(d int) bool {
+	display := tl.displayTracks()
+	return d >= 0 && d < len(display) && !display[d].IsSeparator && !display[d].IsAlbumRow
+}
+
+// VisualSelection returns the selected tracks in list order, and each one's
+// index into the full track list (its playlist position, stable under a
+// filter). With no visual selection it is just the cursor row.
+func (tl *TrackList) VisualSelection() ([]source.Track, []int) {
+	lo, hi := tl.cursor, tl.cursor
+	if tl.visual >= 0 {
+		lo, hi = tl.VisualRange()
+	}
+	display := tl.displayTracks()
+	var tracks []source.Track
+	var idx []int
+	for d := lo; d <= hi && d < len(display); d++ {
+		if !tl.selectable(d) {
+			continue
+		}
+		tracks = append(tracks, display[d])
+		if tl.filtered != nil {
+			idx = append(idx, tl.filteredIdx[d])
+		} else {
+			idx = append(idx, d)
+		}
+	}
+	return tracks, idx
 }
 
 // MoveUp moves the selection up by n rows.
@@ -328,6 +400,12 @@ func (tl *TrackList) HalfPageDown() { tl.MoveDown(max(1, tl.capacity()/2)) }
 // GotoTop moves the selection to the first row.
 func (tl *TrackList) GotoTop() {
 	tl.cursor = 0
+	tl.syncViewport()
+}
+
+// GotoRow moves the selection to display row i (clamped).
+func (tl *TrackList) GotoRow(i int) {
+	tl.cursor = i
 	tl.syncViewport()
 }
 
@@ -391,6 +469,7 @@ func (tl *TrackList) RemoveAt(i int) {
 		return
 	}
 	tl.tracks = append(tl.tracks[:i], tl.tracks[i+1:]...)
+	tl.visual = -1
 	tl.searchKeys = append(tl.searchKeys[:i], tl.searchKeys[i+1:]...)
 	if tl.filterText != "" {
 		tl.applyFilter(tl.filterText)
@@ -667,6 +746,7 @@ func (tl *TrackList) GetState(pane Pane) NavState {
 // RestoreState restores the tracklist from a previously saved NavState.
 func (tl *TrackList) RestoreState(s NavState) {
 	tl.loading = false
+	tl.visual = -1
 	tl.tracks = s.tracks
 	tl.searchKeys = buildSearchKeys(s.tracks)
 	tl.title = s.title

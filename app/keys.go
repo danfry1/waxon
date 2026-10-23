@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type KeyMap struct {
@@ -35,6 +36,7 @@ type KeyMap struct {
 	Repeat    key.Binding
 
 	// Actions
+	Visual   key.Binding
 	AddQueue key.Binding
 	Like     key.Binding
 	Actions  key.Binding
@@ -81,6 +83,7 @@ func DefaultKeyMap() KeyMap {
 		Shuffle:   key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "shuffle")),
 		Repeat:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "repeat")),
 
+		Visual:   key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "visual select")),
 		AddQueue: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add to queue")),
 		Like:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "favourite")),
 		Actions:  key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "actions")),
@@ -180,6 +183,26 @@ func (t *GTracker) Reset() {
 	t.pending = false
 }
 
+// maxCount caps a typed count prefix.
+const maxCount = 9999
+
+// countDigit reports whether msg extends a count prefix: 1-9, or 0 once a
+// count has started. A digit the user has bound to another action (other
+// than the section keys a count replaces) keeps that action.
+func (m Model) countDigit(msg tea.KeyMsg) (int, bool) {
+	s := msg.String()
+	if len(s) != 1 || s[0] < '0' || s[0] > '9' || (s[0] == '0' && m.count == 0) {
+		return 0, false
+	}
+	k := m.keys
+	for name, b := range k.keyBindingFields() {
+		if name != "section1" && name != "section2" && key.Matches(msg, *b) {
+			return 0, false
+		}
+	}
+	return int(s[0] - '0'), true
+}
+
 // keyBindingFields maps config action names to KeyMap fields. Names are what
 // users write in config.json under "keys". The g-prefix table and Esc (which
 // closes every overlay/mode) are fixed and not listed here.
@@ -191,7 +214,7 @@ func (k *KeyMap) keyBindingFields() map[string]*key.Binding {
 		"enter": &k.Enter, "play_pause": &k.PlayPause, "next": &k.Next, "prev": &k.Prev,
 		"seek_fwd": &k.SeekFwd, "seek_back": &k.SeekBack,
 		"vol_up": &k.VolUp, "vol_down": &k.VolDown, "shuffle": &k.Shuffle, "repeat": &k.Repeat,
-		"add_queue": &k.AddQueue, "like": &k.Like, "actions": &k.Actions, "devices": &k.Devices,
+		"visual": &k.Visual, "add_queue": &k.AddQueue, "like": &k.Like, "actions": &k.Actions, "devices": &k.Devices,
 		"back": &k.Back, "filter": &k.Filter, "search": &k.Search, "command": &k.Command,
 		"help": &k.Help, "now_playing": &k.NowPlaying, "quit": &k.Quit,
 		"section1": &k.Section1, "section2": &k.Section2,
