@@ -25,6 +25,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Changed
 
+- A track played from search now plays inside its album, so playback carries
+  on with the rest of the album instead of stopping after one track.
 - waxon uses less CPU when idle. The progress tick stops while nothing is
   playing or loading and slows to once a second while the terminal is
   unfocused. Vinyl mode holds still while unfocused, and its frame is reused
