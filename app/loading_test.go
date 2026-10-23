@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/danfry1/waxon/source"
 )
@@ -58,5 +59,18 @@ func TestOpeningNowPlayingFetchesLyrics(t *testing.T) {
 	m, _ = press(t, m, "N")
 	if m.lyricsTrackID != "t1" || !m.lyricsLoading {
 		t.Error("opening Now Playing should look up lyrics for the hint")
+	}
+}
+
+func TestLoadingMoreFitsNarrowPane(t *testing.T) {
+	for w := 30; w <= 60; w++ {
+		tl := NewTrackList(w, 20)
+		tl.SetTracks([]source.Track{{ID: "a", Name: "A"}}, "Mix", "")
+		tl.SetArt(strings.Repeat(strings.Repeat("x", HeaderArtW)+"\n", HeaderArtH-1) + strings.Repeat("x", HeaderArtW))
+		tl.SetHeaderInfo(FormatPartialTrackListInfo(1500, 12000))
+		tl.loadingMore = true
+		if h := lipgloss.Height(tl.View(true)); h != tl.height {
+			t.Errorf("width %d: pane is %d rows, want %d", w, h, tl.height)
+		}
 	}
 }

@@ -611,12 +611,24 @@ func (tl TrackList) View(active bool) string {
 
 	// Render header info line (track count, duration, etc.)
 	if tl.headerInfo != "" {
-		info := StyleDimText.Render(tl.headerInfo)
-		if tl.loadingMore {
-			spin := lipgloss.NewStyle().Foreground(CurrentAccent()).Render(spinnerFrames[tl.spinFrame])
-			info += StyleDimText.Render(" · ") + spin + StyleDimText.Render(" loading more")
+		// The header has exactly one row for this line (tableHeight counts on
+		// it), so it must not wrap: drop the label, then fall back to a bare
+		// spinner, as the pane narrows.
+		avail := tl.width - 3 // border + leading space
+		if tl.artBlock != "" {
+			avail -= HeaderArtW + 1
 		}
-		header += "\n " + info
+		info := tl.headerInfo
+		if tl.loadingMore {
+			spin := spinnerFrames[tl.spinFrame]
+			switch full := info + " · " + spin + " loading more"; {
+			case ansi.StringWidth(full) <= avail:
+				info = full
+			default:
+				info += " " + spin
+			}
+		}
+		header += "\n " + StyleDimText.Render(ansi.Truncate(info, max(0, avail), "…"))
 	}
 
 	// Show playlist art alongside title if available
