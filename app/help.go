@@ -81,6 +81,9 @@ func helpCategories(k KeyMap) []helpCategory {
 				hb(k.Enter, "play selected"),
 				pair(k.Next, k.Prev, "next / previous"),
 				pair(k.SeekBack, k.SeekFwd, "seek -5s / +5s"),
+				pair(k.VolDown, k.VolUp, "volume -5 / +5"),
+				hb(k.Shuffle, "toggle shuffle"),
+				hb(k.Repeat, "repeat off/all/one"),
 			},
 		},
 		{
@@ -114,6 +117,7 @@ func helpCategories(k KeyMap) []helpCategory {
 				{"click", "select row"},
 				{"2×click", "open / play"},
 				{"wheel", "scroll pane"},
+				{"click bar", "seek"},
 			},
 		},
 	}
