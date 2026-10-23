@@ -1940,7 +1940,7 @@ func (m *Model) renderNPArt() {
 		m.npArt = ""
 		return
 	}
-	m.npArt = renderHalfBlocks(m.npSourceImg, w, h)
+	m.npArt = renderArt("np", m.npSourceImg, w, h)
 }
 
 // Layout breakpoints.

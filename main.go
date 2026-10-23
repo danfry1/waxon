@@ -87,11 +87,47 @@ func main() {
 	opts := applyUserConfig()
 	opts.SharedClientID = effectiveClientID() == myauth.DefaultClientID
 	m := app.NewModel(src).WithOptions(opts)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithReportFocus())
-	if _, err := p.Run(); err != nil {
+	p := tea.NewProgram(m, programOptions()...)
+	_, err := p.Run()
+	app.ClearKittyImages()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// graphicsOut is the Program's output when kitty art is on (see
+// configureArt): images are written through it between frames.
+var graphicsOut *app.TTYOutput
+
+// programOptions are the Bubbletea options for the TUI.
+func programOptions() []tea.ProgramOption {
+	opts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithReportFocus()}
+	if graphicsOut != nil {
+		opts = append(opts, tea.WithOutput(graphicsOut))
+	}
+	return opts
+}
+
+// configureArt applies the "art" setting on top of the detected colour
+// support. Kitty images need true colour (the image ID is a 24-bit colour).
+func configureArt(setting string) {
+	mode := app.DetectArtMode()
+	app.SetArtMode(mode)
+	switch setting {
+	case "", "blocks":
+		return
+	case "kitty", "auto":
+		if mode != app.ArtTrueColor || (setting == "auto" && !app.KittyTerminal()) {
+			return
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "Warning: config art %q not recognised (use blocks, kitty or auto)\n", setting)
+		return
+	}
+	graphicsOut = app.NewTTYOutput(os.Stdout)
+	app.SetGraphicsOutput(graphicsOut)
+	app.SetArtMode(app.ArtKitty)
 }
 
 // applyUserConfig reads theme/colour/key settings from the config file,
@@ -117,7 +153,11 @@ func applyUserConfig() app.Options {
 		palette, _ = app.ResolveTheme(app.DefaultThemeName, overrides)
 	}
 	app.ApplyTheme(palette)
-	app.SetArtMode(app.DetectArtMode())
+	art := cfg.Art
+	if env := os.Getenv("WAXON_ART"); env != "" {
+		art = env
+	}
+	configureArt(art)
 	if dir := app.DefaultImageCacheDir(); dir != "" {
 		app.SetImageCacheDir(dir)
 		go app.PruneImageCache()
@@ -312,5 +352,6 @@ Usage:
 
 Environment:
   SPOTIFY_CLIENT_ID  Override the saved Client ID
-  WAXON_LOG          Path to debug log file (e.g. /tmp/waxon.log)`)
+  WAXON_LOG          Path to debug log file (e.g. /tmp/waxon.log)
+  WAXON_ART          Album art: blocks (default), kitty, or auto`)
 }
