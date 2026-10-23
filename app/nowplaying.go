@@ -115,7 +115,8 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 		timeStr := fmt.Sprintf("%s / %s", fmtDur(track.Position), fmtDur(track.Duration))
 		sections = append(sections, dimStyle.Render(timeStr))
 		sections = append(sections, "")
-		hint := "space play · n/p skip · f like · a queue · l lyrics · o actions · N close"
+		lyricsHint := npLyricsHint(lyr)
+		hint := "space play · n/p skip · f like · a queue · " + lyricsHint + " · o actions · N close"
 		if width < lipgloss.Width(hint)+2 {
 			hint = "space · n/p · f · a · l · o · N"
 		}
@@ -300,6 +301,22 @@ func activeLyricLine(lines []source.LyricLine, pos time.Duration) int {
 		}
 	}
 	return idx
+}
+
+// npLyricsHint labels the lyrics key with what pressing it will show, so
+// it's clear before toggling whether the track has lyrics at all.
+func npLyricsHint(lyr npLyrics) string {
+	switch {
+	case lyr.loading:
+		return "l lyrics…"
+	case lyr.err:
+		return "l lyrics"
+	case lyr.lyrics == nil || len(lyr.lyrics.Lines) == 0:
+		return "no lyrics"
+	case lyr.lyrics.Synced:
+		return "l synced lyrics"
+	}
+	return "l lyrics"
 }
 
 // renderLyricsBlock renders the lyrics into a w×h region for the Now Playing

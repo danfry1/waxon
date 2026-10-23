@@ -33,6 +33,11 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Changed
 
+- The track list shows placeholder rows while a list first loads, and a
+  "loading more" spinner in its header while the next page of a long playlist
+  is fetched.
+- Now Playing says whether the track has lyrics before you press `l`
+  ("l synced lyrics", "l lyrics" or "no lyrics").
 - A track played from search now plays inside its album, so playback carries
   on with the rest of the album instead of stopping after one track.
 - waxon uses less CPU when idle. The progress tick stops while nothing is
