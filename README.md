@@ -80,7 +80,12 @@ waxon auth            # guided
 waxon auth --own      # set up / switch to your own app
 waxon auth --shared   # use the shared app
 waxon auth --client-id <ID>
+waxon logout          # forget the saved login
 ```
+
+**Over SSH** (or whenever the browser is on another machine): open the printed
+URL anywhere, approve, and paste the address the browser lands on back into
+the terminal. That page won't load, which is expected; waxon only needs its URL.
 
 Requires a **Spotify Premium** account. True-colour terminals get the full look; 256-colour and `NO_COLOR` terminals are supported with graceful fallbacks.
 

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,11 +11,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/muesli/cancelreader"
 	"golang.org/x/oauth2"
 )
 
@@ -71,11 +75,11 @@ func callbackHandler(path, expectedState string, codeCh chan<- string, errCh cha
 	mux := http.NewServeMux()
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("state") != expectedState {
+			// Not this login's redirect (a stale tab, or something probing
+			// the port): refuse it without ending the login, which may still
+			// complete here or by paste.
 			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
-			select {
-			case errCh <- errors.New("OAuth state mismatch (possible CSRF)"):
-			default:
-			}
+			slog.Warn("ignored OAuth callback with mismatched state")
 			return
 		}
 		code := r.URL.Query().Get("code")
@@ -130,11 +134,6 @@ func redirectURI(clientID string) string {
 }
 
 func Authenticate(clientID string) (*oauth2.Token, error) {
-	addr := fmt.Sprintf("127.0.0.1:%d", DefaultCallbackPort)
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("listen on %s: %w (is another instance running?)", addr, err)
-	}
 	path := callbackPath(clientID)
 	redirectURL := redirectURI(clientID)
 
@@ -154,34 +153,60 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 		oauth2.SetAuthURLParam("code_challenge", challenge),
 	)
 
-	fmt.Printf("\n  Opening browser for Spotify login...\n")
-	if browserErr := openBrowser(authURL); browserErr != nil {
-		fmt.Printf("  Could not open browser automatically.\n")
-	}
-	fmt.Printf("  If it doesn't open, visit this URL:\n\n    %s\n\n", authURL)
-	fmt.Printf("  Waiting for Spotify authorization...\n")
-
+	addr := fmt.Sprintf("127.0.0.1:%d", DefaultCallbackPort)
+	listener, listenErr := net.Listen("tcp", addr)
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
-
-	server := &http.Server{
-		Handler:           callbackHandler(path, state, codeCh, errCh),
-		ReadHeaderTimeout: 10 * time.Second,
+	stopPaste, canPaste := readPastedRedirect(state, codeCh, errCh)
+	if listenErr != nil && !canPaste {
+		return nil, fmt.Errorf("listen on %s: %w (is another instance running?)", addr, listenErr)
 	}
-	go func() { _ = server.Serve(listener) }()
+
+	remote := isRemoteSession()
+	if remote {
+		fmt.Printf("\n  This looks like an SSH session. Open this URL in a browser on any machine:\n\n    %s\n\n", authURL)
+	} else {
+		fmt.Printf("\n  Opening browser for Spotify login...\n")
+		if browserErr := openBrowser(authURL); browserErr != nil {
+			fmt.Printf("  Could not open browser automatically.\n")
+		}
+		fmt.Printf("  If it doesn't open, visit this URL:\n\n    %s\n\n", authURL)
+	}
+	if canPaste {
+		fmt.Printf("  If the browser can't reach this machine, the page after you approve won't load.\n")
+		fmt.Printf("  That's expected: copy its address from the address bar and paste it here.\n\n")
+	}
+	fmt.Printf("  Waiting for Spotify authorization...\n")
+
+	var server *http.Server
+	if listenErr == nil {
+		server = &http.Server{
+			Handler:           callbackHandler(path, state, codeCh, errCh),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() { _ = server.Serve(listener) }()
+	} else {
+		// Pasting the redirect still works without the callback server.
+		slog.Warn("callback listener unavailable; paste-only login", "addr", addr, "error", listenErr)
+		fmt.Printf("  (Couldn't listen on %s, so paste the address when you get there.)\n", addr)
+	}
 
 	var code string
 	select {
 	case code = <-codeCh:
 	case authErr := <-errCh:
-		_ = server.Close()
+		stopPaste()
+		closeServer(server)
 		return nil, authErr
 	case <-time.After(5 * time.Minute):
-		_ = server.Close()
+		stopPaste()
+		closeServer(server)
 		return nil, errors.New("timed out waiting for Spotify authorization (5 minutes)")
 	}
-
-	_ = server.Shutdown(context.Background())
+	stopPaste()
+	if server != nil {
+		_ = server.Shutdown(context.Background())
+	}
 
 	// Bound the token exchange so a stalled token endpoint can't hang the
 	// auth command indefinitely.
@@ -195,6 +220,104 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 	}
 
 	return token, nil
+}
+
+func closeServer(s *http.Server) {
+	if s != nil {
+		_ = s.Close()
+	}
+}
+
+// isRemoteSession reports whether waxon is running over SSH, where a browser
+// opened here (if any) isn't the one the user is looking at.
+func isRemoteSession() bool {
+	return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != ""
+}
+
+// readPastedRedirect reads lines from stdin, accepting a pasted redirect URL
+// as an alternative to the callback server, and sends its code on codeCh.
+// The returned stop cancels the read: waxon may start the TUI next, and a
+// reader left blocked on stdin would swallow its first keystrokes. ok is
+// false when stdin can't be read this way, and pasting isn't offered.
+//
+// Windows is left on the callback-only flow: cancelreader puts the console in
+// raw mode there (no echo, no line editing, Ctrl-C delivered as a byte).
+func readPastedRedirect(state string, codeCh chan<- string, errCh chan<- error) (stop func(), ok bool) {
+	if runtime.GOOS == "windows" {
+		return func() {}, false
+	}
+	r, err := cancelreader.NewReader(os.Stdin)
+	if err != nil {
+		return func() {}, false
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sc := bufio.NewScanner(r)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line == "" {
+				continue
+			}
+			code, err := codeFromRedirect(line, state)
+			var denied deniedError
+			if errors.As(err, &denied) {
+				select {
+				case errCh <- err:
+				default:
+				}
+				return
+			}
+			if err != nil {
+				fmt.Printf("  %v. Paste the full address, starting with http://127.0.0.1\n", err)
+				continue
+			}
+			select {
+			case codeCh <- code:
+			default:
+			}
+			return
+		}
+	}()
+	return func() {
+		// Wait for the reader to exit only when the cancel took effect; the
+		// fallback reader can't interrupt a blocked read, and waiting would
+		// hang until a key is pressed.
+		if r.Cancel() {
+			<-done
+		}
+		_ = r.Close()
+	}, true
+}
+
+// deniedError is a redirect carrying Spotify's refusal (e.g. the user
+// pressed Cancel), which ends the login rather than asking for another paste.
+type deniedError struct{ reason string }
+
+func (e deniedError) Error() string { return "auth denied: " + e.reason }
+
+// codeFromRedirect extracts the authorization code from a pasted redirect
+// URL, checking its state like the callback handler does.
+func codeFromRedirect(raw, state string) (string, error) {
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw // some address bars drop the scheme when copied
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.RawQuery == "" {
+		return "", errors.New("that doesn't look like the redirect address")
+	}
+	q := u.Query()
+	if q.Get("state") != state {
+		return "", errors.New("that address is from a different login attempt")
+	}
+	if e := q.Get("error"); e != "" {
+		return "", deniedError{e}
+	}
+	code := q.Get("code")
+	if code == "" {
+		return "", errors.New("the address has no authorization code")
+	}
+	return code, nil
 }
 
 func openBrowser(url string) error {

@@ -496,3 +496,19 @@ func TestNewPersistingTokenSourceFields(t *testing.T) {
 		t.Errorf("lastSaved = %q, want %q", pts.lastSaved, "test-access")
 	}
 }
+
+func TestDeleteToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.json")
+	if err := SaveToken(path, &oauth2.Token{AccessToken: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := DeleteToken(path); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("token file should be gone")
+	}
+	if err := DeleteToken(path); err != nil {
+		t.Errorf("deleting a missing token should succeed, got %v", err)
+	}
+}
