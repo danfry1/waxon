@@ -166,14 +166,24 @@ func (p *PlayerSource) TransferPlayback(ctx context.Context, deviceID string) er
 	return wrapPlayerError(p.client.TransferPlayback(ctx, id, true))
 }
 
+// Queue reads the queue through waxon's own API path so episodes keep their
+// type (zmb3 decodes every entry as a track).
 func (p *PlayerSource) Queue(ctx context.Context) ([]source.Track, error) {
-	q, err := p.client.GetQueue(ctx)
-	if err != nil {
+	var q struct {
+		Queue []json.RawMessage `json:"queue"`
+	}
+	if err := p.apiGet(ctx, "/me/player/queue", &q); err != nil {
 		return nil, err
 	}
-	tracks := make([]source.Track, len(q.Items))
-	for i, item := range q.Items {
-		tracks[i] = fullTrackToSource(item)
+	tracks := make([]source.Track, 0, len(q.Queue))
+	for _, raw := range q.Queue {
+		var kind struct {
+			Type string `json:"type"`
+		}
+		_ = json.Unmarshal(raw, &kind)
+		if t, ok := playingItem(kind.Type, raw); ok {
+			tracks = append(tracks, t)
+		}
 	}
 	return tracks, nil
 }
@@ -245,7 +255,7 @@ func (p *PlayerSource) currentUserID(ctx context.Context) (string, error) {
 func (p *PlayerSource) AddToPlaylist(ctx context.Context, playlistID, trackID string) error {
 	body := map[string]any{"uris": []string{itemURI(trackID)}}
 	err := p.apiWrite(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", body, nil)
-	if err != nil && isLegacyFallbackError(err) {
+	if err != nil && isLegacyFallbackError(err) && !isURI(trackID) {
 		_, err = p.client.AddTracksToPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
 	}
 	return wrapScopeError(err)
@@ -260,7 +270,7 @@ func (p *PlayerSource) RemoveFromPlaylist(ctx context.Context, playlistID, track
 	}
 	body := map[string]any{"items": []map[string]any{item}}
 	err := p.apiWrite(ctx, http.MethodDelete, "/playlists/"+playlistID+"/items", body, nil)
-	if err != nil && isLegacyFallbackError(err) {
+	if err != nil && isLegacyFallbackError(err) && (position >= 0 || !isURI(trackID)) {
 		if position < 0 {
 			_, err = p.client.RemoveTracksFromPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
 		} else {

@@ -23,19 +23,21 @@ func itemURI(ref string) string {
 	return "spotify:track:" + ref
 }
 
+type apiShowRef = struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Publisher string     `json:"publisher"`
+	Images    []apiImage `json:"images"`
+}
+
 type apiEpisode struct {
-	ID          string     `json:"id"`
-	URI         string     `json:"uri"`
-	Name        string     `json:"name"`
-	Duration    int        `json:"duration_ms"`
-	ReleaseDate string     `json:"release_date"`
-	Images      []apiImage `json:"images"`
-	Show        *struct {
-		ID        string     `json:"id"`
-		Name      string     `json:"name"`
-		Publisher string     `json:"publisher"`
-		Images    []apiImage `json:"images"`
-	} `json:"show"`
+	ID          string      `json:"id"`
+	URI         string      `json:"uri"`
+	Name        string      `json:"name"`
+	Duration    int         `json:"duration_ms"`
+	ReleaseDate string      `json:"release_date"`
+	Images      []apiImage  `json:"images"`
+	Show        *apiShowRef `json:"show"`
 }
 
 // apiEpisodeToSource maps an episode onto a Track: the show stands in for the
@@ -117,18 +119,21 @@ func (p *PlayerSource) ShowEpisodesPage(ctx context.Context, showID string, offs
 		Items []*apiEpisode `json:"items"` // unavailable episodes come back as null
 		Total int           `json:"total"`
 	}
-	path := fmt.Sprintf("/shows/%s/episodes?limit=%d&offset=%d", showID, min(limit, 50), offset)
+	path := fmt.Sprintf("/shows/%s/episodes?limit=%d&offset=%d&market=from_token", showID, min(limit, 50), offset)
 	if err := p.apiGet(ctx, path, &page); err != nil {
 		return nil, 0, err
 	}
 	tracks := make([]source.Track, 0, len(page.Items))
 	for _, e := range page.Items {
 		if e == nil {
+			// Keep the slot (as a blank, unselectable row) so the caller's
+			// next offset, which counts rows, stays in step with Spotify's.
+			tracks = append(tracks, source.Track{IsSeparator: true})
 			continue
 		}
 		t := apiEpisodeToSource(*e)
 		t.ShowID = showID
-		t.Artist = e.ReleaseDate // the show is the page; the date tells episodes apart
+		t.Album = e.ReleaseDate // the show is the page; the date tells episodes apart
 		tracks = append(tracks, t)
 	}
 	return tracks, page.Total, nil

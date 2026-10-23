@@ -1,7 +1,11 @@
 package spotify
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -24,5 +28,43 @@ func TestPlayingItemEpisode(t *testing.T) {
 func TestItemURI(t *testing.T) {
 	if itemURI("abc") != "spotify:track:abc" || itemURI("spotify:episode:x") != "spotify:episode:x" {
 		t.Error("bare IDs are tracks; URIs pass through")
+	}
+}
+
+func TestPlaylistItemEpisodeIsEpisode(t *testing.T) {
+	tr := apiTrackToSource(apiTrack{ID: "e1", URI: "spotify:episode:e1", Name: "Ep", Show: &apiShowRef{ID: "sh", Name: "Show"}})
+	if !tr.IsEpisode || tr.ID != "spotify:episode:e1" || tr.Artist != "Show" {
+		t.Errorf("playlist episode = %+v", tr)
+	}
+}
+
+func TestQueueKeepsEpisodes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/me/player/queue") {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"queue":[
+			{"type":"track","id":"t1","uri":"spotify:track:t1","name":"Song"},
+			{"type":"episode","id":"e1","uri":"spotify:episode:e1","name":"Ep","show":{"id":"sh","name":"Show"}}]}`))
+	}))
+	defer srv.Close()
+	got, err := newTestPlayerSource(srv.URL).Queue(context.Background())
+	if err != nil || len(got) != 2 {
+		t.Fatalf("queue = %+v, %v", got, err)
+	}
+	if got[0].ID != "t1" || !got[1].IsEpisode || got[1].ID != "spotify:episode:e1" {
+		t.Errorf("queue = %+v", got)
+	}
+}
+
+func TestShowEpisodesKeepNullSlots(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"total":3,"items":[{"id":"e1","uri":"spotify:episode:e1","name":"A"},null,{"id":"e3","uri":"spotify:episode:e3","name":"C"}]}`))
+	}))
+	defer srv.Close()
+	got, _, err := newTestPlayerSource(srv.URL).ShowEpisodesPage(context.Background(), "sh", 0, 50)
+	if err != nil || len(got) != 3 || !got[1].IsSeparator {
+		t.Errorf("an unavailable episode should keep its slot so offsets line up: %+v %v", got, err)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danfry1/waxon/source"
@@ -75,6 +76,10 @@ type apiTrack struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"artists"`
+	// Show is set when the item is a podcast episode (playlists can hold
+	// them); the converter then builds an episode Track.
+	Show   *apiShowRef `json:"show"`
+	Images []apiImage  `json:"images"` // episodes carry their own images
 }
 
 // isLegacyFallbackError reports whether a failure on a current-API endpoint
@@ -139,6 +144,9 @@ func pickImageURL(images []apiImage, minPx int) string {
 
 // apiTrackToSource converts an apiTrack to a source.Track.
 func apiTrackToSource(t apiTrack) source.Track {
+	if strings.HasPrefix(t.URI, "spotify:episode:") {
+		return apiEpisodeToSource(apiEpisode{ID: t.ID, URI: t.URI, Name: t.Name, Duration: t.Duration, Images: t.Images, Show: t.Show})
+	}
 	artist := ""
 	artistID := ""
 	if len(t.Artists) > 0 {

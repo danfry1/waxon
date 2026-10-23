@@ -111,12 +111,18 @@ func (m Model) fetchMoreTracks() tea.Cmd {
 	ctx := m.ctx
 	id := p.playlistID
 	offset := p.loaded
+	title := p.title
 	return func() tea.Msg {
 		var tracks []source.Track
 		var total int
 		var err error
 		if showID, ok := strings.CutPrefix(id, showKeyPrefix); ok {
 			tracks, total, err = src.ShowEpisodesPage(ctx, showID, offset, showPageSize)
+			for i := range tracks {
+				if tracks[i].IsEpisode && tracks[i].Artist == "" {
+					tracks[i].Artist = title
+				}
+			}
 		} else {
 			tracks, total, err = src.PlaylistTracksPage(ctx, id, offset, playlistPageSize)
 		}
@@ -388,7 +394,7 @@ func (m Model) checkLikeStatus(trackID string) tea.Cmd {
 	return func() tea.Msg {
 		saved, err := src.IsTrackSaved(ctx, trackID)
 		if err != nil {
-			return likeStatusErrorMsg{err}
+			return likeStatusErrorMsg{err: err, episode: strings.HasPrefix(trackID, "spotify:episode:")}
 		}
 		return trackLikeStatusMsg{trackID: trackID, liked: saved}
 	}

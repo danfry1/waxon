@@ -143,6 +143,11 @@ func (m Model) fetchShowEpisodes(showID, title string) tea.Cmd {
 		if err != nil {
 			return trackErrorMsg{err}
 		}
+		for i := range eps {
+			if eps[i].IsEpisode && eps[i].Artist == "" {
+				eps[i].Artist = title // so actions and Now Playing name the show
+			}
+		}
 		return tracksLoadedMsg{
 			tracks:     eps,
 			title:      title,

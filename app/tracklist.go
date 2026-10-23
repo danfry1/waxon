@@ -263,11 +263,15 @@ func (tl *TrackList) rebuildRows() {
 			if t.ID == tl.nowPlaying {
 				prefix = "▶"
 			}
+			who := t.Artist
+			if t.IsEpisode && tl.contextURI == "spotify:show:"+t.ShowID {
+				who = t.Album // in the show's own list, the release date
+			}
 			rows[i] = table.Row{
 				prefix,
 				strconv.Itoa(trackNum),
 				truncate(t.Name, tl.columnWidth(2)),
-				truncate(t.Artist, tl.columnWidth(3)),
+				truncate(who, tl.columnWidth(3)),
 				fmtDur(t.Duration),
 			}
 		}

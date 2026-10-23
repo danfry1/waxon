@@ -200,3 +200,24 @@ func TestEpisodeSkipsLyricsLookup(t *testing.T) {
 		t.Error("episodes have no lyrics to look up")
 	}
 }
+
+func TestEpisodeLikeRefusalKeepsTrackChecks(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	res, _ := m.Update(likeStatusErrorMsg{err: source.ErrForbidden, episode: true})
+	if res.(Model).likeUnavailable {
+		t.Error("an episode's refusal must not disable like checks for tracks")
+	}
+	res, _ = m.Update(likeStatusErrorMsg{err: source.ErrForbidden})
+	if !res.(Model).likeUnavailable {
+		t.Error("a track's refusal still disables them")
+	}
+}
+
+func TestQueuedEpisodePlaysByURI(t *testing.T) {
+	if got := queuedURI(source.Playlist{ID: "spotify:episode:e1", URI: "spotify:episode:e1"}); got != "spotify:episode:e1" {
+		t.Errorf("queued episode plays %q", got)
+	}
+	if got := queuedURI(source.Playlist{ID: "t1"}); got != "spotify:track:t1" {
+		t.Errorf("queued track plays %q", got)
+	}
+}

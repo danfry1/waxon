@@ -660,7 +660,7 @@ func (d *DemoSource) ShowEpisodesPage(_ context.Context, showID string, offset, 
 	for i, title := range titles {
 		uri := fmt.Sprintf("spotify:episode:%s-%d", showID, i)
 		eps = append(eps, source.Track{
-			ID: uri, URI: uri, Name: title, Artist: fmt.Sprintf("2026-10-%02d", 20-i*6),
+			ID: uri, URI: uri, Name: title, Album: fmt.Sprintf("2026-10-%02d", 20-i*6),
 			Duration: time.Duration(28+i*9) * time.Minute, IsEpisode: true, ShowID: showID,
 		})
 	}
