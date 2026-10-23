@@ -589,7 +589,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// sidebar may not exist yet if WindowSizeMsg hasn't arrived;
 		// layoutResize will apply playlists once the sidebar is created.
 		if m.sidebar.width > 0 {
-			m.sidebar.SetPlaylists(withCollections(msg.playlists))
+			m.sidebar.SetPlaylists(msg.playlists)
 		}
 		cmds := []tea.Cmd{m.fetchSidebarIcons(msg.playlists)}
 		if msg.initial && len(msg.playlists) > 0 {
@@ -1501,6 +1501,12 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.pushNav()
 			m.tracklist.SetLoading("Recently Played")
 			return m, m.fetchRecentlyPlayed()
+		case GActionAlbums:
+			return m, m.openCollection(collectionAlbumsID)
+		case GActionArtists:
+			return m, m.openCollection(collectionArtistsID)
+		case GActionPodcasts:
+			return m, m.openCollection(collectionPodcastsID)
 		default:
 			return m, nil
 		}
@@ -1798,9 +1804,6 @@ func (m Model) handleSidebarClick(y int) (Model, tea.Cmd) {
 			}
 			m.pushNav()
 			m.tracklist.SetLoading(pl.Name)
-			if isCollection(pl.ID) {
-				return m, m.fetchCollection(pl.ID, pl.Name)
-			}
 			return m, m.fetchPlaylistTracks(*pl)
 		}
 	}
@@ -1930,9 +1933,6 @@ func (m Model) handleEnter() (Model, tea.Cmd) {
 			}
 			m.pushNav()
 			m.tracklist.SetLoading(pl.Name)
-			if isCollection(pl.ID) {
-				return m, m.fetchCollection(pl.ID, pl.Name)
-			}
 			return m, m.fetchPlaylistTracks(*pl)
 		}
 	} else {
@@ -2044,7 +2044,7 @@ func (m *Model) layoutResize() {
 		// If playlists arrived before the first WindowSizeMsg (e.g. demo mode
 		// with instant responses), apply them now that the sidebar exists.
 		if len(m.playlists) > 0 {
-			m.sidebar.SetPlaylists(withCollections(m.playlists))
+			m.sidebar.SetPlaylists(m.playlists)
 		}
 	} else {
 		m.sidebar.Resize(sidebarW, contentH)

@@ -8,8 +8,8 @@ import (
 	"github.com/danfry1/waxon/source"
 )
 
-// Sentinel sidebar IDs for the library sections that aren't playlists. They
-// sit under Liked Songs and open as a list of albums or artists.
+// IDs of the library collections that aren't playlists. Each opens in the
+// track list as navigable rows (albums, artists or shows).
 const (
 	collectionAlbumsID   = "collection:albums"
 	collectionArtistsID  = "collection:artists"
@@ -23,24 +23,22 @@ const showKeyPrefix = "show:"
 // showPageSize is Spotify's maximum page for a show's episodes.
 const showPageSize = 50
 
-func isCollection(id string) bool {
-	return id == collectionAlbumsID || id == collectionArtistsID || id == collectionPodcastsID
+// collectionTitles names each collection view.
+var collectionTitles = map[string]string{
+	collectionAlbumsID:   "Saved Albums",
+	collectionArtistsID:  "Followed Artists",
+	collectionPodcastsID: "Podcasts",
 }
 
-// withCollections returns the sidebar's library list: the playlists with the
-// saved-albums and followed-artists entries after Liked Songs.
-func withCollections(pls []source.Playlist) []source.Playlist {
-	entries := []source.Playlist{
-		{ID: collectionAlbumsID, Name: "Saved Albums"},
-		{ID: collectionArtistsID, Name: "Followed Artists"},
-		{ID: collectionPodcastsID, Name: "Podcasts"},
-	}
-	// Every source lists Liked Songs first (its ID differs between them).
-	at := min(1, len(pls))
-	out := make([]source.Playlist, 0, len(pls)+len(entries))
-	out = append(out, pls[:at]...)
-	out = append(out, entries...)
-	return append(out, pls[at:]...)
+// openCollection shows saved albums, followed artists or podcasts in the
+// track list. They're reached by ga / gA / gp and :albums / :artists /
+// :podcasts rather than sitting in the sidebar, which stays playlists.
+func (m *Model) openCollection(id string) tea.Cmd {
+	title := collectionTitles[id]
+	m.pushNav()
+	m.focusPane = PaneTrackList
+	m.tracklist.SetLoading(title)
+	return m.fetchCollection(id, title)
 }
 
 // collectionLoadedMsg carries a saved-albums or followed-artists list as

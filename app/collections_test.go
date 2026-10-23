@@ -9,35 +9,46 @@ import (
 	"github.com/danfry1/waxon/source"
 )
 
-func TestWithCollectionsAfterLiked(t *testing.T) {
-	got := withCollections([]source.Playlist{{ID: likedPlaylistID}, {ID: "p1"}})
-	ids := []string{}
-	for _, pl := range got {
-		ids = append(ids, pl.ID)
+func TestCollectionsStayOutOfSidebar(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	res, _ := m.Update(playlistsLoadedMsg{playlists: []source.Playlist{{ID: likedPlaylistID, Name: "Liked"}, {ID: "p1", Name: "Mine"}}})
+	m = res.(Model)
+	if n := len(m.sidebar.list.Items()); n != 2 {
+		t.Errorf("sidebar has %d items, want just the 2 playlists", n)
 	}
-	want := fmt.Sprint([]string{likedPlaylistID, collectionAlbumsID, collectionArtistsID, collectionPodcastsID, "p1"})
-	if fmt.Sprint(ids) != want {
-		t.Errorf("order %v, want %s", ids, want)
+}
+
+func TestCollectionCommandsAndMotions(t *testing.T) {
+	for _, keys := range [][]string{{"g", "a"}, {":", "a", "l", "b", "u", "m", "s", "enter"}} {
+		m := newTestModel(&StubSource{SavedAlbumsFn: func(context.Context) ([]source.SavedAlbum, error) {
+			return []source.SavedAlbum{{ID: "al1", Name: "Blue"}}, nil
+		}})
+		var cmd tea.Cmd
+		for _, k := range keys {
+			msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+			if k == "enter" {
+				msg = tea.KeyMsg{Type: tea.KeyEnter}
+			}
+			var res tea.Model
+			res, cmd = m.Update(msg)
+			m = res.(Model)
+		}
+		if cmd == nil {
+			t.Fatalf("%v: expected a fetch", keys)
+		}
+		res, _ := m.Update(cmd())
+		m = res.(Model)
+		if m.tracklist.title != "Saved Albums" || m.focusPane != PaneTrackList {
+			t.Errorf("%v: title %q focus %v", keys, m.tracklist.title, m.focusPane)
+		}
 	}
 }
 
 func openCollection(t *testing.T, stub *StubSource, id string) Model {
 	t.Helper()
 	m := newTestModel(stub)
-	res, _ := m.Update(playlistsLoadedMsg{playlists: []source.Playlist{{ID: likedPlaylistID, Name: "Liked"}}})
-	m = res.(Model)
-	m.focusPane = PaneSidebar
-	for i := 0; i < 3; i++ {
-		if pl := m.sidebar.SelectedPlaylist(); pl != nil && pl.ID == id {
-			break
-		}
-		m.sidebar, _ = m.sidebar.Update(tea.KeyMsg{Type: tea.KeyDown})
-	}
-	m, cmd := m.handleEnter()
-	if cmd == nil {
-		t.Fatal("expected a fetch")
-	}
-	res, _ = m.Update(cmd())
+	cmd := m.openCollection(id)
+	res, _ := m.Update(cmd())
 	return res.(Model)
 }
 
