@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/danfry1/waxon/source"
@@ -535,9 +536,17 @@ func (m Model) seekRelative(delta time.Duration) tea.Cmd {
 	if m.track == nil {
 		return nil
 	}
-	pos := m.track.Position + delta
-	if pos < 0 {
-		pos = 0
+	return m.seekTo(m.track.Position + delta)
+}
+
+// seekTo seeks the current track to pos (clamped to the track).
+func (m Model) seekTo(pos time.Duration) tea.Cmd {
+	if m.track == nil {
+		return nil
+	}
+	pos = max(0, pos)
+	if m.track.Duration > 0 {
+		pos = min(pos, m.track.Duration)
 	}
 	src := m.source
 	ctx := m.ctx
@@ -592,7 +601,72 @@ func hasActiveDevice(ctx context.Context, src source.RichSource) bool {
 	return false
 }
 
+// handleStatusClick seeks when a click lands on the progress bar; x and y
+// are relative to the top-left of the status area.
+func (m *Model) handleStatusClick(x, y int) tea.Cmd {
+	row, x0, w, ok := m.statusbar.ProgressBarSpan(m.track, m.shuffleOn, m.repeatMode, m.liked, m.artStatusBar())
+	if !ok || y != row || x < x0 || x >= x0+w || m.track.Duration == 0 {
+		return nil
+	}
+	ratio := 0.0
+	if w > 1 {
+		ratio = float64(x-x0) / float64(w-1)
+	}
+	pos := time.Duration(ratio * float64(m.track.Duration))
+	// Move the bar now; the next poll confirms.
+	t := *m.track // copy: the polled track may be shared
+	t.Position = pos
+	m.track = &t
+	m.lastPollPos, m.lastPollTime = pos, time.Now()
+	return m.seekTo(pos)
+}
+
 // --- Command/Action Execution ---
+
+// playbackSettingKey handles the volume, shuffle and repeat keys.
+func (m *Model) playbackSettingKey(msg tea.KeyMsg) tea.Cmd {
+	switch {
+	case key.Matches(msg, m.keys.VolUp):
+		return m.nudgeVolume(volumeStep)
+	case key.Matches(msg, m.keys.VolDown):
+		return m.nudgeVolume(-volumeStep)
+	case key.Matches(msg, m.keys.Shuffle):
+		m.modeHoldUntil = time.Now().Add(volumeHold)
+		return m.runCommand(Command{Type: CmdShuffle})
+	case key.Matches(msg, m.keys.Repeat):
+		next := source.RepeatContext
+		switch m.repeatMode {
+		case source.RepeatContext:
+			next = source.RepeatTrack
+		case source.RepeatTrack:
+			next = source.RepeatOff
+		}
+		m.modeHoldUntil = time.Now().Add(volumeHold)
+		return m.runCommand(Command{Type: CmdRepeat, StrArg: string(next)})
+	}
+	return nil
+}
+
+// nudgeVolume moves the shown volume immediately and sends it after a short
+// debounce, so holding + doesn't fire a request per key repeat.
+func (m *Model) nudgeVolume(delta int) tea.Cmd {
+	m.volume = clampInt(m.volume+delta, 0, 100)
+	m.volumeGen++
+	m.volumeHoldUntil = time.Now().Add(volumeHold)
+	gen := m.volumeGen
+	return tea.Tick(volumeDebounce, func(time.Time) tea.Msg { return volumeCommitMsg{gen} })
+}
+
+// repeatLabel names a repeat mode the way the :repeat command spells it.
+func repeatLabel(mode source.RepeatMode) string {
+	switch mode {
+	case source.RepeatContext:
+		return "all"
+	case source.RepeatTrack:
+		return "one"
+	}
+	return "off"
+}
 
 func (m *Model) executeCommand(input string) tea.Cmd {
 	cmd, err := ParseCommand(input)
@@ -600,7 +674,10 @@ func (m *Model) executeCommand(input string) tea.Cmd {
 		m.toast.Show(err.Error(), "", ToastError)
 		return scheduleAutoDismiss()
 	}
+	return m.runCommand(cmd)
+}
 
+func (m *Model) runCommand(cmd Command) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
 	switch cmd.Type {
@@ -637,7 +714,7 @@ func (m *Model) executeCommand(input string) tea.Cmd {
 			if err := src.SetRepeat(ctx, mode); err != nil {
 				return trackErrorMsg{err}
 			}
-			return cmdFlashMsg{"Repeat: " + cmd.StrArg}
+			return cmdFlashMsg{"Repeat: " + repeatLabel(mode)}
 		})
 	case CmdDevice:
 		return m.fetchDevices()

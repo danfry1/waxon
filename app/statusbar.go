@@ -34,6 +34,25 @@ func (s StatusBar) ViewNowPlaying(track *source.Track, shuffleOn bool, repeatMod
 		return style.Render("  No track playing")
 	}
 
+	info, right, barW := s.compactLayout(track, shuffleOn, repeatMode, liked)
+	leftW := lipgloss.Width(info)
+	rightW := lipgloss.Width(right) + 2
+
+	bar := s.renderProgressBar(track, barW)
+
+	gap := s.width - leftW - lipgloss.Width(bar) - rightW - 2
+	if gap < 0 {
+		gap = 0
+	}
+
+	line := info + strings.Repeat(" ", 2) + bar + strings.Repeat(" ", gap) + right + " "
+	return style.Render(line)
+}
+
+// compactLayout splits the one-row now-playing bar into the track info on the
+// left, time and badges on the right, and the progress bar width between.
+// The bar starts two columns after the info.
+func (s StatusBar) compactLayout(track *source.Track, shuffleOn bool, repeatMode source.RepeatMode, liked bool) (info, right string, barW int) {
 	// Left: play state + track info
 	icon := "⏸"
 	if track.Playing {
@@ -43,7 +62,7 @@ func (s StatusBar) ViewNowPlaying(track *source.Track, shuffleOn bool, repeatMod
 	if liked {
 		heart = " ♥"
 	}
-	info := fmt.Sprintf(" %s %s%s · %s · %s", icon, track.Name, heart, track.Artist, track.Album)
+	info = fmt.Sprintf(" %s %s%s · %s · %s", icon, track.Name, heart, track.Artist, track.Album)
 
 	// Right: progress + indicators
 	var indicators []string
@@ -58,7 +77,7 @@ func (s StatusBar) ViewNowPlaying(track *source.Track, shuffleOn bool, repeatMod
 	}
 
 	progress := fmt.Sprintf("%s/%s", fmtDur(track.Position), fmtDur(track.Duration))
-	right := progress
+	right = progress
 	if len(indicators) > 0 {
 		right = strings.Join(indicators, " ") + "  " + progress
 	}
@@ -79,22 +98,30 @@ func (s StatusBar) ViewNowPlaying(track *source.Track, shuffleOn bool, repeatMod
 		}
 		info = short
 	}
-	leftW := lipgloss.Width(info)
-	barW := s.width - leftW - rightW - 4
-	if barW < minBarW {
-		barW = minBarW
-	}
-
-	bar := s.renderProgressBar(track, barW)
-
-	gap := s.width - leftW - lipgloss.Width(bar) - rightW - 2
-	if gap < 0 {
-		gap = 0
-	}
-
-	line := info + strings.Repeat(" ", 2) + bar + strings.Repeat(" ", gap) + right + " "
-	return style.Render(line)
+	barW = max(minBarW, s.width-lipgloss.Width(info)-rightW-4)
+	return info, right, barW
 }
+
+// ProgressBarSpan reports where the progress bar is drawn, relative to the
+// top-left of the status area: its row, first column and width. ok is false
+// when no bar is shown.
+func (s StatusBar) ProgressBarSpan(track *source.Track, shuffleOn bool, repeatMode source.RepeatMode, liked, withArt bool) (row, x, w int, ok bool) {
+	if track == nil || s.width == 0 {
+		return 0, 0, 0, false
+	}
+	if withArt {
+		// Mirrors ViewNowPlayingWithArt: padded art, a 2-col gap, then the
+		// info lines, where the bar is line 4 behind a 3-col indent.
+		infoW := s.width - (ArtWidth + 3) - 2
+		return artBarLine, 1 + ArtWidth + 2 + 3, max(10, infoW-20), true
+	}
+	info, _, barW := s.compactLayout(track, shuffleOn, repeatMode, liked)
+	return 0, lipgloss.Width(info) + 2, barW, true
+}
+
+// artBarLine is the info-panel line the progress bar sits on in the art
+// layout ("", title, artist, "", bar, …).
+const artBarLine = 4
 
 // ViewModeLine renders the mode/command line row.
 func (s StatusBar) ViewModeLine(mode Mode, cmdInput string, filterInput string, filterActive string, volume int, deviceName string) string {
@@ -177,8 +204,10 @@ func (s StatusBar) ViewNowPlayingWithArt(track *source.Track, shuffleOn bool, re
 	if liked {
 		heart = " ♥"
 	}
-	titleLine := nowPlayStyle.Render(fmt.Sprintf(" %s %s%s", icon, track.Name, heart))
-	artistLine := StyleDimText.Render(fmt.Sprintf("   %s — %s", track.Artist, track.Album))
+	// Truncate rather than let the panel wrap: a wrapped line would push the
+	// progress bar off artBarLine, where clicks expect it.
+	titleLine := nowPlayStyle.Render(truncate(fmt.Sprintf(" %s %s%s", icon, track.Name, heart), infoW))
+	artistLine := StyleDimText.Render(truncate(fmt.Sprintf("   %s — %s", track.Artist, track.Album), infoW))
 
 	// Progress bar
 	barW := max(10, infoW-20)

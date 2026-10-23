@@ -29,6 +29,10 @@ type KeyMap struct {
 	Prev      key.Binding
 	SeekFwd   key.Binding
 	SeekBack  key.Binding
+	VolUp     key.Binding
+	VolDown   key.Binding
+	Shuffle   key.Binding
+	Repeat    key.Binding
 
 	// Actions
 	AddQueue key.Binding
@@ -72,6 +76,10 @@ func DefaultKeyMap() KeyMap {
 		Prev:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prev track")),
 		SeekFwd:   key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "seek +5s")),
 		SeekBack:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "seek -5s")),
+		VolUp:     key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "volume up")),
+		VolDown:   key.NewBinding(key.WithKeys("-"), key.WithHelp("-", "volume down")),
+		Shuffle:   key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "shuffle")),
+		Repeat:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "repeat")),
 
 		AddQueue: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add to queue")),
 		Like:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "favourite")),
@@ -182,6 +190,7 @@ func (k *KeyMap) keyBindingFields() map[string]*key.Binding {
 		"focus_left": &k.FocusLeft, "focus_right": &k.FocusRight, "cycle_pane": &k.CyclePane,
 		"enter": &k.Enter, "play_pause": &k.PlayPause, "next": &k.Next, "prev": &k.Prev,
 		"seek_fwd": &k.SeekFwd, "seek_back": &k.SeekBack,
+		"vol_up": &k.VolUp, "vol_down": &k.VolDown, "shuffle": &k.Shuffle, "repeat": &k.Repeat,
 		"add_queue": &k.AddQueue, "like": &k.Like, "actions": &k.Actions, "devices": &k.Devices,
 		"back": &k.Back, "filter": &k.Filter, "search": &k.Search, "command": &k.Command,
 		"help": &k.Help, "now_playing": &k.NowPlaying, "quit": &k.Quit,

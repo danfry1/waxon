@@ -39,6 +39,12 @@ const (
 	// Retry-After header (zmb3 errors drop it). Spotify's limit is a rolling
 	// 30-second window, so waiting it out is the fastest way back.
 	rateLimitCooldown = 30 * time.Second
+	// volumeStep is how far one +/- press moves the volume. Presses within
+	// volumeDebounce of each other are sent as one request, and the new
+	// level is held against stale polls for volumeHold.
+	volumeStep     = 5
+	volumeDebounce = 250 * time.Millisecond
+	volumeHold     = 2 * time.Second
 	// maxPollInterval caps error backoff so recovery is never more than a
 	// minute away once Spotify is reachable again.
 	maxPollInterval = 60 * time.Second
@@ -61,6 +67,7 @@ type (
 	progressTickMsg time.Time
 	queueDoneMsg    struct{ trackName string }
 	cmdFlashMsg     struct{ text string }
+	volumeCommitMsg struct{ gen int }
 	trackUpdateMsg  struct {
 		track      *source.Track
 		volume     int
@@ -287,6 +294,12 @@ type Model struct {
 	progressTicking bool
 	// prefetchedFor is the track whose successor's art has been prefetched.
 	prefetchedFor string
+	// volumeGen numbers +/- presses so only the last of a burst is sent;
+	// volumeHoldUntil keeps polls from overwriting the level meanwhile.
+	volumeGen       int
+	volumeHoldUntil time.Time
+	// modeHoldUntil does the same for shuffle and repeat after S / r.
+	modeHoldUntil time.Time
 	// refreshPending counts post-control re-polls still scheduled, so a burst
 	// of keypresses doesn't stack up dozens of extra requests.
 	refreshPending int
@@ -472,9 +485,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.track = msg.track
 		m.playbackContextURI = msg.contextURI
-		m.volume = msg.volume
-		m.shuffleOn = msg.shuffleOn
-		m.repeatMode = msg.repeatMode
+		// Hold a volume the user just set until Spotify reports it back, so
+		// a poll that was already in flight doesn't snap the level back.
+		if time.Now().After(m.volumeHoldUntil) {
+			m.volume = msg.volume
+		}
+		if time.Now().After(m.modeHoldUntil) {
+			m.shuffleOn = msg.shuffleOn
+			m.repeatMode = msg.repeatMode
+		}
 		var cmds []tea.Cmd
 		if msg.track != nil {
 			m.tracklist.SetNowPlaying(msg.track.ID)
@@ -876,6 +895,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, scheduleAutoDismiss()
 
+	case volumeCommitMsg:
+		// Only the last of a burst of +/- presses is sent.
+		if msg.gen != m.volumeGen {
+			return m, nil
+		}
+		m.volumeHoldUntil = time.Now().Add(volumeHold)
+		return m, m.runCommand(Command{Type: CmdVolume, IntArg: m.volume})
+
 	case cmdFlashMsg:
 		m.toast.Show(msg.text, "", ToastInfo)
 		return m, scheduleAutoDismiss()
@@ -921,6 +948,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case trackErrorMsg:
+		// A rejected change (e.g. a device without volume control) should
+		// show Spotify's real state on the next poll, not the optimistic one.
+		m.volumeHoldUntil, m.modeHoldUntil = time.Time{}, time.Time{}
 		m.consecutiveErrors++
 		m.noteRateLimit(msg.err)
 		if m.pagination != nil {
@@ -1091,6 +1121,8 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.track != nil {
 			return m, m.seekRelative(-5 * time.Second)
 		}
+	case key.Matches(msg, m.keys.VolUp, m.keys.VolDown, m.keys.Shuffle, m.keys.Repeat):
+		return m, m.playbackSettingKey(msg)
 	case key.Matches(msg, m.keys.Like):
 		if m.track != nil {
 			return m, m.toggleLike(m.track.ID, m.liked)
@@ -1431,6 +1463,8 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.track != nil {
 			return m, m.seekRelative(-5 * time.Second)
 		}
+	case key.Matches(msg, m.keys.VolUp, m.keys.VolDown, m.keys.Shuffle, m.keys.Repeat):
+		return m, m.playbackSettingKey(msg)
 
 	case key.Matches(msg, m.keys.Back):
 		if !m.popNav() {
@@ -1563,9 +1597,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 		if msg.Action != tea.MouseActionRelease {
 			return m, nil
 		}
-		// Clicks in the status bar area are ignored.
 		if msg.Y >= contentH {
-			return m, nil
+			return m, m.handleStatusClick(msg.X, msg.Y-contentH)
 		}
 		if m.paneAt(msg.X) == PaneSidebar {
 			return m.handleSidebarClick(msg.Y)

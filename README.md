@@ -197,6 +197,9 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `Enter`          | Play selected       |
 | `n` / `p`        | Next / previous track |
 | `[` / `]`        | Seek -5s / +5s      |
+| `-` / `+`        | Volume -5 / +5      |
+| `S`              | Toggle shuffle      |
+| `r`              | Cycle repeat        |
 
 ### Actions
 
@@ -256,7 +259,7 @@ waxon reads `~/.config/waxon/config.json` (`$XDG_CONFIG_HOME` respected; `waxon 
   <img src="demo/recordings/themes.gif" alt="switching themes with :theme" width="800">
 </p>
 
-**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back add_queue like actions devices back filter search command help now_playing quit escape section1 section2`. The `g`-prefix motions (`gg gl gq gc gr`) are fixed. The `?` help overlay always shows your live bindings.
+**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat add_queue like actions devices back filter search command help now_playing quit escape section1 section2`. The `g`-prefix motions (`gg gl gq gc gr`) are fixed. The `?` help overlay always shows your live bindings.
 
 **Cache** — album art is cached under `$XDG_CACHE_HOME/waxon/images` (or your OS cache dir), capped at 64 MB and pruned on launch, so relaunching paints the library instantly. Delete the directory to clear it.
 

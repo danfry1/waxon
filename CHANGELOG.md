@@ -8,6 +8,14 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+
+- Playback keys: `+`/`=` and `-` change the volume by 5, `S` toggles shuffle
+  and `r` cycles repeat (off → all → one). They work in the main view and in
+  Now Playing, and can be rebound as `vol_up`, `vol_down`, `shuffle` and
+  `repeat`. Holding `+` sends a single volume change once you stop.
+- Click the progress bar in the status area to seek.
+
 ### Changed
 
 - waxon uses less CPU when idle. The progress tick stops while nothing is
