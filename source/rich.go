@@ -43,6 +43,10 @@ type SearchSource interface {
 type CollectionSource interface {
 	SavedAlbums(ctx context.Context) ([]SavedAlbum, error)
 	FollowedArtists(ctx context.Context) ([]SearchArtist, error)
+	SavedShows(ctx context.Context) ([]Show, error)
+	// ShowEpisodesPage lists a show's episodes, newest first, as Tracks with
+	// IsEpisode set (and ID = the episode URI).
+	ShowEpisodesPage(ctx context.Context, showID string, offset, limit int) ([]Track, int, error)
 }
 
 // PlaylistSource mutates the user's playlists. Needs the playlist-modify
@@ -103,6 +107,15 @@ type AlbumPage struct {
 	Year     string // release year (first 4 chars of release_date)
 	ImageURL string
 	Tracks   []Track
+}
+
+// Show is a podcast the user follows.
+type Show struct {
+	ID        string
+	URI       string
+	Name      string
+	Publisher string
+	ImageURL  string
 }
 
 // SavedAlbum is an album in the user's library.

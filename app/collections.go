@@ -11,12 +11,20 @@ import (
 // Sentinel sidebar IDs for the library sections that aren't playlists. They
 // sit under Liked Songs and open as a list of albums or artists.
 const (
-	collectionAlbumsID  = "collection:albums"
-	collectionArtistsID = "collection:artists"
+	collectionAlbumsID   = "collection:albums"
+	collectionArtistsID  = "collection:artists"
+	collectionPodcastsID = "collection:podcasts"
 )
 
+// showKeyPrefix keys a show's episode list in the track cache and pagination
+// state, alongside playlist IDs: "show:<id>". fetchMoreTracks routes on it.
+const showKeyPrefix = "show:"
+
+// showPageSize is Spotify's maximum page for a show's episodes.
+const showPageSize = 50
+
 func isCollection(id string) bool {
-	return id == collectionAlbumsID || id == collectionArtistsID
+	return id == collectionAlbumsID || id == collectionArtistsID || id == collectionPodcastsID
 }
 
 // withCollections returns the sidebar's library list: the playlists with the
@@ -25,6 +33,7 @@ func withCollections(pls []source.Playlist) []source.Playlist {
 	entries := []source.Playlist{
 		{ID: collectionAlbumsID, Name: "Saved Albums"},
 		{ID: collectionArtistsID, Name: "Followed Artists"},
+		{ID: collectionPodcastsID, Name: "Podcasts"},
 	}
 	// Every source lists Liked Songs first (its ID differs between them).
 	at := min(1, len(pls))
@@ -66,6 +75,13 @@ func (m Model) fetchCollection(id, title string) tea.Cmd {
 				rows = append(rows, source.Track{Name: a.Name, ArtistID: a.ID, IsAlbumRow: true})
 			}
 			info = countLabel(len(rows), "artist", "artists")
+		case collectionPodcastsID:
+			var shows []source.Show
+			shows, err = src.SavedShows(ctx)
+			for _, s := range shows {
+				rows = append(rows, source.Track{Name: s.Name, Album: s.Publisher, ShowID: s.ID, IsAlbumRow: true})
+			}
+			info = countLabel(len(rows), "podcast", "podcasts")
 		}
 		msg := collectionLoadedMsg{title: title, rows: rows, info: info, err: err}
 		switch {
@@ -110,6 +126,34 @@ func (m *Model) openRow(t source.Track) (tea.Cmd, bool) {
 		m.pushNav()
 		m.tracklist.SetLoading(t.Name)
 		return m.fetchArtistPage(t.ArtistID), true
+	case t.ShowID != "":
+		m.pushNav()
+		m.tracklist.SetLoading(t.Name)
+		return m.fetchShowEpisodes(t.ShowID, t.Name), true
 	}
 	return nil, false
+}
+
+// fetchShowEpisodes loads a show's newest episodes as a playable list in the
+// show's context; older ones page in like a long playlist.
+func (m Model) fetchShowEpisodes(showID, title string) tea.Cmd {
+	src, ctx := m.source, m.ctx
+	return func() tea.Msg {
+		eps, total, err := src.ShowEpisodesPage(ctx, showID, 0, showPageSize)
+		if err != nil {
+			return trackErrorMsg{err}
+		}
+		for i := range eps {
+			if eps[i].IsEpisode && eps[i].Artist == "" {
+				eps[i].Artist = title // so actions and Now Playing name the show
+			}
+		}
+		return tracksLoadedMsg{
+			tracks:     eps,
+			title:      title,
+			contextURI: "spotify:show:" + showID,
+			playlistID: showKeyPrefix + showID,
+			total:      total,
+		}
+	}
 }

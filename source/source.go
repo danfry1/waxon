@@ -25,6 +25,11 @@ type Track struct {
 	AlbumID     string // album's Spotify ID for navigation
 	IsAlbumRow  bool   // true for discography album rows (not playable tracks)
 	IsSeparator bool   // true for visual separator rows (not selectable)
+	// IsEpisode marks a podcast episode. Its ID is the episode URI (not a
+	// bare ID), which the library and queue calls accept in place of a
+	// track ID; Artist holds the show and ShowID its ID.
+	IsEpisode bool
+	ShowID    string
 }
 
 // PlaybackState bundles the current track with device-level playback state

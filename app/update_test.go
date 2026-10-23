@@ -2325,7 +2325,7 @@ func TestJumpToCurrentTrackNavigatesToArtist(t *testing.T) {
 func TestJumpToUnsupportedContextShowsMessage(t *testing.T) {
 	m := newTestModel(&StubSource{})
 	m.track = &source.Track{ID: "cur", Name: "Current"}
-	m.playbackContextURI = "spotify:show:podcast1" // not navigable
+	m.playbackContextURI = "spotify:audiobook:book1" // not navigable
 	m.tracklist.SetTracks([]source.Track{{ID: "other"}}, "Other", "")
 
 	result, cmd := m.jumpToCurrentTrack()
@@ -6299,7 +6299,7 @@ func TestForbiddenLikeStatusDisablesChecksQuietly(t *testing.T) {
 	m = result.(Model)
 	runCmdTree(cmd)
 	// Find and deliver the like-status error the batch produced.
-	result, cmd = m.Update(likeStatusErrorMsg{source.ErrForbidden})
+	result, cmd = m.Update(likeStatusErrorMsg{err: source.ErrForbidden})
 	m = result.(Model)
 	if !m.likeUnavailable {
 		t.Fatal("a 403 on the like check should disable like checks")
@@ -6323,7 +6323,7 @@ func TestForbiddenLikeStatusDisablesChecksQuietly(t *testing.T) {
 
 func TestOtherLikeStatusErrorsAreSilent(t *testing.T) {
 	m := newTestModel(&StubSource{})
-	result, cmd := m.Update(likeStatusErrorMsg{errors.New("timeout")})
+	result, cmd := m.Update(likeStatusErrorMsg{err: errors.New("timeout")})
 	if cmd != nil || result.(Model).toast.Visible() || result.(Model).likeUnavailable {
 		t.Error("transient like-status failures should be logged only")
 	}

@@ -160,7 +160,10 @@ type trackLikeStatusMsg struct {
 // likeStatusErrorMsg is a failed background like-status lookup. Kept apart
 // from trackErrorMsg because it fires on every track change: a permission
 // refusal should disable the feature once, not toast every few minutes.
-type likeStatusErrorMsg struct{ err error }
+type likeStatusErrorMsg struct {
+	err     error
+	episode bool // the lookup was for a podcast episode
+}
 
 type playlistArtLoadedMsg struct {
 	url string
@@ -632,7 +635,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				total:      msg.total,
 				loaded:     len(msg.tracks),
 			}
-			m.tracklist.SetHeaderInfo(FormatPartialTrackListInfo(len(msg.tracks), msg.total))
+			m.tracklist.SetHeaderInfo(partialListInfo(msg.tracks, len(msg.tracks), msg.total))
 		} else {
 			m.pagination = nil
 			m.tracklist.SetHeaderInfo(FormatTrackListInfo(msg.tracks))
@@ -705,7 +708,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tracklist.SetHeaderInfo(FormatTrackListInfo(m.tracklist.tracks))
 				m.pagination = nil
 			} else {
-				m.tracklist.SetHeaderInfo(FormatPartialTrackListInfo(m.pagination.loaded, m.pagination.total))
+				m.tracklist.SetHeaderInfo(partialListInfo(m.tracklist.tracks, m.pagination.loaded, m.pagination.total))
 			}
 		}
 		// An active filter keeps pulling pages until the whole playlist is
@@ -1005,6 +1008,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, scheduleAutoDismiss()
 
 	case likeStatusErrorMsg:
+		// A refusal for an episode says nothing about tracks; don't let it
+		// switch track like-checks off for the session.
+		if errors.Is(msg.err, source.ErrForbidden) && msg.episode {
+			return m, nil
+		}
 		if errors.Is(msg.err, source.ErrForbidden) {
 			if !m.likeUnavailable {
 				m.likeUnavailable = true
@@ -1159,6 +1167,11 @@ func (m *Model) ensureLyrics() tea.Cmd {
 	}
 	if m.lyricsTrackID == m.track.ID {
 		return nil // already loaded/attempted/in-flight for this track
+	}
+	if m.track.IsEpisode {
+		// Podcasts have no lyrics; settle on "none" without a lookup.
+		m.lyricsTrackID, m.lyrics, m.lyricsErr, m.lyricsLoading = m.track.ID, nil, nil, false
+		return nil
 	}
 	m.lyricsLoading = true
 	m.lyrics = nil
@@ -1781,7 +1794,7 @@ func (m Model) handleSidebarClick(y int) (Model, tea.Cmd) {
 		pl := m.sidebar.SelectedPlaylist()
 		if pl != nil {
 			if m.sidebar.Section() == SectionQueue {
-				return m, m.playTrack("spotify:track:"+pl.ID, "")
+				return m, m.playTrack(queuedURI(*pl), "")
 			}
 			m.pushNav()
 			m.tracklist.SetLoading(pl.Name)
@@ -1899,12 +1912,21 @@ func (m Model) closeOverlay() (Model, tea.Cmd) {
 	return m, nil
 }
 
+// queuedURI is the URI to play a queue entry by: its own when known (an
+// episode's isn't a track URI), else built from its track ID.
+func queuedURI(pl source.Playlist) string {
+	if pl.URI != "" {
+		return pl.URI
+	}
+	return "spotify:track:" + pl.ID
+}
+
 func (m Model) handleEnter() (Model, tea.Cmd) {
 	if m.focusPane == PaneSidebar {
 		pl := m.sidebar.SelectedPlaylist()
 		if pl != nil {
 			if m.sidebar.Section() == SectionQueue {
-				return m, m.playTrack("spotify:track:"+pl.ID, "")
+				return m, m.playTrack(queuedURI(*pl), "")
 			}
 			m.pushNav()
 			m.tracklist.SetLoading(pl.Name)
