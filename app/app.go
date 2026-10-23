@@ -440,8 +440,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // progress tick: the playing track's position, vinyl, synced lyrics (all
 // driven by playback) or the track list's loading spinner.
 func (m Model) needsProgressTick() bool {
-	return (m.track != nil && m.track.Playing) || m.tracklist.loading
+	return (m.track != nil && m.track.Playing) || m.tracklist.loading || m.loadingMore()
 }
+
+// loadingMore reports whether a further page of the open playlist is being
+// fetched (shown as a spinner in the track list header).
+func (m Model) loadingMore() bool { return m.pagination != nil && m.pagination.loadingMore }
 
 // syncLyricsLine points the focus lyric line at the (interpolated) position:
 // by timestamp for synced lyrics, by progress ratio for plain ones.
@@ -533,8 +537,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.track.ArtworkURL != "" && m.npArtURL != msg.track.ArtworkURL {
 					cmds = append(cmds, m.fetchNPArt(msg.track.ArtworkURL))
 				}
-				// Follow track changes with fresh lyrics while the view is open.
-				if m.lyricsView && msg.track.ID != prevTrackID {
+				// Follow track changes with fresh lyrics while the view is open
+				// (fetched even with lyrics hidden, so the hint can say whether
+				// there are any).
+				if msg.track.ID != prevTrackID {
 					if c := m.ensureLyrics(); c != nil {
 						cmds = append(cmds, c)
 					}
@@ -1511,10 +1517,11 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.NowPlaying):
 		m.gtracker.Reset()
 		m.mode = ModeNowPlaying
+		cmds := []tea.Cmd{m.ensureLyrics()} // so the hint can say if there are lyrics
 		if m.track != nil && m.track.ArtworkURL != "" && m.npArtURL != m.track.ArtworkURL {
-			return m, m.fetchNPArt(m.track.ArtworkURL)
+			cmds = append(cmds, m.fetchNPArt(m.track.ArtworkURL))
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case key.Matches(msg, m.keys.Quit):
 		m.cancel()
@@ -2193,6 +2200,8 @@ func (m Model) View() string {
 		}
 		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.liked, lyr, m.width, m.height)
 	}
+
+	m.tracklist.loadingMore = m.loadingMore()
 
 	// Two-pane layout — or just the focused pane when the terminal is narrow.
 	var panes string

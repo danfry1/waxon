@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/danfry1/waxon/source"
 )
 
@@ -37,6 +38,7 @@ type TrackList struct {
 	contextURI  string // playlist/album URI for play context
 	artBlock    string // rendered playlist/album art
 	loading     bool   // true while fetching tracks
+	loadingMore bool   // a further page is being fetched (set per render)
 	spinFrame   int    // current spinner animation frame
 	width       int
 	height      int
@@ -609,7 +611,24 @@ func (tl TrackList) View(active bool) string {
 
 	// Render header info line (track count, duration, etc.)
 	if tl.headerInfo != "" {
-		header += "\n " + StyleDimText.Render(tl.headerInfo)
+		// The header has exactly one row for this line (tableHeight counts on
+		// it), so it must not wrap: drop the label, then fall back to a bare
+		// spinner, as the pane narrows.
+		avail := tl.width - 3 // border + leading space
+		if tl.artBlock != "" {
+			avail -= HeaderArtW + 1
+		}
+		info := tl.headerInfo
+		if tl.loadingMore {
+			spin := spinnerFrames[tl.spinFrame]
+			switch full := info + " · " + spin + " loading more"; {
+			case ansi.StringWidth(full) <= avail:
+				info = full
+			default:
+				info += " " + spin
+			}
+		}
+		header += "\n " + StyleDimText.Render(ansi.Truncate(info, max(0, avail), "…"))
 	}
 
 	// Show playlist art alongside title if available
@@ -619,8 +638,7 @@ func (tl TrackList) View(active bool) string {
 
 	var content string
 	if tl.loading {
-		loadingMsg := StyleDimText.Render("\n  Loading...")
-		content = header + "\n" + loadingMsg
+		content = header + "\n" + tl.skeletonRows()
 	} else if tl.HasNotice() {
 		content = header + "\n\n" + StyleDimText.PaddingLeft(2).Width(max(1, tl.width-4)).Render(tl.notice)
 	} else {
@@ -631,6 +649,29 @@ func (tl TrackList) View(active bool) string {
 		Width(tl.width - 2).
 		Height(tl.height - 2).
 		Render(content)
+}
+
+// skeletonRows draws placeholder rows shaped like the track table while the
+// first page loads, so the pane holds its layout instead of jumping.
+func (tl TrackList) skeletonRows() string {
+	n := clampInt(tl.capacity(), 1, 8)
+	cols := trackColumns(tl.width)
+	dim := lipgloss.NewStyle().Foreground(ColorBorder)
+	var b strings.Builder
+	b.WriteString("\n")
+	for i := range n {
+		// Vary the bar lengths so the placeholder reads as rows of text.
+		title := max(4, cols[2].Width*(5+(i*3)%4)/9)
+		artist := max(3, cols[3].Width*(4+(i*5)%3)/8)
+		line := strings.Repeat(" ", colMarkerW+cols[1].Width+tableCellPadding*2) +
+			dim.Render(strings.Repeat("▁", title)) +
+			strings.Repeat(" ", max(1, cols[2].Width-title+tableCellPadding))
+		if cols[3].Width > 0 {
+			line += dim.Render(strings.Repeat("▁", artist))
+		}
+		b.WriteString(ansi.Truncate(line, max(0, tl.width-4), "") + "\n")
+	}
+	return b.String()
 }
 
 // headerRows returns the number of rows above the table data area,
