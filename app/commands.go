@@ -734,6 +734,8 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 	case CmdRecent:
 		m.pushNav()
 		return m.fetchRecentlyPlayed()
+	case CmdCollection:
+		return m.openCollection(cmd.StrArg)
 	case CmdTheme:
 		return m.setTheme(cmd.StrArg)
 	case CmdNewPlaylist:
@@ -790,9 +792,6 @@ func (m Model) openActions() (Model, tea.Cmd) {
 	if pl == nil {
 		m.toast.Show("No playlist selected", "", ToastError)
 		return m, scheduleAutoDismiss()
-	}
-	if isCollection(pl.ID) {
-		return m.handleEnter() // nothing to play as a whole; just open it
 	}
 	popup := NewPlaylistActions(pl.Name, pl.URI, m.width, m.height)
 	m.actions = &popup

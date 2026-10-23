@@ -17,6 +17,7 @@ const (
 	CmdDevice
 	CmdSearch
 	CmdRecent
+	CmdCollection // StrArg: collection ID (saved albums, followed artists, podcasts)
 	CmdTheme
 	CmdNewPlaylist
 )
@@ -30,6 +31,9 @@ var commandHelp = []helpBinding{
 	{":device", "switch device"},
 	{":search Q", "search Spotify"},
 	{":recent", "recently played"},
+	{":albums", "saved albums"},
+	{":artists", "followed artists"},
+	{":podcasts", "podcasts"},
 	{":theme NAME", "switch colour theme"},
 	{":playlist new NAME", "create a playlist"},
 	{":q", "quit"},
@@ -95,6 +99,13 @@ func ParseCommand(input string) (Command, error) {
 
 	case "recent":
 		return Command{Type: CmdRecent}, nil
+
+	case "albums":
+		return Command{Type: CmdCollection, StrArg: collectionAlbumsID}, nil
+	case "artists":
+		return Command{Type: CmdCollection, StrArg: collectionArtistsID}, nil
+	case "podcasts", "shows":
+		return Command{Type: CmdCollection, StrArg: collectionPodcastsID}, nil
 
 	case "playlist", "pl":
 		if len(args) >= 2 && args[0] == "new" {

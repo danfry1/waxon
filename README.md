@@ -194,6 +194,9 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `gq`  | Go to queue                 |
 | `gc`  | Jump to currently playing track (loads its playlist/album if you've navigated away) |
 | `gr`  | Recently played             |
+| `ga`  | Saved albums (also `:albums`) |
+| `gA`  | Followed artists (also `:artists`) |
+| `gp`  | Podcasts (also `:podcasts`) |
 
 ### Playback
 

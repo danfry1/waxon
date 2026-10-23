@@ -13,15 +13,11 @@ Enter
 Sleep 2s
 Show
 
-# Saved Albums sits under Liked Songs
-Type "j"
-Sleep 500ms
-Enter
+# Saved albums
+Type "ga"
 Sleep 1.5s
 
 # Browse, then open an album
-Type "l"
-Sleep 300ms
 Type "jj"
 Sleep 600ms
 Enter
@@ -39,15 +35,9 @@ Sleep 1.5s
 Escape
 Sleep 600ms
 
-# Followed Artists, then open one
-Type "h"
-Sleep 300ms
-Type "j"
-Sleep 500ms
-Enter
+# Followed artists, then open one
+Type "gA"
 Sleep 1.5s
-Type "l"
-Sleep 300ms
 Type "jjjjjjj"
 Sleep 600ms
 Enter

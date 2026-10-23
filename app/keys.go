@@ -121,12 +121,15 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 type GAction int
 
 const (
-	GActionNone    GAction = iota
-	GActionTop             // gg — go to top
-	GActionLibrary         // gl — focus library
-	GActionQueue           // gq — focus queue
-	GActionCurrent         // gc — jump to currently playing track
-	GActionRecent          // gr — load recently played
+	GActionNone     GAction = iota
+	GActionTop              // gg — go to top
+	GActionLibrary          // gl — focus library
+	GActionQueue            // gq — focus queue
+	GActionCurrent          // gc — jump to currently playing track
+	GActionRecent           // gr — load recently played
+	GActionAlbums           // ga — saved albums
+	GActionArtists          // gA — followed artists
+	GActionPodcasts         // gp — podcasts
 )
 
 // gMotion is a two-key g-prefix motion: the second key, the action it
@@ -145,9 +148,12 @@ var gMotions = []gMotion{
 	{"q", GActionQueue, "queue"},
 	{"c", GActionCurrent, "jump to playing"},
 	{"r", GActionRecent, "recently played"},
+	{"a", GActionAlbums, "saved albums"},
+	{"A", GActionArtists, "followed artists"},
+	{"p", GActionPodcasts, "podcasts"},
 }
 
-// GTracker tracks g-prefix two-key motions (gg, gl, gq, gc, gr).
+// GTracker tracks g-prefix two-key motions (see gMotions).
 type GTracker struct {
 	pending bool
 }
