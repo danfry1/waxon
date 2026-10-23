@@ -302,7 +302,7 @@ func TestUpdateMoreTracksLoaded(t *testing.T) {
 		{ID: "t3", Name: "Song C"},
 	}
 
-	msg := moreTracksLoadedMsg{tracks: more, playlistID: "pl1"}
+	msg := moreTracksLoadedMsg{tracks: more, playlistID: "pl1", offset: 1, total: 3}
 	result, _ := m.Update(msg)
 	model := result.(Model)
 

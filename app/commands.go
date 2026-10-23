@@ -111,11 +111,11 @@ func (m Model) fetchMoreTracks() tea.Cmd {
 	id := p.playlistID
 	offset := p.loaded
 	return func() tea.Msg {
-		tracks, _, err := src.PlaylistTracksPage(ctx, id, offset, playlistPageSize)
+		tracks, total, err := src.PlaylistTracksPage(ctx, id, offset, playlistPageSize)
 		if err != nil {
 			return trackErrorMsg{err}
 		}
-		return moreTracksLoadedMsg{tracks: tracks, playlistID: id}
+		return moreTracksLoadedMsg{tracks: tracks, playlistID: id, offset: offset, total: total}
 	}
 }
 

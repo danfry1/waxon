@@ -8,6 +8,21 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Filtering a long playlist with `/` now finds tracks that hadn't loaded yet.
+  While a filter is active, waxon loads the rest of the playlist in the
+  background and matches appear as their pages arrive. Previously the filter
+  only searched the pages you had already scrolled past.
+
+### Changed
+
+- The `/` filter also matches album names, in the track list and the queue.
+- A filter no longer carries over when you open another playlist, album or
+  artist.
+- Typing a filter on a large playlist is cheaper: each track's searchable
+  text is lowercased once when it loads instead of on every keystroke.
+
 ## [1.8.1] - 2026-10-06
 
 ### Fixed
