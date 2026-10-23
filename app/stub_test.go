@@ -19,6 +19,8 @@ type StubSource struct {
 	SeekFn               func(context.Context, time.Duration) error
 	QueueFn              func(context.Context) ([]source.Track, error)
 	PlaylistsFn          func(context.Context) ([]source.Playlist, error)
+	SavedAlbumsFn        func(context.Context) ([]source.SavedAlbum, error)
+	FollowedArtistsFn    func(context.Context) ([]source.SearchArtist, error)
 	PlaylistTracksPageFn func(context.Context, string, int, int) ([]source.Track, int, error)
 	LikedTracksPageFn    func(context.Context, int, int) ([]source.Track, int, error)
 	RecentlyPlayedFn     func(context.Context) ([]source.Track, error)
@@ -199,6 +201,20 @@ func (s *StubSource) GetArtist(ctx context.Context, artistID string) (*source.Ar
 func (s *StubSource) GetAlbum(ctx context.Context, albumID string) (*source.AlbumPage, error) {
 	if s.GetAlbumFn != nil {
 		return s.GetAlbumFn(ctx, albumID)
+	}
+	return nil, nil
+}
+
+func (s *StubSource) SavedAlbums(ctx context.Context) ([]source.SavedAlbum, error) {
+	if s.SavedAlbumsFn != nil {
+		return s.SavedAlbumsFn(ctx)
+	}
+	return nil, nil
+}
+
+func (s *StubSource) FollowedArtists(ctx context.Context) ([]source.SearchArtist, error) {
+	if s.FollowedArtistsFn != nil {
+		return s.FollowedArtistsFn(ctx)
 	}
 	return nil, nil
 }

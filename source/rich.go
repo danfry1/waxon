@@ -37,6 +37,14 @@ type SearchSource interface {
 	GetAlbum(ctx context.Context, albumID string) (*AlbumPage, error)
 }
 
+// CollectionSource lists the rest of the user's library: saved albums and
+// followed artists. Followed artists need the user-follow-read scope; an
+// older token gets ErrInsufficientScope.
+type CollectionSource interface {
+	SavedAlbums(ctx context.Context) ([]SavedAlbum, error)
+	FollowedArtists(ctx context.Context) ([]SearchArtist, error)
+}
+
 // PlaylistSource mutates the user's playlists. Needs the playlist-modify
 // scopes; implementations return ErrInsufficientScope when the token
 // predates them so the UI can ask the user to re-authenticate.
@@ -66,6 +74,7 @@ type RichSource interface {
 	SearchSource
 	PlaylistSource
 	LyricsSource
+	CollectionSource
 }
 
 // ArtistAlbum represents a simplified album in an artist's discography.
@@ -94,6 +103,15 @@ type AlbumPage struct {
 	Year     string // release year (first 4 chars of release_date)
 	ImageURL string
 	Tracks   []Track
+}
+
+// SavedAlbum is an album in the user's library.
+type SavedAlbum struct {
+	ID       string
+	Name     string
+	Artist   string
+	Year     string
+	ImageURL string
 }
 
 type Playlist struct {

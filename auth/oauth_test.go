@@ -127,6 +127,7 @@ func TestSpotifyOAuthConfigAllScopes(t *testing.T) {
 		"user-library-read",
 		"user-library-modify",
 		"user-read-recently-played",
+		"user-follow-read",
 	}
 
 	if len(cfg.Scopes) != len(allExpected) {

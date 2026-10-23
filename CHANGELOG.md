@@ -10,6 +10,10 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Added
 
+- Saved Albums and Followed Artists in the library, under Liked Songs. Enter
+  opens an album or an artist page, and `/` filters by name or artist.
+  Followed artists need one more Spotify permission: run `waxon auth` once
+  and waxon says so if it's missing.
 - Playback keys: `+`/`=` and `-` change the volume by 5, `S` toggles shuffle
   and `r` cycles repeat (off → all → one). They work in the main view and in
   Now Playing, and can be rebound as `vol_up`, `vol_down`, `shuffle` and

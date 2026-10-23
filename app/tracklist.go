@@ -252,7 +252,7 @@ func (tl *TrackList) rebuildRows() {
 				" ",
 				"",
 				truncate(t.Name, tl.columnWidth(2)),
-				"",
+				truncate(t.Album, tl.columnWidth(3)),
 				t.Artist,
 			}
 		} else {
@@ -436,7 +436,7 @@ func (tl *TrackList) applyFilter(query string) {
 	var result []source.Track
 	var idx []int
 	for i, t := range tl.tracks {
-		if t.IsSeparator || t.IsAlbumRow {
+		if t.IsSeparator {
 			continue
 		}
 		if strings.Contains(tl.searchKeys[i], q) {

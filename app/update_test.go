@@ -4805,7 +4805,7 @@ func TestTrackListSetNowPlayingSameID(t *testing.T) {
 	}
 }
 
-func TestTrackListFilterExcludesSeparatorsAndAlbumRows(t *testing.T) {
+func TestTrackListFilterExcludesSeparators(t *testing.T) {
 	tl := NewTrackList(80, 30)
 	tracks := []source.Track{
 		{ID: "t1", Name: "Rock Song", Artist: "Artist"},
@@ -4817,9 +4817,9 @@ func TestTrackListFilterExcludesSeparatorsAndAlbumRows(t *testing.T) {
 
 	tl.SetFilter("rock")
 	display := tl.displayTracks()
-	// Should only include the 2 regular tracks, not separator or album row
-	if len(display) != 2 {
-		t.Errorf("filtered tracks = %d, want 2 (separators/album rows excluded)", len(display))
+	// Tracks and album rows match; separators never do.
+	if len(display) != 3 {
+		t.Errorf("filtered rows = %d, want 3 (separators excluded)", len(display))
 	}
 }
 
