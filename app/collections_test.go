@@ -15,7 +15,7 @@ func TestWithCollectionsAfterLiked(t *testing.T) {
 	for _, pl := range got {
 		ids = append(ids, pl.ID)
 	}
-	want := fmt.Sprint([]string{likedPlaylistID, collectionAlbumsID, collectionArtistsID, "p1"})
+	want := fmt.Sprint([]string{likedPlaylistID, collectionAlbumsID, collectionArtistsID, collectionPodcastsID, "p1"})
 	if fmt.Sprint(ids) != want {
 		t.Errorf("order %v, want %s", ids, want)
 	}
@@ -132,5 +132,71 @@ func TestCollectionPartialIsMarked(t *testing.T) {
 	m := openCollection(t, stub, collectionAlbumsID)
 	if got := m.tracklist.headerInfo; got != "1 album (incomplete: Spotify stopped responding)" {
 		t.Errorf("header %q", got)
+	}
+}
+
+func TestPodcastsOpenShowEpisodes(t *testing.T) {
+	gotOffset := -1
+	stub := &StubSource{
+		SavedShowsFn: func(context.Context) ([]source.Show, error) {
+			return []source.Show{{ID: "sh1", Name: "Sleeve Notes", Publisher: "Waxon Radio"}}, nil
+		},
+		ShowEpisodesPageFn: func(_ context.Context, id string, offset, _ int) ([]source.Track, int, error) {
+			gotOffset = offset
+			if id != "sh1" {
+				t.Errorf("episodes for %q", id)
+			}
+			ep := source.Track{ID: "spotify:episode:e1", URI: "spotify:episode:e1", Name: "Ep 1", IsEpisode: true}
+			return []source.Track{ep}, 120, nil
+		},
+	}
+	m := openCollection(t, stub, collectionPodcastsID)
+	m.focusPane = PaneTrackList
+	m, cmd := m.handleEnter()
+	res, _ := m.Update(cmd())
+	m = res.(Model)
+	if m.tracklist.ContextURI() != "spotify:show:sh1" || gotOffset != 0 {
+		t.Fatalf("context %q offset %d", m.tracklist.ContextURI(), gotOffset)
+	}
+	if m.pagination == nil || m.pagination.playlistID != showKeyPrefix+"sh1" {
+		t.Fatal("a long show should page in like a playlist")
+	}
+	m.pagination.loadingMore = false
+	more := m.fetchMoreTracks()
+	if _, ok := more().(moreTracksLoadedMsg); !ok || gotOffset != 1 {
+		t.Errorf("next page should come from the show's episodes at offset 1, got %d", gotOffset)
+	}
+}
+
+func TestEpisodeQueueAndLikeUseURI(t *testing.T) {
+	var queued, saved string
+	stub := &StubSource{
+		AddToQueueFn:   func(_ context.Context, id string) error { queued = id; return nil },
+		SaveTrackFn:    func(_ context.Context, id string) error { saved = id; return nil },
+		IsTrackSavedFn: func(context.Context, string) (bool, error) { return false, nil },
+	}
+	m := newTestModel(stub)
+	m.focusPane = PaneTrackList
+	ep := source.Track{ID: "spotify:episode:e1", URI: "spotify:episode:e1", Name: "Ep", IsEpisode: true}
+	m.tracklist.SetTracks([]source.Track{ep}, "Show", "spotify:show:sh1")
+	m, cmd := m.handleAddQueue()
+	runCmdTree(cmd)
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	runCmdTree(cmd)
+	if queued != "spotify:episode:e1" || saved != "spotify:episode:e1" {
+		t.Errorf("queued %q saved %q, want the episode URI", queued, saved)
+	}
+}
+
+func TestEpisodeSkipsLyricsLookup(t *testing.T) {
+	called := false
+	stub := &StubSource{LyricsFn: func(context.Context, source.Track) (*source.Lyrics, error) { called = true; return nil, nil }}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "spotify:episode:e1", IsEpisode: true}
+	if cmd := m.ensureLyrics(); cmd != nil {
+		cmd()
+	}
+	if called || m.lyricsLoading {
+		t.Error("episodes have no lyrics to look up")
 	}
 }

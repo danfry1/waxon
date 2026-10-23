@@ -2,8 +2,10 @@ package spotify
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -65,8 +67,8 @@ type apiPlayerState struct {
 	ProgressMS int64 `json:"progress_ms"`
 	IsPlaying  bool  `json:"is_playing"`
 	// CurrentlyPlayingType is "track", "episode", "ad" or "unknown".
-	CurrentlyPlayingType string    `json:"currently_playing_type"`
-	Item                 *apiTrack `json:"item"`
+	CurrentlyPlayingType string          `json:"currently_playing_type"`
+	Item                 json.RawMessage `json:"item"` // a track or, with additional_types=episode, an episode
 }
 
 // CurrentPlayback reads GET /me/player through waxon's own API path (rather
@@ -74,17 +76,17 @@ type apiPlayerState struct {
 // 204 "nothing playing" is distinguished from errors.
 func (p *PlayerSource) CurrentPlayback(ctx context.Context) (*source.PlaybackState, error) {
 	var state apiPlayerState
-	found, err := p.apiGetOptional(ctx, "/me/player", &state)
+	found, err := p.apiGetOptional(ctx, "/me/player?additional_types=episode", &state)
 	if err != nil {
 		return nil, fmt.Errorf("player state: %w", err)
 	}
-	if !found || state.Item == nil || state.Item.ID == "" ||
-		(state.CurrentlyPlayingType != "" && state.CurrentlyPlayingType != "track") {
-		// Nothing playing, or an episode/ad we can't represent as a track.
+	if !found || len(state.Item) == 0 || string(state.Item) == "null" {
 		return nil, nil
 	}
-
-	track := apiTrackToSource(*state.Item)
+	track, ok := playingItem(state.CurrentlyPlayingType, state.Item)
+	if !ok {
+		return nil, nil // an ad, or nothing we can show
+	}
 	track.Position = time.Duration(state.ProgressMS) * time.Millisecond
 	track.Playing = state.IsPlaying
 	track.DeviceName = state.Device.Name
@@ -195,6 +197,9 @@ func (p *PlayerSource) PlayTrackDirect(ctx context.Context, trackURI string) err
 }
 
 func (p *PlayerSource) AddToQueue(ctx context.Context, trackID string) error {
+	if isURI(trackID) { // an episode: zmb3's QueueSong only builds track URIs
+		return wrapPlayerError(p.apiWrite(ctx, http.MethodPost, "/me/player/queue?uri="+url.QueryEscape(trackID), nil, nil))
+	}
 	return wrapPlayerError(p.client.QueueSong(ctx, spotifyapi.ID(trackID)))
 }
 
@@ -238,7 +243,7 @@ func (p *PlayerSource) currentUserID(ctx context.Context) (string, error) {
 // --- source.PlaylistSource ---
 
 func (p *PlayerSource) AddToPlaylist(ctx context.Context, playlistID, trackID string) error {
-	body := map[string]any{"uris": []string{"spotify:track:" + trackID}}
+	body := map[string]any{"uris": []string{itemURI(trackID)}}
 	err := p.apiWrite(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", body, nil)
 	if err != nil && isLegacyFallbackError(err) {
 		_, err = p.client.AddTracksToPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
@@ -247,7 +252,7 @@ func (p *PlayerSource) AddToPlaylist(ctx context.Context, playlistID, trackID st
 }
 
 func (p *PlayerSource) RemoveFromPlaylist(ctx context.Context, playlistID, trackID string, position int) error {
-	item := map[string]any{"uri": "spotify:track:" + trackID}
+	item := map[string]any{"uri": itemURI(trackID)}
 	if position >= 0 {
 		// Position-based removal touches just the selected row, so duplicates
 		// of the same track elsewhere in the playlist are left alone.
@@ -259,7 +264,7 @@ func (p *PlayerSource) RemoveFromPlaylist(ctx context.Context, playlistID, track
 		if position < 0 {
 			_, err = p.client.RemoveTracksFromPlaylist(ctx, spotifyapi.ID(playlistID), spotifyapi.ID(trackID))
 		} else {
-			tracks := []spotifyapi.TrackToRemove{{URI: "spotify:track:" + trackID, Positions: []int{position}}}
+			tracks := []spotifyapi.TrackToRemove{{URI: itemURI(trackID), Positions: []int{position}}}
 			_, err = p.client.RemoveTracksFromPlaylistOpt(ctx, spotifyapi.ID(playlistID), tracks, "")
 		}
 	}

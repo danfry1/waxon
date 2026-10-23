@@ -821,10 +821,37 @@ func FormatTrackListInfo(tracks []source.Track) string {
 	h := int(total.Hours())
 	m := int(total.Minutes()) % 60
 	trackWord := pluralize(count, "track", "tracks")
+	if allEpisodes(tracks) {
+		trackWord = pluralize(count, "episode", "episodes")
+	}
 	if h > 0 {
 		return fmt.Sprintf("%d %s · %dh %dm", count, trackWord, h, m)
 	}
 	return fmt.Sprintf("%d %s · %dm", count, trackWord, m)
+}
+
+// partialListInfo is FormatPartialTrackListInfo with the right noun for the
+// loaded rows (a show's list counts episodes).
+func partialListInfo(tracks []source.Track, loaded, total int) string {
+	if allEpisodes(tracks) {
+		return fmt.Sprintf("%d of %d episodes", loaded, total)
+	}
+	return FormatPartialTrackListInfo(loaded, total)
+}
+
+// allEpisodes reports whether every playable row is a podcast episode.
+func allEpisodes(tracks []source.Track) bool {
+	n := 0
+	for _, t := range tracks {
+		if t.IsSeparator || t.IsAlbumRow {
+			continue
+		}
+		if !t.IsEpisode {
+			return false
+		}
+		n++
+	}
+	return n > 0
 }
 
 // FormatPartialTrackListInfo returns "N of M tracks" for partially loaded playlists.

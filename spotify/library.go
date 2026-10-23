@@ -656,16 +656,16 @@ func (p *PlayerSource) GetAlbum(ctx context.Context, albumID string) (*source.Al
 // the current endpoint first and fall back for apps that only have the old.
 
 func (p *PlayerSource) SaveTrack(ctx context.Context, trackID string) error {
-	err := p.apiWrite(ctx, http.MethodPut, "/me/library?uris="+url.QueryEscape("spotify:track:"+trackID), nil, nil)
-	if err != nil && isLegacyFallbackError(err) {
+	err := p.apiWrite(ctx, http.MethodPut, "/me/library?uris="+url.QueryEscape(itemURI(trackID)), nil, nil)
+	if err != nil && isLegacyFallbackError(err) && !isURI(trackID) {
 		err = p.client.AddTracksToLibrary(ctx, spotifyapi.ID(trackID))
 	}
 	return wrapScopeError(err)
 }
 
 func (p *PlayerSource) RemoveTrack(ctx context.Context, trackID string) error {
-	err := p.apiWrite(ctx, http.MethodDelete, "/me/library?uris="+url.QueryEscape("spotify:track:"+trackID), nil, nil)
-	if err != nil && isLegacyFallbackError(err) {
+	err := p.apiWrite(ctx, http.MethodDelete, "/me/library?uris="+url.QueryEscape(itemURI(trackID)), nil, nil)
+	if err != nil && isLegacyFallbackError(err) && !isURI(trackID) {
 		err = p.client.RemoveTracksFromLibrary(ctx, spotifyapi.ID(trackID))
 	}
 	return wrapScopeError(err)
@@ -673,8 +673,8 @@ func (p *PlayerSource) RemoveTrack(ctx context.Context, trackID string) error {
 
 func (p *PlayerSource) IsTrackSaved(ctx context.Context, trackID string) (bool, error) {
 	var results []bool
-	err := p.apiGet(ctx, "/me/library/contains?uris="+url.QueryEscape("spotify:track:"+trackID), &results)
-	if err != nil && isLegacyFallbackError(err) {
+	err := p.apiGet(ctx, "/me/library/contains?uris="+url.QueryEscape(itemURI(trackID)), &results)
+	if err != nil && isLegacyFallbackError(err) && !isURI(trackID) {
 		results, err = p.client.UserHasTracks(ctx, spotifyapi.ID(trackID))
 	}
 	if err != nil {

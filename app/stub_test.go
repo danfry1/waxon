@@ -20,6 +20,8 @@ type StubSource struct {
 	QueueFn              func(context.Context) ([]source.Track, error)
 	PlaylistsFn          func(context.Context) ([]source.Playlist, error)
 	SavedAlbumsFn        func(context.Context) ([]source.SavedAlbum, error)
+	SavedShowsFn         func(context.Context) ([]source.Show, error)
+	ShowEpisodesPageFn   func(context.Context, string, int, int) ([]source.Track, int, error)
 	FollowedArtistsFn    func(context.Context) ([]source.SearchArtist, error)
 	PlaylistTracksPageFn func(context.Context, string, int, int) ([]source.Track, int, error)
 	LikedTracksPageFn    func(context.Context, int, int) ([]source.Track, int, error)
@@ -217,6 +219,20 @@ func (s *StubSource) FollowedArtists(ctx context.Context) ([]source.SearchArtist
 		return s.FollowedArtistsFn(ctx)
 	}
 	return nil, nil
+}
+
+func (s *StubSource) SavedShows(ctx context.Context) ([]source.Show, error) {
+	if s.SavedShowsFn != nil {
+		return s.SavedShowsFn(ctx)
+	}
+	return nil, nil
+}
+
+func (s *StubSource) ShowEpisodesPage(ctx context.Context, id string, offset, limit int) ([]source.Track, int, error) {
+	if s.ShowEpisodesPageFn != nil {
+		return s.ShowEpisodesPageFn(ctx, id, offset, limit)
+	}
+	return nil, 0, nil
 }
 
 func (s *StubSource) SaveTrack(ctx context.Context, trackID string) error {

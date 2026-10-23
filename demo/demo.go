@@ -643,3 +643,29 @@ func (d *DemoSource) FollowedArtists(_ context.Context) ([]source.SearchArtist, 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
+
+// demoShows is a small fixed podcast library for the demo.
+var demoShows = []source.Show{
+	{ID: "show-sleeve", URI: "spotify:show:show-sleeve", Name: "Sleeve Notes", Publisher: "Waxon Radio", ImageURL: artKindBlue},
+	{ID: "show-b-side", URI: "spotify:show:show-b-side", Name: "The B-Side", Publisher: "Groove Media", ImageURL: artRumours},
+}
+
+func (d *DemoSource) SavedShows(_ context.Context) ([]source.Show, error) {
+	return demoShows, nil
+}
+
+func (d *DemoSource) ShowEpisodesPage(_ context.Context, showID string, offset, limit int) ([]source.Track, int, error) {
+	titles := []string{"Recording a classic in one take", "Why vinyl came back", "The art of the album sequence", "Producers you've never heard of"}
+	var eps []source.Track
+	for i, title := range titles {
+		uri := fmt.Sprintf("spotify:episode:%s-%d", showID, i)
+		eps = append(eps, source.Track{
+			ID: uri, URI: uri, Name: title, Artist: fmt.Sprintf("2026-10-%02d", 20-i*6),
+			Duration: time.Duration(28+i*9) * time.Minute, IsEpisode: true, ShowID: showID,
+		})
+	}
+	if offset >= len(eps) {
+		return nil, len(eps), nil
+	}
+	return eps[offset:min(len(eps), offset+limit)], len(eps), nil
+}

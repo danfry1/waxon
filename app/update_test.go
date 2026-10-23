@@ -2325,7 +2325,7 @@ func TestJumpToCurrentTrackNavigatesToArtist(t *testing.T) {
 func TestJumpToUnsupportedContextShowsMessage(t *testing.T) {
 	m := newTestModel(&StubSource{})
 	m.track = &source.Track{ID: "cur", Name: "Current"}
-	m.playbackContextURI = "spotify:show:podcast1" // not navigable
+	m.playbackContextURI = "spotify:audiobook:book1" // not navigable
 	m.tracklist.SetTracks([]source.Track{{ID: "other"}}, "Other", "")
 
 	result, cmd := m.jumpToCurrentTrack()
