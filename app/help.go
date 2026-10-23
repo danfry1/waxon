@@ -70,6 +70,7 @@ func helpCategories(k KeyMap) []helpCategory {
 				pair(k.FocusLeft, k.FocusRight, "focus left / right"),
 				hb(k.CyclePane, "cycle pane"),
 				pair(k.Section1, k.Section2, "library / queue"),
+				{"5j / 12G", "count (track list)"},
 				{keyLabel(k.Back) + " / b", "go back"},
 			},
 		},
@@ -99,6 +100,16 @@ func helpCategories(k KeyMap) []helpCategory {
 				hb(k.NowPlaying, "now playing"),
 				hb(k.Help, "help"),
 				hb(k.Quit, "quit"),
+			},
+		},
+		{
+			Title: "VISUAL",
+			Bindings: []helpBinding{
+				hb(k.Visual, "select a range"),
+				{keyLabel(k.AddQueue) + " / " + keyLabel(k.Like), "queue / like all"},
+				{keyLabel(k.Actions), "add all to playlist"},
+				{"d", "remove from playlist"},
+				{"Esc", "cancel"},
 			},
 		},
 		{

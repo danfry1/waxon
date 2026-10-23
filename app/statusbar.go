@@ -11,7 +11,9 @@ import (
 
 // StatusBar renders the bottom two rows: now-playing bar and mode line.
 type StatusBar struct {
-	width int
+	width      int
+	visualHint string // selection summary shown in VISUAL mode
+	pending    string // count prefix being typed (vim's showcmd)
 }
 
 func NewStatusBar(width int) StatusBar {
@@ -150,10 +152,15 @@ func (s StatusBar) ViewModeLine(mode Mode, cmdInput string, filterInput string, 
 		left = " " + StyleModeNormal.Render("ACTIONS")
 	case ModeDevices:
 		left = " " + StyleModeNormal.Render("DEVICES")
+	case ModeVisual:
+		left = " " + StyleModeFilter.Render("VISUAL") + " " + StyleDimText.Render(s.visualHint)
 	}
 
 	// Right: help hint + volume + device
 	right := "? help  "
+	if s.pending != "" {
+		right = StyleModeFilter.Render(s.pending) + "  " + right
+	}
 	right += fmt.Sprintf("♪ %d%%", volume)
 	if deviceName != "" {
 		right += "  " + deviceName
@@ -244,6 +251,8 @@ func (s StatusBar) ViewNowPlayingWithArt(track *source.Track, shuffleOn bool, re
 		modeLine = "   " + StyleModeFilter.Render("/") + " " + filterInput
 	case ModeSearch:
 		modeLine = "   " + StyleModeSearch.Render("SEARCH")
+	case ModeVisual:
+		modeLine = "   " + StyleModeFilter.Render("VISUAL") + " " + StyleDimText.Render(s.visualHint)
 	default:
 		modeNorm := lipgloss.NewStyle().
 			Foreground(ColorBg).
@@ -254,6 +263,9 @@ func (s StatusBar) ViewNowPlayingWithArt(track *source.Track, shuffleOn bool, re
 		if filterActive != "" {
 			modeLine += "  " + StyleModeFilter.Render("/"+filterActive)
 		}
+	}
+	if s.pending != "" {
+		modeLine += "  " + StyleModeFilter.Render(s.pending)
 	}
 	modeLine += "  " + StyleDimText.Render("? help")
 

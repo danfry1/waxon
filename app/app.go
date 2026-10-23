@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,7 +66,11 @@ var playbackRefreshDelays = []time.Duration{
 type (
 	pollTickMsg     time.Time
 	progressTickMsg time.Time
-	queueDoneMsg    struct{ trackName string }
+	queueDoneMsg    struct {
+		trackName string
+		count     int // batch queueing: tracks queued and not
+		failed    int
+	}
 	cmdFlashMsg     struct{ text string }
 	volumeCommitMsg struct{ gen int }
 	trackUpdateMsg  struct {
@@ -194,6 +199,11 @@ type playlistChangedMsg struct {
 	trackName    string
 	added        bool
 	position     int // row removed (remove only; -1 if unknown)
+	// Batch edits (visual mode): count tracks changed, positions removed in
+	// descending order, failed that didn't go through.
+	count     int
+	positions []int
+	failed    int
 }
 
 // refreshPlaylistsMsg asks for a (delayed) reload of the library list.
@@ -292,6 +302,8 @@ type Model struct {
 	// progressTicking is true while a progressTickMsg is scheduled. The tick
 	// stops itself when nothing animates; Update restarts it on demand.
 	progressTicking bool
+	// count is a pending vim count prefix (0 = none).
+	count int
 	// prefetchedFor is the track whose successor's art has been prefetched.
 	prefetchedFor string
 	// volumeGen numbers +/- presses so only the last of a burst is sent;
@@ -401,6 +413,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	nm, ok := res.(Model)
 	if !ok {
 		return res, cmd
+	}
+	// Visual mode and its selection live and die together, whichever handler
+	// changed one of them (a list reload, a device picker opening, …), and a
+	// count prefix doesn't survive into another mode.
+	switch {
+	case nm.mode == ModeVisual && !nm.tracklist.Visual():
+		nm.mode = ModeNormal
+	case nm.mode != ModeVisual && nm.tracklist.Visual():
+		nm.tracklist.EndVisual()
+	}
+	if nm.mode != ModeNormal && nm.mode != ModeVisual {
+		nm.count = 0
 	}
 	// The lyric highlight follows the position whatever moved it: the tick,
 	// a poll, a seek, or lyrics arriving while paused (when no tick runs).
@@ -754,16 +778,24 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(m.trackCache, msg.playlistID)
 		cmds := make([]tea.Cmd, 0, 2)
 		cmds = append(cmds, scheduleAutoDismiss())
-		if msg.added {
+		n := max(1, msg.count)
+		switch {
+		case msg.failed > 0:
+			verb := "Removed"
+			if msg.added {
+				verb = "Added"
+			}
+			m.toast.Show(fmt.Sprintf("%s %d of %d tracks", verb, n, n+msg.failed), "Spotify refused the rest — try again shortly", ToastError)
+		case msg.added:
 			m.toast.Show("Added to "+msg.playlistName, msg.trackName, ToastSuccess)
-		} else {
+		default:
 			m.toast.Show("Removed from "+msg.playlistName, msg.trackName, ToastInfo)
 		}
 		// Update the count immediately; Spotify's playlist listing lags edits by
 		// a few seconds, so the reconciling refresh is delayed.
-		delta := -1
+		delta := -n
 		if msg.added {
-			delta = 1
+			delta = n
 		}
 		for i := range m.playlists {
 			if m.playlists[i].ID == msg.playlistID {
@@ -777,6 +809,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tracklist.ContextURI() == "spotify:playlist:"+msg.playlistID {
 			if !msg.added && msg.position >= 0 {
 				m.tracklist.RemoveAt(msg.position)
+				m.tracklist.SetHeaderInfo(FormatTrackListInfo(m.tracklist.tracks))
+			}
+			if !msg.added && len(msg.positions) > 0 {
+				for _, p := range msg.positions { // descending, so indices stay valid
+					m.tracklist.RemoveAt(p)
+				}
 				m.tracklist.SetHeaderInfo(FormatTrackListInfo(m.tracklist.tracks))
 			}
 			m.pendingViewRefresh = msg.playlistID
@@ -888,7 +926,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case queueDoneMsg:
-		m.toast.Show("Added to queue", msg.trackName, ToastSuccess)
+		if msg.failed > 0 {
+			m.toast.Show(fmt.Sprintf("Queued %d of %d tracks", msg.count, msg.count+msg.failed), "Spotify refused the rest — try again shortly", ToastError)
+		} else {
+			m.toast.Show("Added to queue", msg.trackName, ToastSuccess)
+		}
 		// Refresh queue view if it's currently visible
 		if m.sidebar.Section() == SectionQueue {
 			return m, tea.Batch(scheduleAutoDismiss(), m.fetchQueue())
@@ -902,6 +944,21 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.volumeHoldUntil = time.Now().Add(volumeHold)
 		return m, m.runCommand(Command{Type: CmdVolume, IntArg: m.volume})
+
+	case likedBatchMsg:
+		delete(m.trackCache, likedPlaylistID)
+		for _, id := range msg.ids {
+			m.likedCache[id] = true
+			if m.track != nil && m.track.ID == id {
+				m.liked = true
+			}
+		}
+		if msg.failed > 0 {
+			m.toast.Show(fmt.Sprintf("Liked %d of %d tracks", len(msg.ids), len(msg.ids)+msg.failed), "Spotify refused the rest — try again shortly", ToastError)
+		} else {
+			m.toast.Show("Added to Liked Songs", fmt.Sprintf("%d %s", len(msg.ids), pluralize(len(msg.ids), "track", "tracks")), ToastSuccess)
+		}
+		return m, scheduleAutoDismiss()
 
 	case cmdFlashMsg:
 		m.toast.Show(msg.text, "", ToastInfo)
@@ -1054,6 +1111,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleKeyCommand(msg)
 	case ModeFilter:
 		return m.handleKeyFilter(msg)
+	case ModeVisual:
+		return m.handleKeyVisual(msg)
 	default:
 		return m.handleKeyNormal(msg)
 	}
@@ -1272,10 +1331,14 @@ func (m Model) handleKeyPlaylistPick(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case tea.KeyEnter:
 		pl := m.playlistPick.Selected()
 		trackID, trackName := m.playlistPick.TrackID(), m.playlistPick.TrackName()
+		batch := m.playlistPick.TrackIDs()
 		m.playlistPick = nil
 		m.mode = m.pickReturn
 		if pl == nil {
 			return m, nil
+		}
+		if batch != nil {
+			return m, m.addTracksToPlaylist(*pl, batch)
 		}
 		return m, m.addToPlaylist(*pl, trackID, trackName)
 	}
@@ -1358,15 +1421,20 @@ func (m Model) handleKeyFilter(msg tea.KeyMsg) (Model, tea.Cmd) {
 func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	// Handle g-prefix motions
 	if m.gtracker.Pending() {
+		count := m.count
+		m.count = 0
 		action := m.gtracker.Feed(msg.String())
 		switch action {
 		case GActionTop:
-			if m.focusPane == PaneSidebar {
+			switch {
+			case m.focusPane == PaneSidebar:
 				m.sidebar, _ = m.sidebar.Update(tea.KeyMsg{Type: tea.KeyHome})
-			} else {
+			case count > 0:
+				m.tracklist.GotoRow(count - 1) // 12gg: row 12
+			default:
 				m.tracklist.GotoTop()
 			}
-			return m, nil
+			return m, m.maybeLoadMore()
 		case GActionLibrary:
 			m.focusPane = PaneSidebar
 			m.sidebar.SetSection(SectionLibrary)
@@ -1386,18 +1454,33 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	}
 
+	// A count (5j, 12G) is typed with digits while the track list has focus.
+	// There the digits are counts rather than the 1/2 section keys.
+	if m.focusPane == PaneTrackList {
+		if d, ok := m.countDigit(msg); ok {
+			m.count = min(m.count*10+d, maxCount)
+			return m, nil
+		}
+	}
+	count := m.count
+	m.count = 0
+
 	// "g" starts the g-prefix, "G" goes to bottom immediately
 	if msg.String() == "g" {
+		m.count = count // carried into 12gg
 		m.gtracker.Feed("g")
 		return m, nil
 	}
 	if key.Matches(msg, m.keys.Bottom) {
-		if m.focusPane == PaneSidebar {
+		switch {
+		case m.focusPane == PaneSidebar:
 			m.sidebar, _ = m.sidebar.Update(tea.KeyMsg{Type: tea.KeyEnd})
-		} else {
+		case count > 0:
+			m.tracklist.GotoRow(count - 1) // 12G: row 12
+		default:
 			m.tracklist.GotoBottom()
 		}
-		return m, nil
+		return m, m.maybeLoadMore()
 	}
 
 	switch {
@@ -1479,6 +1562,15 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.AddQueue):
 		return m.handleAddQueue()
 
+	case key.Matches(msg, m.keys.Visual):
+		if m.focusPane != PaneTrackList || m.tracklist.SelectedTrack() == nil || m.tracklist.HasNotice() {
+			return m, nil
+		}
+		m.gtracker.Reset()
+		m.tracklist.StartVisual()
+		m.mode = ModeVisual
+		return m, nil
+
 	case key.Matches(msg, m.keys.Like):
 		if m.focusPane == PaneTrackList {
 			track := m.tracklist.SelectedTrack()
@@ -1538,9 +1630,9 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(msg, m.keys.Up):
-			m.tracklist.MoveUp(1)
+			m.tracklist.MoveUp(max(1, count))
 		case key.Matches(msg, m.keys.Down):
-			m.tracklist.MoveDown(1)
+			m.tracklist.MoveDown(max(1, count))
 		case key.Matches(msg, m.keys.HalfUp):
 			m.tracklist.HalfPageUp()
 		case key.Matches(msg, m.keys.HalfDown):
@@ -2091,6 +2183,12 @@ func (m Model) View() string {
 	}
 
 	// Now-playing area
+	if m.mode == ModeVisual {
+		m.statusbar.visualHint = m.visualHint()
+	}
+	if m.count > 0 {
+		m.statusbar.pending = strconv.Itoa(m.count)
+	}
 	var view string
 	if m.artStatusBar() {
 		artView := m.albumart.View()
