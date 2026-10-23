@@ -23,6 +23,11 @@ type Config struct {
 	// Keys overrides keybindings, keyed by action name (up, down, next, …)
 	// with a comma-separated list of keys, e.g. {"next": "n,right"}.
 	Keys map[string]string `json:"keys,omitempty"`
+	// Art picks how album art is drawn: "blocks" (default, Unicode
+	// half-blocks), "kitty" (real images via the kitty graphics protocol,
+	// for kitty and Ghostty), or "auto" (kitty when the terminal is known to
+	// support it).
+	Art string `json:"art,omitempty"`
 }
 
 // Dir returns the waxon config directory, following XDG conventions:
@@ -108,6 +113,9 @@ func merge(existing, updates Config) Config {
 	}
 	if updates.Keys != nil {
 		result.Keys = updates.Keys
+	}
+	if updates.Art != "" {
+		result.Art = updates.Art
 	}
 	return result
 }

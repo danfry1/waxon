@@ -279,6 +279,8 @@ waxon reads `~/.config/waxon/config.json` (`$XDG_CONFIG_HOME` respected; `waxon 
 
 **Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices back filter search command help now_playing quit escape section1 section2`. The `g`-prefix motions (`gg gl gq gc gr`) are fixed. The `?` help overlay always shows your live bindings.
 
+**Art** — `"art": "kitty"` draws the status-bar and Now Playing covers as real images using the kitty graphics protocol (kitty, Ghostty); `"auto"` does that only when the terminal is detected as supporting it (not inside tmux), and `"blocks"` (the default) keeps the Unicode half-block art. `WAXON_ART` overrides the setting for one run, e.g. `WAXON_ART=kitty waxon`. Experimental: please report terminals where it misbehaves.
+
 **Cache** — album art is cached under `$XDG_CACHE_HOME/waxon/images` (or your OS cache dir), capped at 64 MB and pruned on launch, so relaunching paints the library instantly. Delete the directory to clear it.
 
 **Colour fallback** — colours degrade automatically on 256-colour terminals and are dropped under `NO_COLOR`; album art uses the 256-colour cube where true colour isn't available and is skipped entirely on monochrome terminals.
@@ -383,6 +385,7 @@ Debug log: `WAXON_LOG=/tmp/waxon.log waxon` (includes rate-limit `Retry-After` v
 |---------------------|------------------------------------|
 | `SPOTIFY_CLIENT_ID` | Override the saved Spotify Client ID |
 | `WAXON_LOG`         | Path to debug log file (e.g. `/tmp/waxon.log`) |
+| `WAXON_ART`         | Override the `art` setting for one run (`blocks`, `kitty`, `auto`) |
 | `WAXON_NO_BROWSER`  | Don't launch a browser during `waxon auth`; just print the URL (SSH) |
 
 ## Acknowledgements

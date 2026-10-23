@@ -10,6 +10,10 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Added
 
+- Experimental: real album-art images in kitty and Ghostty. Set
+  `"art": "kitty"` (or `"auto"`) in config.json, or run with `WAXON_ART=kitty`.
+  The status-bar and Now Playing covers use the kitty graphics protocol's
+  Unicode placeholders; everything else keeps the half-block art.
 - Saved Albums and Followed Artists in the library, under Liked Songs. Enter
   opens an album or an artist page, and `/` filters by name or artist.
   Followed artists need one more Spotify permission: run `waxon auth` once

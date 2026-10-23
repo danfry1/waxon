@@ -414,6 +414,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return res, cmd
 	}
+	if artMode == ArtKitty {
+		if nm.quitting {
+			kittyClear() // still on the alternate screen, where the images are
+		} else {
+			kittyReap(time.Now())
+		}
+	}
 	// Visual mode and its selection live and die together, whichever handler
 	// changed one of them (a list reload, a device picker opening, …), and a
 	// count prefix doesn't survive into another mode.
@@ -1173,6 +1180,8 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.vinylMode {
 			m.vinylAngle = 0
 			m.lyricsView = false // vinyl and lyrics share the art region
+		} else {
+			m.renderNPArt()
 		}
 		return m, nil
 	case msg.String() == "l":
@@ -1520,6 +1529,8 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		cmds := []tea.Cmd{m.ensureLyrics()} // so the hint can say if there are lyrics
 		if m.track != nil && m.track.ArtworkURL != "" && m.npArtURL != m.track.ArtworkURL {
 			cmds = append(cmds, m.fetchNPArt(m.track.ArtworkURL))
+		} else {
+			m.renderNPArt() // kitty art is only placed while the view is open
 		}
 		return m, tea.Batch(cmds...)
 
@@ -1935,12 +1946,21 @@ func (m *Model) renderNPArt() {
 	if m.npSourceImg == nil {
 		return
 	}
+	// Kitty art costs a transmission, so only place it while Now Playing
+	// shows it (vinyl mode draws its own frames); entering the view or
+	// leaving vinyl renders it then.
+	if artMode == ArtKitty && (m.mode != ModeNowPlaying || m.vinylMode) {
+		return
+	}
 	w, h := npArtSize(m.width, m.height)
 	if w == 0 {
 		m.npArt = ""
+		if artMode == ArtKitty {
+			kittyRelease("np")
+		}
 		return
 	}
-	m.npArt = renderHalfBlocks(m.npSourceImg, w, h)
+	m.npArt = renderArt("np", m.npSourceImg, w, h)
 }
 
 // Layout breakpoints.

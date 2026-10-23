@@ -44,12 +44,27 @@ func NewAlbumArt() AlbumArt {
 }
 
 func (a *AlbumArt) SetImage(img image.Image) {
-	a.rendered = renderHalfBlocks(img, a.width, a.height)
+	a.rendered = renderArt("status", img, a.width, a.height)
+}
+
+// renderArt renders img for a w×h cell area: as a kitty image when that
+// mode is on (slot names the area, so its previous image is replaced),
+// otherwise as half-blocks.
+func renderArt(slot string, img image.Image, w, h int) string {
+	if artMode == ArtKitty {
+		if s := kittyArt(slot, img, w, h); s != "" {
+			return s
+		}
+	}
+	return renderHalfBlocks(img, w, h)
 }
 
 func (a *AlbumArt) Clear() {
 	a.rendered = ""
 	a.currentURL = ""
+	if artMode == ArtKitty {
+		kittyRelease("status")
+	}
 }
 
 func (a *AlbumArt) CurrentURL() string {
@@ -74,6 +89,10 @@ const (
 	ArtTrueColor ArtMode = iota
 	ArtANSI256
 	ArtOff
+	// ArtKitty draws the status-bar and Now Playing art as real images via
+	// the kitty graphics protocol (see kitty.go); smaller art and vinyl
+	// mode stay true-colour half-blocks.
+	ArtKitty
 )
 
 var artMode = ArtTrueColor
