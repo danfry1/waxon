@@ -41,6 +41,7 @@ type collectionLoadedMsg struct {
 	rows   []source.Track
 	info   string
 	notice string
+	err    error // set when the list is missing or incomplete
 }
 
 // fetchCollection loads one of the collection sections.
@@ -57,28 +58,42 @@ func (m Model) fetchCollection(id, title string) tea.Cmd {
 			for _, a := range albums {
 				rows = append(rows, source.Track{Name: a.Name, Album: a.Artist, Artist: a.Year, AlbumID: a.ID, IsAlbumRow: true})
 			}
-			info = fmt.Sprintf("%d %s", len(rows), pluralize(len(rows), "album", "albums"))
+			info = countLabel(len(rows), "album", "albums")
 		case collectionArtistsID:
 			var artists []source.SearchArtist
 			artists, err = src.FollowedArtists(ctx)
 			for _, a := range artists {
 				rows = append(rows, source.Track{Name: a.Name, ArtistID: a.ID, IsAlbumRow: true})
 			}
-			info = fmt.Sprintf("%d %s", len(rows), pluralize(len(rows), "artist", "artists"))
+			info = countLabel(len(rows), "artist", "artists")
 		}
-		msg := collectionLoadedMsg{title: title, rows: rows, info: info}
+		msg := collectionLoadedMsg{title: title, rows: rows, info: info, err: err}
 		switch {
 		case errors.Is(err, source.ErrInsufficientScope):
-			msg.rows, msg.info = nil, ""
+			msg.rows, msg.info, msg.err = nil, "", nil
 			msg.notice = "waxon needs one more permission to list these.\n\nRun 'waxon auth' once to grant it."
 		case err != nil && len(rows) == 0:
-			return trackErrorMsg{err}
+			// Show why in place of the list rather than leaving a spinner.
+			msg.notice = "Couldn't load this from Spotify.\n\nGo back with b and try again in a moment."
+		case err != nil:
+			msg.info += " (incomplete: Spotify stopped responding)"
 		case len(rows) == 0:
 			msg.notice = "Nothing here yet."
 		}
 		return msg
 	}
 }
+
+// countLabel is "N albums", or "N+ albums" when the fetch hit its cap.
+func countLabel(n int, one, many string) string {
+	if n >= maxCollectionItems {
+		return fmt.Sprintf("%d+ %s", n, many)
+	}
+	return fmt.Sprintf("%d %s", n, pluralize(n, one, many))
+}
+
+// maxCollectionItems mirrors the Spotify client's cap on collection lists.
+const maxCollectionItems = 2000
 
 // openRow navigates into a row that stands for a page rather than a track:
 // a discography or saved album, or a followed artist.

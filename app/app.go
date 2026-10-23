@@ -586,6 +586,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case collectionLoadedMsg:
+		if msg.err != nil {
+			m.noteRateLimit(msg.err) // a 429 here still pauses polling
+		}
 		m.pagination = nil
 		m.tracklist.SetTracks(msg.rows, msg.title, "")
 		m.tracklist.SetHeaderInfo(msg.info)

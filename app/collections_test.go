@@ -114,3 +114,23 @@ func TestFilterMatchesAlbumRows(t *testing.T) {
 		t.Errorf("filter on album rows matched %d, want 2", n)
 	}
 }
+
+func TestCollectionErrorShowsNotice(t *testing.T) {
+	stub := &StubSource{SavedAlbumsFn: func(context.Context) ([]source.SavedAlbum, error) {
+		return nil, fmt.Errorf("boom")
+	}}
+	m := openCollection(t, stub, collectionAlbumsID)
+	if m.tracklist.loading || !m.tracklist.HasNotice() {
+		t.Error("a failed load should replace the spinner with a notice")
+	}
+}
+
+func TestCollectionPartialIsMarked(t *testing.T) {
+	stub := &StubSource{SavedAlbumsFn: func(context.Context) ([]source.SavedAlbum, error) {
+		return []source.SavedAlbum{{ID: "a", Name: "A"}}, fmt.Errorf("429")
+	}}
+	m := openCollection(t, stub, collectionAlbumsID)
+	if got := m.tracklist.headerInfo; got != "1 album (incomplete: Spotify stopped responding)" {
+		t.Errorf("header %q", got)
+	}
+}
