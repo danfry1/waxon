@@ -35,6 +35,7 @@ var spotifyScopes = []string{
 	"user-library-read",
 	"user-library-modify",
 	"user-read-recently-played",
+	"user-follow-read",
 }
 
 func SpotifyOAuthConfig(clientID, redirectURL string) *oauth2.Config {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -619,4 +620,26 @@ func (d *DemoSource) CreatePlaylist(_ context.Context, name string) (source.Play
 	d.playlists = append(d.playlists, pl)
 	d.tracksByPL[pl.ID] = nil
 	return pl, nil
+}
+
+func (d *DemoSource) SavedAlbums(_ context.Context) ([]source.SavedAlbum, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]source.SavedAlbum, 0, len(d.albums))
+	for id, a := range d.albums {
+		out = append(out, source.SavedAlbum{ID: id, Name: a.Name, Artist: a.Artist, Year: a.Year, ImageURL: a.ImageURL})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (d *DemoSource) FollowedArtists(_ context.Context) ([]source.SearchArtist, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]source.SearchArtist, 0, len(d.artists))
+	for id, a := range d.artists {
+		out = append(out, source.SearchArtist{ID: id, Name: a.Name, ImageURL: a.ImageURL})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }

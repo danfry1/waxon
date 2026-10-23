@@ -754,10 +754,8 @@ func (m Model) openActions() (Model, tea.Cmd) {
 			return m, scheduleAutoDismiss()
 		}
 		// For album rows in discography, navigate directly to the album
-		if track.IsAlbumRow && track.AlbumID != "" {
-			m.pushNav()
-			m.tracklist.SetLoading(track.Name)
-			return m, m.fetchAlbumPage(track.AlbumID)
+		if cmd, ok := m.openRow(*track); ok {
+			return m, cmd
 		}
 		liked, known := m.likedStatus(track.ID)
 		in := m.currentPlaylistContext()
@@ -779,6 +777,9 @@ func (m Model) openActions() (Model, tea.Cmd) {
 	if pl == nil {
 		m.toast.Show("No playlist selected", "", ToastError)
 		return m, scheduleAutoDismiss()
+	}
+	if isCollection(pl.ID) {
+		return m.handleEnter() // nothing to play as a whole; just open it
 	}
 	popup := NewPlaylistActions(pl.Name, pl.URI, m.width, m.height)
 	m.actions = &popup

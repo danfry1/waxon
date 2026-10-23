@@ -573,7 +573,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// sidebar may not exist yet if WindowSizeMsg hasn't arrived;
 		// layoutResize will apply playlists once the sidebar is created.
 		if m.sidebar.width > 0 {
-			m.sidebar.SetPlaylists(msg.playlists)
+			m.sidebar.SetPlaylists(withCollections(msg.playlists))
 		}
 		cmds := []tea.Cmd{m.fetchSidebarIcons(msg.playlists)}
 		if msg.initial && len(msg.playlists) > 0 {
@@ -583,6 +583,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sidebarIconLoadedMsg:
 		m.sidebar.SetPlaylistIcons(map[string]string{msg.id: msg.icon})
+		return m, nil
+
+	case collectionLoadedMsg:
+		m.pagination = nil
+		m.tracklist.SetTracks(msg.rows, msg.title, "")
+		m.tracklist.SetHeaderInfo(msg.info)
+		m.tracklist.SetArt("")
+		if msg.notice != "" {
+			m.tracklist.SetNotice(msg.notice)
+		}
 		return m, nil
 
 	case tracksLoadedMsg:
@@ -1754,6 +1764,9 @@ func (m Model) handleSidebarClick(y int) (Model, tea.Cmd) {
 			}
 			m.pushNav()
 			m.tracklist.SetLoading(pl.Name)
+			if isCollection(pl.ID) {
+				return m, m.fetchCollection(pl.ID, pl.Name)
+			}
 			return m, m.fetchPlaylistTracks(*pl)
 		}
 	}
@@ -1774,10 +1787,8 @@ func (m Model) handleTrackListClick(y int) (Model, tea.Cmd) {
 		m.lastClickTime = time.Time{}
 		track := m.tracklist.SelectedTrack()
 		if track != nil && !track.IsSeparator {
-			if track.IsAlbumRow && track.AlbumID != "" {
-				m.pushNav()
-				m.tracklist.SetLoading(track.Name)
-				return m, m.fetchAlbumPage(track.AlbumID)
+			if cmd, ok := m.openRow(*track); ok {
+				return m, cmd
 			}
 			return m, m.playTrack(track.URI, m.tracklist.ContextURI())
 		}
@@ -1876,6 +1887,9 @@ func (m Model) handleEnter() (Model, tea.Cmd) {
 			}
 			m.pushNav()
 			m.tracklist.SetLoading(pl.Name)
+			if isCollection(pl.ID) {
+				return m, m.fetchCollection(pl.ID, pl.Name)
+			}
 			return m, m.fetchPlaylistTracks(*pl)
 		}
 	} else {
@@ -1886,10 +1900,8 @@ func (m Model) handleEnter() (Model, tea.Cmd) {
 				return m, nil
 			}
 			// Album rows navigate to the album page
-			if track.IsAlbumRow && track.AlbumID != "" {
-				m.pushNav()
-				m.tracklist.SetLoading(track.Name)
-				return m, m.fetchAlbumPage(track.AlbumID)
+			if cmd, ok := m.openRow(*track); ok {
+				return m, cmd
 			}
 			return m, m.playTrack(track.URI, m.tracklist.ContextURI())
 		}
@@ -1980,7 +1992,7 @@ func (m *Model) layoutResize() {
 		// If playlists arrived before the first WindowSizeMsg (e.g. demo mode
 		// with instant responses), apply them now that the sidebar exists.
 		if len(m.playlists) > 0 {
-			m.sidebar.SetPlaylists(m.playlists)
+			m.sidebar.SetPlaylists(withCollections(m.playlists))
 		}
 	} else {
 		m.sidebar.Resize(sidebarW, contentH)
