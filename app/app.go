@@ -1203,6 +1203,15 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// searchPlayContext is the context a search result plays in: its album, when
+// known. Without one Spotify plays the single track and then stops.
+func searchPlayContext(t source.Track) string {
+	if t.AlbumID == "" {
+		return ""
+	}
+	return "spotify:album:" + t.AlbumID
+}
+
 func (m Model) handleKeySearch(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.search == nil {
 		return m, nil
@@ -1216,7 +1225,9 @@ func (m Model) handleKeySearch(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if track := m.search.SelectedTrack(); track != nil {
 			m.search = nil
 			m.mode = ModeNormal
-			return m, m.playTrack(track.URI, "")
+			// Play it inside its album so playback carries on afterwards,
+			// as it does when the track is picked from the album page.
+			return m, m.playTrack(track.URI, searchPlayContext(*track))
 		}
 		if artist := m.search.SelectedArtist(); artist != nil {
 			m.search = nil
