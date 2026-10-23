@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Album art via the kitty graphics protocol's Unicode placeholders (kitty,
@@ -51,9 +52,12 @@ func SetGraphicsOutput(out *TTYOutput) { graphicsOut = out }
 // KittyTerminal reports whether the terminal is known to support kitty
 // Unicode placeholders. Inside tmux the variables leak through from the
 // outer terminal, but the images wouldn't (they need passthrough), so tmux
-// counts as unsupported.
+// counts as unsupported, as do zellij and screen.
 func KittyTerminal() bool {
-	if os.Getenv("TMUX") != "" {
+	if os.Getenv("TMUX") != "" || os.Getenv("ZELLIJ") != "" || os.Getenv("STY") != "" {
+		return false
+	}
+	if t := os.Getenv("TERM"); strings.HasPrefix(t, "screen") || strings.HasPrefix(t, "tmux") {
 		return false
 	}
 	return os.Getenv("KITTY_WINDOW_ID") != "" || os.Getenv("TERM") == "xterm-kitty" ||
@@ -70,10 +74,29 @@ const kittyMaxPx = 480
 const kittyImageBase = 0x5A0000
 
 var kitty struct {
-	mu    sync.Mutex
-	next  uint32
-	slots map[string]uint32 // slot ("status", "np") → image ID on screen
+	mu      sync.Mutex
+	next    uint32
+	slots   map[string]kittySlot // slot ("status", "np") → what it shows
+	pngs    map[image.Image][]byte
+	pending []kittyDeletion // replaced images, deleted once off screen
 }
+
+// kittySlot is the image an art area currently shows.
+type kittySlot struct {
+	id          uint32
+	img         image.Image
+	cols, rows  int
+	placeholder string
+}
+
+type kittyDeletion struct {
+	id uint32
+	at time.Time
+}
+
+// kittyDeleteDelay is how long a replaced image is kept: deleting it at once
+// would blank its cells until the next frame replaces them.
+const kittyDeleteDelay = 300 * time.Millisecond
 
 // kittyArt sends img to the terminal for a cols×rows area and returns the
 // placeholder text to draw there. slot names the place the art occupies;
@@ -82,30 +105,75 @@ func kittyArt(slot string, img image.Image, cols, rows int) string {
 	if graphicsOut == nil || img == nil || cols <= 0 || rows <= 0 || rows > len(kittyRowDiacritics) {
 		return ""
 	}
-	data, err := kittyPNG(img)
-	if err != nil {
-		return ""
-	}
 	kitty.mu.Lock()
+	defer kitty.mu.Unlock()
 	if kitty.slots == nil {
-		kitty.slots = map[string]uint32{}
+		kitty.slots = map[string]kittySlot{}
+		kitty.pngs = map[image.Image][]byte{}
+	}
+	old, hadOld := kitty.slots[slot]
+	if hadOld && old.img == img && old.cols == cols && old.rows == rows {
+		return old.placeholder // already on the terminal
+	}
+	data, ok := kitty.pngs[img]
+	if !ok {
+		var err error
+		if data, err = kittyPNG(img); err != nil {
+			return ""
+		}
+		if len(kitty.pngs) >= 4 { // the status and NP art, plus the next track's
+			clear(kitty.pngs)
+		}
+		kitty.pngs[img] = data
 	}
 	kitty.next = (kitty.next + 1) % 0xFFFF
 	id := kittyImageBase + kitty.next
-	old, hadOld := kitty.slots[slot]
-	kitty.slots[slot] = id
-	kitty.mu.Unlock()
-
-	var seq strings.Builder
+	ph := kittyPlaceholders(id, cols, rows)
+	kitty.slots[slot] = kittySlot{id: id, img: img, cols: cols, rows: rows, placeholder: ph}
 	if hadOld {
-		fmt.Fprintf(&seq, "\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", old)
+		kitty.pending = append(kitty.pending, kittyDeletion{id: old.id, at: time.Now()})
 	}
+	var seq strings.Builder
 	writeKittyTransmit(&seq, id, cols, rows, data)
 	_, _ = graphicsOut.Write([]byte(seq.String()))
-	return kittyPlaceholders(id, cols, rows)
+	return ph
 }
 
-// kittyClear deletes every image waxon has placed (on exit).
+// kittyRelease frees the image shown in slot (its art was cleared).
+func kittyRelease(slot string) {
+	kitty.mu.Lock()
+	defer kitty.mu.Unlock()
+	if s, ok := kitty.slots[slot]; ok {
+		delete(kitty.slots, slot)
+		kitty.pending = append(kitty.pending, kittyDeletion{id: s.id, at: time.Now()})
+	}
+}
+
+// kittyReap deletes replaced images once the frame that stopped showing them
+// has had time to reach the terminal. Called from Update.
+func kittyReap(now time.Time) {
+	kitty.mu.Lock()
+	defer kitty.mu.Unlock()
+	if graphicsOut == nil || len(kitty.pending) == 0 {
+		return
+	}
+	var seq strings.Builder
+	keep := kitty.pending[:0]
+	for _, d := range kitty.pending {
+		if now.Sub(d.at) < kittyDeleteDelay {
+			keep = append(keep, d)
+			continue
+		}
+		fmt.Fprintf(&seq, "\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", d.id)
+	}
+	kitty.pending = keep
+	if seq.Len() > 0 {
+		_, _ = graphicsOut.Write([]byte(seq.String()))
+	}
+}
+
+// kittyClear deletes every image waxon has placed. It runs as waxon quits,
+// while still on the alternate screen where the images live.
 func kittyClear() {
 	kitty.mu.Lock()
 	defer kitty.mu.Unlock()
@@ -113,15 +181,16 @@ func kittyClear() {
 		return
 	}
 	var seq strings.Builder
-	for slot, id := range kitty.slots {
-		fmt.Fprintf(&seq, "\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", id)
+	for slot, s := range kitty.slots {
+		fmt.Fprintf(&seq, "\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", s.id)
 		delete(kitty.slots, slot)
 	}
+	for _, d := range kitty.pending {
+		fmt.Fprintf(&seq, "\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", d.id)
+	}
+	kitty.pending = nil
 	_, _ = graphicsOut.Write([]byte(seq.String()))
 }
-
-// ClearKittyImages frees the terminal's copies of waxon's images.
-func ClearKittyImages() { kittyClear() }
 
 func kittyPNG(img image.Image) ([]byte, error) {
 	b := img.Bounds()

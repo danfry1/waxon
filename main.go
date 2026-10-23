@@ -88,9 +88,7 @@ func main() {
 	opts.SharedClientID = effectiveClientID() == myauth.DefaultClientID
 	m := app.NewModel(src).WithOptions(opts)
 	p := tea.NewProgram(m, programOptions()...)
-	_, err := p.Run()
-	app.ClearKittyImages()
-	if err != nil {
+	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -109,20 +107,26 @@ func programOptions() []tea.ProgramOption {
 	return opts
 }
 
-// configureArt applies the "art" setting on top of the detected colour
-// support. Kitty images need true colour (the image ID is a 24-bit colour).
-func configureArt(setting string) {
+// configureArt applies the "art" setting (from origin, for messages) on top
+// of the detected colour support. Kitty images need true colour: the image
+// ID travels as a 24-bit colour.
+func configureArt(setting, origin string) {
 	mode := app.DetectArtMode()
 	app.SetArtMode(mode)
 	switch setting {
 	case "", "blocks":
 		return
-	case "kitty", "auto":
-		if mode != app.ArtTrueColor || (setting == "auto" && !app.KittyTerminal()) {
+	case "auto":
+		if mode != app.ArtTrueColor || !app.KittyTerminal() {
+			return
+		}
+	case "kitty":
+		if mode != app.ArtTrueColor {
+			fmt.Fprintf(os.Stderr, "Warning: %s art \"kitty\" needs a true-colour terminal (set COLORTERM=truecolor if yours is); using block art\n", origin)
 			return
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "Warning: config art %q not recognised (use blocks, kitty or auto)\n", setting)
+		fmt.Fprintf(os.Stderr, "Warning: %s art %q not recognised (use blocks, kitty or auto)\n", origin, setting)
 		return
 	}
 	graphicsOut = app.NewTTYOutput(os.Stdout)
@@ -153,11 +157,11 @@ func applyUserConfig() app.Options {
 		palette, _ = app.ResolveTheme(app.DefaultThemeName, overrides)
 	}
 	app.ApplyTheme(palette)
-	art := cfg.Art
+	art, origin := cfg.Art, "config"
 	if env := os.Getenv("WAXON_ART"); env != "" {
-		art = env
+		art, origin = env, "WAXON_ART"
 	}
-	configureArt(art)
+	configureArt(art, origin)
 	if dir := app.DefaultImageCacheDir(); dir != "" {
 		app.SetImageCacheDir(dir)
 		go app.PruneImageCache()

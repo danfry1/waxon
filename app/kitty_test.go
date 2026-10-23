@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -82,17 +83,76 @@ func TestKittyArtPlaceholdersAndTransmit(t *testing.T) {
 func TestKittyArtReplacesSlotImage(t *testing.T) {
 	written := withKittyOutput(t)
 	renderArt("status", testImage(10, 10), 4, 2)
-	first := kitty.slots["status"]
+	first := kitty.slots["status"].id
 	renderArt("status", testImage(10, 10), 4, 2)
-	if kitty.slots["status"] == first {
+	if kitty.slots["status"].id == first {
 		t.Fatal("a new image should get a new ID")
 	}
-	if !strings.Contains(written(), "\x1b_Ga=d,d=I,i="+itoa(first)+",q=2\x1b\\") {
-		t.Error("the slot's previous image should be deleted")
+	del := "\x1b_Ga=d,d=I,i=" + itoa(first) + ",q=2\x1b\\"
+	if strings.Contains(written(), del) {
+		t.Error("the replaced image must stay until the next frame has drawn over it")
+	}
+	kittyReap(time.Now())
+	if strings.Contains(written(), del) {
+		t.Error("too soon to delete")
+	}
+	kittyReap(time.Now().Add(time.Second))
+	if !strings.Contains(written(), del) {
+		t.Error("the replaced image should be deleted once off screen")
 	}
 	renderArt("np", testImage(10, 10), 4, 2)
 	if len(kitty.slots) != 2 {
 		t.Errorf("slots = %v, want status and np", kitty.slots)
+	}
+}
+
+func TestKittyArtUnchangedIsNotResent(t *testing.T) {
+	written := withKittyOutput(t)
+	img := testImage(10, 10)
+	a := renderArt("np", img, 4, 2)
+	n := len(written())
+	if b := renderArt("np", img, 4, 2); b != a || len(written()) != n {
+		t.Error("the same image at the same size should reuse its placement")
+	}
+	renderArt("np", img, 6, 3)
+	if strings.Count(written(), "a=T,") != 2 {
+		t.Error("a new size needs a new placement")
+	}
+}
+
+func TestKittyNPArtOnlyWhileVisible(t *testing.T) {
+	written := withKittyOutput(t)
+	m := newTestModel(&StubSource{})
+	m.npSourceImg = testImage(10, 10)
+	m.renderNPArt()
+	if strings.Contains(written(), "a=T,") {
+		t.Error("Now Playing art shouldn't be sent while the view is closed")
+	}
+	m.mode = ModeNowPlaying
+	m.renderNPArt()
+	if !strings.Contains(written(), "a=T,") {
+		t.Error("Now Playing art should be sent once the view is open")
+	}
+}
+
+func TestKittyTerminalDetection(t *testing.T) {
+	for _, tc := range []struct {
+		env  map[string]string
+		want bool
+	}{
+		{map[string]string{"TERM_PROGRAM": "ghostty"}, true},
+		{map[string]string{"KITTY_WINDOW_ID": "1"}, true},
+		{map[string]string{"KITTY_WINDOW_ID": "1", "TMUX": "/tmp/x"}, false},
+		{map[string]string{"TERM_PROGRAM": "ghostty", "ZELLIJ": "0"}, false},
+		{map[string]string{"KITTY_WINDOW_ID": "1", "TERM": "screen-256color"}, false},
+		{map[string]string{"TERM": "xterm-256color"}, false},
+	} {
+		for _, k := range []string{"TERM_PROGRAM", "KITTY_WINDOW_ID", "TMUX", "ZELLIJ", "STY", "TERM"} {
+			t.Setenv(k, tc.env[k])
+		}
+		if got := KittyTerminal(); got != tc.want {
+			t.Errorf("%v: KittyTerminal() = %v", tc.env, got)
+		}
 	}
 }
 

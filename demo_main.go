@@ -29,12 +29,10 @@ func runDemo() {
 	// Demo mode ignores the user's config (recordings must be reproducible)
 	// and never persists :theme changes. WAXON_ART still applies, for trying
 	// kitty art without a Spotify account.
-	configureArt(os.Getenv("WAXON_ART"))
+	configureArt(os.Getenv("WAXON_ART"), "WAXON_ART")
 	m := app.NewModel(src)
 	p := tea.NewProgram(m, programOptions()...)
-	_, err := p.Run()
-	app.ClearKittyImages()
-	if err != nil {
+	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}

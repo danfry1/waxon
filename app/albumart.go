@@ -62,6 +62,9 @@ func renderArt(slot string, img image.Image, w, h int) string {
 func (a *AlbumArt) Clear() {
 	a.rendered = ""
 	a.currentURL = ""
+	if artMode == ArtKitty {
+		kittyRelease("status")
+	}
 }
 
 func (a *AlbumArt) CurrentURL() string {
