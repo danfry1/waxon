@@ -36,6 +36,14 @@ func main() {
 			}
 			runAuthWith(newOnboarding(), opts)
 			return
+		case "logout":
+			if err := myauth.DeleteToken(myauth.DefaultTokenPath()); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				cleanup()
+				os.Exit(1) //nolint:gocritic // cleanup called above
+			}
+			fmt.Println("Signed out of Spotify. Quit any running waxon too, then run 'waxon auth' to connect again.")
+			return
 		case "debug":
 			runDebug()
 			return
@@ -292,6 +300,8 @@ func printUsage() {
 Usage:
   waxon          Launch the TUI
   waxon auth     Connect your Spotify account (guided; --own | --shared | --client-id ID)
+                 Over SSH, paste the address the browser ends up on when asked
+  waxon logout   Forget the saved Spotify login (keeps your config)
   waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
   waxon themes   List colour themes (set with "theme" in config.json or :theme)

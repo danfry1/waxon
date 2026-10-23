@@ -33,6 +33,15 @@ func SaveToken(path string, token *oauth2.Token) error {
 	return os.Rename(tmp, path)
 }
 
+// DeleteToken removes a saved token. A token that isn't there is not an
+// error: the result (signed out) is the same.
+func DeleteToken(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove token: %w", err)
+	}
+	return nil
+}
+
 func LoadToken(path string) (*oauth2.Token, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

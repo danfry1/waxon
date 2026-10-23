@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -235,13 +236,13 @@ func TestCallbackHandler_StateMismatch(t *testing.T) {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
 
+	// A stray redirect is refused but doesn't end the login.
 	select {
 	case authErr := <-errCh:
-		if !strings.Contains(authErr.Error(), "state mismatch") {
-			t.Errorf("error = %q, want state mismatch message", authErr)
-		}
+		t.Errorf("mismatched state should not end the login, got %v", authErr)
+	case code := <-codeCh:
+		t.Errorf("mismatched state must not yield a code, got %q", code)
 	default:
-		t.Error("expected error on channel")
 	}
 }
 
@@ -524,4 +525,28 @@ func mustVerifier(t *testing.T) string {
 		t.Fatalf("generateVerifier: %v", err)
 	}
 	return v
+}
+
+func TestCodeFromRedirect(t *testing.T) {
+	for _, tc := range []struct {
+		raw, code string
+		denied    bool
+		wantErr   bool
+	}{
+		{raw: "http://127.0.0.1:27228/callback?code=abc&state=s1", code: "abc"},
+		{raw: "127.0.0.1:27228/login?state=s1&code=xyz", code: "xyz"},
+		{raw: "http://127.0.0.1:27228/callback?code=abc&state=other", wantErr: true},
+		{raw: "http://127.0.0.1:27228/callback?error=access_denied&state=s1", denied: true, wantErr: true},
+		{raw: "not a url", wantErr: true},
+		{raw: "http://127.0.0.1:27228/callback?state=s1", wantErr: true},
+	} {
+		code, err := codeFromRedirect(tc.raw, "s1")
+		if (err != nil) != tc.wantErr || code != tc.code {
+			t.Errorf("%q: code %q err %v", tc.raw, code, err)
+		}
+		var d deniedError
+		if errors.As(err, &d) != tc.denied {
+			t.Errorf("%q: denied = %v, want %v", tc.raw, !tc.denied, tc.denied)
+		}
+	}
 }

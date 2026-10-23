@@ -14,6 +14,10 @@ Each release's section is also used verbatim as the GitHub Release notes.
   opens an album or an artist page, and `/` filters by name or artist.
   Followed artists need one more Spotify permission: run `waxon auth` once
   and waxon says so if it's missing.
+- `waxon auth` works over SSH: approve in a browser on any machine, then
+  paste the address it lands on into the terminal. waxon detects SSH
+  sessions, and also falls back to pasting when the callback port is busy.
+- `waxon logout` forgets the saved Spotify login, keeping your config.
 - Playback keys: `+`/`=` and `-` change the volume by 5, `S` toggles shuffle
   and `r` cycles repeat (off → all → one). They work in the main view and in
   Now Playing, and can be rebound as `vol_up`, `vol_down`, `shuffle` and
@@ -45,6 +49,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Fixed
 
+- A stray or stale request to the login callback no longer aborts
+  `waxon auth`; it's ignored and the login carries on.
 - Filtering a long playlist with `/` now finds tracks that hadn't loaded yet.
   While a filter is active, waxon loads the rest of the playlist in the
   background and matches appear as their pages arrive. Previously the filter
