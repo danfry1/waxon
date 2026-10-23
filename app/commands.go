@@ -167,6 +167,37 @@ func (m Model) fetchQueue() tea.Cmd {
 	}
 }
 
+// maybePrefetchNext warms the image cache with the next queued track's art
+// once the current track is within prefetchLead of its end, at most once per
+// track. Failures are ignored: this only saves a fetch later.
+func (m *Model) maybePrefetchNext() tea.Cmd {
+	t := m.track
+	if t == nil || !t.Playing || t.Duration == 0 || t.ID == m.prefetchedFor ||
+		t.Duration-t.Position > prefetchLead || m.coolingDown() {
+		return nil
+	}
+	m.prefetchedFor = t.ID
+	src, ctx, ap := m.source, m.ctx, m.artworkProvider
+	return func() tea.Msg {
+		tracks, err := src.Queue(ctx)
+		if isRateLimitError(err) {
+			return trackErrorMsg{err} // start the cooldown like any other call
+		}
+		if err != nil || len(tracks) == 0 {
+			return nil
+		}
+		if url := tracks[0].ArtworkURL; url != "" {
+			if ap == nil {
+				_, _ = FetchImage(ctx, url)
+			} else if _, ok := ap.ArtworkImage(url); !ok {
+				_, _ = FetchImage(ctx, url)
+			}
+		}
+		// The queue came for free: refresh the sidebar if it's showing it.
+		return queueLoadedMsg{tracks}
+	}
+}
+
 func (m Model) fetchRecentlyPlayed() tea.Cmd {
 	src := m.source
 	ctx := m.ctx

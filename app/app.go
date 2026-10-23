@@ -29,6 +29,12 @@ const (
 	pollIntervalIdle     = 10 * time.Second        // nothing playing anywhere
 	pollIntervalBlurred  = 20 * time.Second        // terminal not focused
 	progressTickInterval = 500 * time.Millisecond
+	// progressTickBlurred keeps a visible-but-unfocused progress bar moving
+	// at a cost suited to a window nobody is looking at closely.
+	progressTickBlurred = time.Second
+	// prefetchLead is how long before a track ends the next track's art is
+	// fetched, so the switch shows it without a round trip.
+	prefetchLead = 20 * time.Second
 	// rateLimitCooldown is how long to stop polling after a 429 that carries no
 	// Retry-After header (zmb3 errors drop it). Spotify's limit is a rolling
 	// 30-second window, so waiting it out is the fastest way back.
@@ -276,6 +282,11 @@ type Model struct {
 	rateLimitHits int
 	// blurred is true while the terminal window doesn't have focus.
 	blurred bool
+	// progressTicking is true while a progressTickMsg is scheduled. The tick
+	// stops itself when nothing animates; Update restarts it on demand.
+	progressTicking bool
+	// prefetchedFor is the track whose successor's art has been prefetched.
+	prefetchedFor string
 	// refreshPending counts post-control re-polls still scheduled, so a burst
 	// of keypresses doesn't stack up dozens of extra requests.
 	refreshPending int
@@ -298,6 +309,7 @@ func NewModel(src source.RichSource) Model {
 		artworkProvider:     ap,
 		mode:                ModeNormal,
 		focusPane:           PaneSidebar,
+		progressTicking:     true, // Init schedules the first tick
 		keys:                DefaultKeyMap(),
 		albumart:            NewAlbumArt(),
 		volume:              50,
@@ -372,6 +384,52 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	res, cmd := m.update(msg)
+	nm, ok := res.(Model)
+	if !ok {
+		return res, cmd
+	}
+	// The lyric highlight follows the position whatever moved it: the tick,
+	// a poll, a seek, or lyrics arriving while paused (when no tick runs).
+	nm.syncLyricsLine()
+	if nm.progressTicking || !nm.needsProgressTick() {
+		return nm, cmd
+	}
+	nm.progressTicking = true
+	return nm, tea.Batch(cmd, nm.progressTick())
+}
+
+// needsProgressTick reports whether anything on screen animates on the
+// progress tick: the playing track's position, vinyl, synced lyrics (all
+// driven by playback) or the track list's loading spinner.
+func (m Model) needsProgressTick() bool {
+	return (m.track != nil && m.track.Playing) || m.tracklist.loading
+}
+
+// syncLyricsLine points the focus lyric line at the (interpolated) position:
+// by timestamp for synced lyrics, by progress ratio for plain ones.
+func (m *Model) syncLyricsLine() {
+	if m.mode != ModeNowPlaying || !m.lyricsView || m.track == nil ||
+		m.lyrics == nil || len(m.lyrics.Lines) == 0 {
+		return
+	}
+	if m.lyrics.Synced {
+		m.lyricsLine = activeLyricLine(m.lyrics.Lines, m.track.Position)
+	} else if m.track.Duration > 0 {
+		ratio := float64(m.track.Position) / float64(m.track.Duration)
+		m.lyricsLine = clampInt(int(ratio*float64(len(m.lyrics.Lines)-1)), 0, len(m.lyrics.Lines)-1)
+	}
+}
+
+func (m Model) progressTick() tea.Cmd {
+	interval := progressTickInterval
+	if m.blurred {
+		interval = progressTickBlurred
+	}
+	return tea.Tick(interval, func(t time.Time) tea.Msg { return progressTickMsg(t) })
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -930,24 +988,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.track.Position = m.track.Duration
 			}
 		}
-		// Spin vinyl in now playing mode
-		if m.mode == ModeNowPlaying && m.vinylMode && m.track != nil && m.track.Playing {
+		// Spin vinyl in now playing mode (held still while unfocused: each
+		// frame is a full re-render of the art)
+		if m.mode == ModeNowPlaying && m.vinylMode && m.track != nil && m.track.Playing && !m.blurred {
 			m.vinylAngle = math.Mod(m.vinylAngle+0.057, 2*math.Pi)
-		}
-		// Track the focus lyric line against the (interpolated) position: by
-		// timestamp for synced lyrics, by progress ratio for plain ones.
-		if m.mode == ModeNowPlaying && m.lyricsView && m.track != nil &&
-			m.lyrics != nil && len(m.lyrics.Lines) > 0 {
-			if m.lyrics.Synced {
-				m.lyricsLine = activeLyricLine(m.lyrics.Lines, m.track.Position)
-			} else if m.track.Duration > 0 {
-				ratio := float64(m.track.Position) / float64(m.track.Duration)
-				m.lyricsLine = clampInt(int(ratio*float64(len(m.lyrics.Lines)-1)), 0, len(m.lyrics.Lines)-1)
-			}
 		}
 		// Animate loading spinner
 		m.tracklist.TickSpinner()
-		return m, tea.Tick(progressTickInterval, func(t time.Time) tea.Msg { return progressTickMsg(t) })
+		prefetch := m.maybePrefetchNext()
+		if !m.needsProgressTick() {
+			m.progressTicking = false
+			return m, prefetch
+		}
+		return m, tea.Batch(prefetch, m.progressTick())
 	}
 
 	return m, nil
