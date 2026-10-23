@@ -8,6 +8,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-23
+
 ### Added
 
 - Experimental: real album-art images in kitty and Ghostty. Set
@@ -270,7 +272,8 @@ Initial release: vim-modal Spotify TUI with PKCE auth, library and queue
 sidebar, track list, search, device picker, Now Playing view with album art,
 and command mode.
 
-[Unreleased]: https://github.com/danfry1/waxon/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/danfry1/waxon/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/danfry1/waxon/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/danfry1/waxon/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/danfry1/waxon/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/danfry1/waxon/compare/v1.6.0...v1.7.0
