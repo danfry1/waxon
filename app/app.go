@@ -74,6 +74,8 @@ type (
 	moreTracksLoadedMsg struct {
 		tracks     []source.Track
 		playlistID string
+		offset     int // offset the page was requested at
+		total      int // playlist size as reported with this page
 	}
 )
 
@@ -513,6 +515,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracklist.SetNowPlaying(m.track.ID)
 		}
 		jumpCmd := m.applyPendingJump()
+		// A filter that survived a refresh resumes loading the rest.
+		if m.tracklist.Filtering() {
+			jumpCmd = tea.Batch(jumpCmd, m.maybeLoadMore())
+		}
 		if msg.imageURL != "" {
 			return m, tea.Batch(jumpCmd, m.fetchPlaylistArt(msg.imageURL))
 		}
@@ -544,10 +550,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case moreTracksLoadedMsg:
 		m.noteLikedTracks(msg.playlistID, msg.tracks)
-		if m.pagination != nil && m.pagination.playlistID == msg.playlistID {
+		// The offset check drops a page that was requested before the view
+		// was reloaded, which would otherwise be appended twice.
+		if m.pagination != nil && m.pagination.playlistID == msg.playlistID &&
+			msg.offset == m.pagination.loaded {
 			m.tracklist.AppendTracks(msg.tracks)
 			m.pagination.loaded += len(msg.tracks)
 			m.pagination.loadingMore = false
+			// Follow the playlist's live size: if it shrank since the first
+			// page, or a page comes back empty, stop rather than requesting the
+			// same offset forever.
+			if msg.total > 0 {
+				m.pagination.total = msg.total
+			}
+			if len(msg.tracks) == 0 {
+				m.pagination.total = m.pagination.loaded
+			}
 			// Update cache
 			m.trackCache[msg.playlistID] = cachedPlaylist{
 				tracks:    m.tracklist.tracks,
@@ -563,7 +581,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tracklist.SetHeaderInfo(FormatPartialTrackListInfo(m.pagination.loaded, m.pagination.total))
 			}
 		}
-		return m, m.applyPendingJump()
+		// An active filter keeps pulling pages until the whole playlist is
+		// loaded, so matches beyond the first page aren't silently missed.
+		return m, tea.Batch(m.applyPendingJump(), m.maybeLoadMore())
 
 	case playlistArtLoadedMsg:
 		rendered := renderHalfBlocks(msg.img, HeaderArtW, HeaderArtH)
@@ -1245,6 +1265,7 @@ func (m Model) handleKeyFilter(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.sidebar.SetFilter(m.filterInput)
 	} else {
 		m.tracklist.SetFilter(m.filterInput)
+		return m, m.maybeLoadMore()
 	}
 	return m, nil
 }
@@ -1450,12 +1471,15 @@ const doubleClickThreshold = 400 * time.Millisecond
 const wheelScrollLines = 3
 
 // maybeLoadMore triggers lazy-loading of additional tracks when the
-// tracklist cursor approaches the end of the currently loaded set. Returns
+// tracklist cursor approaches the end of the currently loaded set, or while a
+// filter is active (a filter has to see every track to be correct). Returns
 // nil if no fetch is needed (or one is already in flight).
 func (m Model) maybeLoadMore() tea.Cmd {
 	if m.pagination == nil || m.pagination.loadingMore ||
-		m.pagination.loaded >= m.pagination.total ||
-		m.tracklist.Cursor()+20 < m.pagination.loaded {
+		m.pagination.loaded >= m.pagination.total {
+		return nil
+	}
+	if !m.tracklist.Filtering() && m.tracklist.Cursor()+20 < m.pagination.loaded {
 		return nil
 	}
 	m.pagination.loadingMore = true

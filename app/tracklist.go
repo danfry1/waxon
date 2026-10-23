@@ -26,6 +26,7 @@ type TrackList struct {
 	filtered    []source.Track // subset visible after filter; nil means no filter active
 	filteredIdx []int          // index into tracks for each filtered row
 	filterText  string         // current active filter query
+	searchKeys  []string       // lowercased "name\x00artist\x00album" per track, parallel to tracks
 	allRows     []table.Row    // full row set; the table sees only a window of these
 	cursor      int            // selected index into displayTracks (global, not windowed)
 	offset      int            // data index of the first visible row
@@ -139,7 +140,11 @@ func (tl *TrackList) SetLoading(title string) {
 	tl.loading = true
 	tl.title = title
 	tl.tracks = nil
+	tl.searchKeys = nil
 	tl.notice = ""
+	// A new view starts unfiltered; a filter left on would otherwise also
+	// pull every page of the next playlist.
+	tl.filterText = ""
 	tl.filtered, tl.filteredIdx = nil, nil
 	tl.allRows = nil
 	tl.cursor = 0
@@ -174,6 +179,7 @@ func (tl *TrackList) SetHeaderInfo(info string) {
 func (tl *TrackList) SetTracks(tracks []source.Track, title, contextURI string) {
 	tl.loading = false
 	tl.tracks = tracks
+	tl.searchKeys = buildSearchKeys(tracks)
 	tl.title = title
 	tl.subtitle = ""
 	tl.headerInfo = ""
@@ -194,6 +200,7 @@ func (tl *TrackList) SetTracks(tracks []source.Track, title, contextURI string) 
 // the cursor position. Used for lazy-loading additional pages.
 func (tl *TrackList) AppendTracks(tracks []source.Track) {
 	tl.tracks = append(tl.tracks, tracks...)
+	tl.searchKeys = append(tl.searchKeys, buildSearchKeys(tracks)...)
 	if tl.filterText != "" {
 		tl.applyFilter(tl.filterText)
 	}
@@ -333,7 +340,8 @@ func (tl *TrackList) GotoBottom() {
 // Cursor returns the selected index into the display tracks.
 func (tl *TrackList) Cursor() int { return tl.cursor }
 
-// SetFilter applies a case-insensitive filter matching track name or artist.
+// SetFilter applies a case-insensitive filter matching track name, artist
+// or album.
 // An empty query clears the filter.
 func (tl *TrackList) SetFilter(query string) {
 	if query == "" {
@@ -353,14 +361,27 @@ func (tl *TrackList) applyFilter(query string) {
 		if t.IsSeparator || t.IsAlbumRow {
 			continue
 		}
-		if strings.Contains(strings.ToLower(t.Name), q) ||
-			strings.Contains(strings.ToLower(t.Artist), q) {
+		if strings.Contains(tl.searchKeys[i], q) {
 			result = append(result, t)
 			idx = append(idx, i)
 		}
 	}
 	tl.filtered = result
 	tl.filteredIdx = idx
+}
+
+// Filtering reports whether a filter query is active on the list.
+func (tl *TrackList) Filtering() bool { return tl.filterText != "" }
+
+// buildSearchKeys lowercases each track's filterable fields once, so typing a
+// filter over a long playlist doesn't re-lowercase every track per keystroke.
+// Fields are joined with NUL so a query can't match across a field boundary.
+func buildSearchKeys(tracks []source.Track) []string {
+	keys := make([]string, len(tracks))
+	for i, t := range tracks {
+		keys[i] = strings.ToLower(t.Name + "\x00" + t.Artist + "\x00" + t.Album)
+	}
+	return keys
 }
 
 // RemoveAt deletes the track at index i (into the full list) and keeps the
@@ -370,6 +391,7 @@ func (tl *TrackList) RemoveAt(i int) {
 		return
 	}
 	tl.tracks = append(tl.tracks[:i], tl.tracks[i+1:]...)
+	tl.searchKeys = append(tl.searchKeys[:i], tl.searchKeys[i+1:]...)
 	if tl.filterText != "" {
 		tl.applyFilter(tl.filterText)
 	}
@@ -646,6 +668,7 @@ func (tl *TrackList) GetState(pane Pane) NavState {
 func (tl *TrackList) RestoreState(s NavState) {
 	tl.loading = false
 	tl.tracks = s.tracks
+	tl.searchKeys = buildSearchKeys(s.tracks)
 	tl.title = s.title
 	tl.subtitle = s.subtitle
 	tl.headerInfo = s.headerInfo

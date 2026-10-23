@@ -249,7 +249,7 @@ func (s *Sidebar) baseItems() []list.Item {
 }
 
 // SetFilter filters the current section by name: playlists by title in the
-// library, tracks by title or artist in the queue. The filter persists across
+// library, tracks by title, artist or album in the queue. The filter persists across
 // background refreshes of the section's items until cleared.
 func (s *Sidebar) SetFilter(query string) {
 	s.filterText = query
@@ -280,7 +280,8 @@ func (s *Sidebar) refreshVisible() {
 			}
 		case queueItem:
 			if strings.Contains(strings.ToLower(it.track.Name), q) ||
-				strings.Contains(strings.ToLower(it.track.Artist), q) {
+				strings.Contains(strings.ToLower(it.track.Artist), q) ||
+				strings.Contains(strings.ToLower(it.track.Album), q) {
 				filtered = append(filtered, item)
 			}
 		}
