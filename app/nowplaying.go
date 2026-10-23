@@ -58,7 +58,7 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 
 	// Render art block — vinyl uses bgRows for outside-circle pixels
 	if vinylMode && albumImg != nil {
-		artBlock = renderVinyl(albumImg, vinylAngle, artW, artH, bgRows)
+		artBlock = vinylFrame(albumImg, vinylAngle, artW, artH, bgRows)
 	}
 
 	// Compute a single bg color for the text area (bottom-center of gradient)
@@ -171,10 +171,33 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 // View is only ever called from the Bubbletea render goroutine, so a single
 // unguarded entry is sufficient.
 var npDerivedMemo struct {
-	img    image.Image
-	height int
-	accent lipgloss.Color
-	rows   []rgb
+	img      image.Image
+	height   int
+	fallback lipgloss.Color // theme accent at the time; used when the art has none
+	accent   lipgloss.Color
+	rows     []rgb
+}
+
+// vinylMemo holds the last rendered vinyl frame. View runs on every message
+// (poll results, key presses), not just when the angle advances, and each
+// frame resamples the whole image.
+var vinylMemo struct {
+	img   image.Image
+	angle float64
+	w, h  int
+	rows  []rgb
+	out   string
+}
+
+func vinylFrame(img image.Image, angle float64, w, h int, bgRows []rgb) string {
+	v := &vinylMemo
+	sameRows := len(v.rows) == len(bgRows) && (len(bgRows) == 0 || &v.rows[0] == &bgRows[0])
+	if v.out != "" && v.img == img && v.angle == angle && v.w == w && v.h == h && sameRows {
+		return v.out
+	}
+	v.img, v.angle, v.w, v.h, v.rows = img, angle, w, h, bgRows
+	v.out = renderVinyl(img, angle, w, h, bgRows)
+	return v.out
 }
 
 // npDerived returns the accent colour and background gradient rows for img
@@ -183,15 +206,17 @@ func npDerived(img image.Image, height int) (lipgloss.Color, []rgb) {
 	if img == nil {
 		return CurrentAccent(), nil
 	}
-	if npDerivedMemo.img == img && npDerivedMemo.height == height && npDerivedMemo.rows != nil {
+	fallback := CurrentAccent()
+	if npDerivedMemo.img == img && npDerivedMemo.height == height &&
+		npDerivedMemo.fallback == fallback && npDerivedMemo.rows != nil {
 		return npDerivedMemo.accent, npDerivedMemo.rows
 	}
-	accent := CurrentAccent()
+	accent := fallback
 	if c := DominantColor(img); c != "" {
 		accent = c
 	}
 	rows := computeBgRows(img, height)
-	npDerivedMemo.img, npDerivedMemo.height = img, height
+	npDerivedMemo.img, npDerivedMemo.height, npDerivedMemo.fallback = img, height, fallback
 	npDerivedMemo.accent, npDerivedMemo.rows = accent, rows
 	return accent, rows
 }

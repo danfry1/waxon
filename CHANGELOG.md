@@ -8,20 +8,26 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- waxon uses less CPU when idle. The progress tick stops while nothing is
+  playing or loading and slows to once a second while the terminal is
+  unfocused. Vinyl mode holds still while unfocused, and its frame is reused
+  instead of being redrawn on every update.
+- The next track's album art is fetched shortly before the current track
+  ends, so it shows as soon as the track changes.
+- The `/` filter also matches album names, in the track list and the queue.
+- A filter no longer carries over when you open another playlist, album or
+  artist.
+- Typing a filter on a large playlist is cheaper: each track's searchable
+  text is lowercased once when it loads instead of on every keystroke.
+
 ### Fixed
 
 - Filtering a long playlist with `/` now finds tracks that hadn't loaded yet.
   While a filter is active, waxon loads the rest of the playlist in the
   background and matches appear as their pages arrive. Previously the filter
   only searched the pages you had already scrolled past.
-
-### Changed
-
-- The `/` filter also matches album names, in the track list and the queue.
-- A filter no longer carries over when you open another playlist, album or
-  artist.
-- Typing a filter on a large playlist is cheaper: each track's searchable
-  text is lowercased once when it loads instead of on every keystroke.
 
 ## [1.8.1] - 2026-10-06
 
