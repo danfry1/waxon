@@ -158,6 +158,22 @@ Explore discographies, browse full albums, and navigate with a browser-like back
   <img src="demo/recordings/browsing.gif" alt="artist and album browsing" width="800">
 </p>
 
+### Your Library
+
+`ga` opens your saved albums and `gA` the artists you follow; Enter opens one, and `/` filters by name or artist.
+
+<p align="center">
+  <img src="demo/recordings/library.gif" alt="saved albums and followed artists" width="800">
+</p>
+
+### Podcasts
+
+`gp` lists the shows you follow. Each opens to its episodes, newest first; episodes play, queue, like and add to playlists like tracks do.
+
+<p align="center">
+  <img src="demo/recordings/podcasts.gif" alt="podcasts" width="800">
+</p>
+
 ### Command Mode
 
 Vim-style commands for volume, shuffle, repeat, device switching, and more.
@@ -216,6 +232,8 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 |-------|---------------------|
 | `o`   | Context actions menu |
 | `a`   | Add to queue        |
+| `f`   | Like / unlike       |
+| `v`   | Visual mode (select a range) |
 | `/`   | Filter current view |
 | `s`   | Spotify search      |
 | `D`   | Device switcher     |
@@ -258,6 +276,9 @@ Enter command mode by pressing `:`, then type a command.
 | `:device`               | Open device switcher |
 | `:search <query>`       | Search Spotify       |
 | `:recent`               | Recently played      |
+| `:albums`               | Saved albums         |
+| `:artists`              | Followed artists     |
+| `:podcasts`             | Podcasts             |
 | `:theme <name>`         | Switch colour theme (saved to config) |
 | `:playlist new <name>`  | Create a playlist    |
 | `:q`                    | Quit                 |
@@ -280,7 +301,7 @@ waxon reads `~/.config/waxon/config.json` (`$XDG_CONFIG_HOME` respected; `waxon 
   <img src="demo/recordings/themes.gif" alt="switching themes with :theme" width="800">
 </p>
 
-**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices back filter search command help now_playing quit escape section1 section2`. The `g`-prefix motions (`gg gl gq gc gr`) are fixed. The `?` help overlay always shows your live bindings.
+**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings.
 
 **Art** — `"art": "kitty"` draws the status-bar and Now Playing covers as real images using the kitty graphics protocol (kitty, Ghostty); `"auto"` does that only when the terminal is detected as supporting it (not inside tmux), and `"blocks"` (the default) keeps the Unicode half-block art. `WAXON_ART` overrides the setting for one run, e.g. `WAXON_ART=kitty waxon`. Experimental: please report terminals where it misbehaves.
 
