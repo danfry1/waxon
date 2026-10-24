@@ -26,6 +26,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 - `+`/`-` change the volume at once instead of after a short pause, and
   holding the key follows along (a few changes a second) rather than
   waiting until you let go.
+- The help overlay says its Now Playing keys (`l` lyrics, `V` vinyl) work
+  once Now Playing is open, and Now Playing's key hints now list `V`.
 
 ### Fixed
 
