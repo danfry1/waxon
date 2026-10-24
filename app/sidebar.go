@@ -226,11 +226,8 @@ func (s *Sidebar) refreshVisible() {
 	q := strings.ToLower(s.filterText)
 	filtered := make([]list.Item, 0, len(base))
 	for _, item := range base {
-		switch it := item.(type) {
-		case sidebarItem:
-			if strings.Contains(strings.ToLower(it.playlist.Name), q) {
-				filtered = append(filtered, item)
-			}
+		if it, ok := item.(sidebarItem); ok && strings.Contains(strings.ToLower(it.playlist.Name), q) {
+			filtered = append(filtered, item)
 		}
 	}
 	s.list.SetItems(filtered)

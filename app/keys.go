@@ -131,7 +131,7 @@ const (
 	GActionNone     GAction = iota
 	GActionTop              // gg — go to top
 	GActionLibrary          // gl — focus library
-	GActionQueue            // gq — focus queue
+	GActionQueue            // gq — the queue, in the track list
 	GActionCurrent          // gc — jump to currently playing track
 	GActionGoAlbum          // ga — album of the selected (or playing) track
 	GActionGoArtist         // gA — its artist

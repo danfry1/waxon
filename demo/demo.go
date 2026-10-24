@@ -380,12 +380,9 @@ func (d *DemoSource) AddToQueue(_ context.Context, trackID string) error {
 func (d *DemoSource) Queue(_ context.Context) ([]source.Track, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	// Build queue: current track + user-queued + upcoming from playlist
+	// As Spotify's queue: what you queued, then what's next in the playlist
+	// (the playing track isn't in it).
 	var result []source.Track
-	track := d.currentTrack()
-	if track != nil {
-		result = append(result, *track)
-	}
 	result = append(result, d.userQueue...)
 	// Add upcoming from playlist
 	tracks := d.tracksByPL[d.currentPLID]

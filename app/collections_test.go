@@ -285,4 +285,3 @@ func TestEpisodeLikeRefusalKeepsTrackChecks(t *testing.T) {
 		t.Error("a track's refusal still disables them")
 	}
 }
-

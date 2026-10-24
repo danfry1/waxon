@@ -353,6 +353,7 @@ type Model struct {
 	// Set whenever one opens (Update), so it's never left over.
 	overlayReturn Mode
 	muteRestore   int              // the volume before m muted it
+	queueShownFor string           // the track playing when the queue view was last filled
 	pagination    *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt        string      // large rendered art for now playing view

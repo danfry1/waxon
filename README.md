@@ -173,6 +173,10 @@ Full-screen album art rendered with Unicode half-blocks over a gradient drawn fr
 
 The keyboard's ⏯ ⏭ ⏮ keys control waxon, and the system's Now Playing (Control Center on macOS; GNOME, KDE and `playerctl` through MPRIS on Linux) shows the track, its cover and progress, with working buttons and scrubbing. They control whatever waxon is playing on: its own player, your phone or a speaker. If another music app is open it may take the keys first. Over SSH they're left alone: the keys belong to whoever is at the machine.
 
+### Queue
+
+`gq` shows the queue in the main pane, as the Spotify app does: **Now playing**, **Next in queue** (the tracks you added) and **Next from** the playlist (or **Up next**, when waxon can't tell them apart, as with shuffle on). Enter on a track skips forward to it, so the rest of the queue stays; the view follows along as tracks change.
+
 ### Synced Lyrics
 
 Press `l` in Now Playing (or run `:lyrics` from anywhere) for time-synced lyrics (via [lrclib](https://lrclib.net) — no account, no API key, nothing to set up). The current line lights up and the rest gently fade as the song plays.
@@ -256,7 +260,7 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | Key   | Action                      |
 |-------|-----------------------------|
 | `gl`  | Go to library               |
-| `gq`  | Go to queue                 |
+| `gq`  | The queue: now playing, what you queued, and what plays next from the playlist; Enter skips forward to a track |
 | `gc`  | Jump to currently playing track (loads its playlist/album if you've navigated away) |
 | `ga`  | Album of the selected track (in Now Playing: the playing one) |
 | `gA`  | Artist of the selected track |

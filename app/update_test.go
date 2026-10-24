@@ -1669,7 +1669,7 @@ func TestHandleKeyNormalSectionSwitch(t *testing.T) {
 	// A digit in the sidebar starts a count instead.
 	m := newTestModel(&StubSource{})
 	m.focusPane = PaneSidebar
-	res, _ := m.Update(runeKey("2"))
+	res, _ = m.Update(runeKey("2"))
 	if res.(Model).count != 2 {
 		t.Errorf("2 in the sidebar: count = %d, want 2", res.(Model).count)
 	}

@@ -58,9 +58,8 @@ func (m Model) queueParts(queue []source.Track) (queued, fromContext []source.Tr
 // contextNext is what follows trackID in the playing context, from the
 // track cache: nil when the context isn't a cached playlist.
 func (m Model) contextNext(trackID string) []source.Track {
-	uri := m.playbackContextURI
 	for _, pl := range m.playlists {
-		if pl.URI != uri && !(pl.ID == likedPlaylistID && isAccountCollection(uri)) {
+		if !m.isPlayingFrom(pl) {
 			continue
 		}
 		cached, ok := m.trackCache[pl.ID]
@@ -79,13 +78,19 @@ func (m Model) contextNext(trackID string) []source.Track {
 
 // contextName names the playing context for the "Next from" heading.
 func (m Model) contextName() string {
-	uri := m.playbackContextURI
 	for _, pl := range m.playlists {
-		if pl.URI == uri || (pl.ID == likedPlaylistID && isAccountCollection(uri)) {
+		if m.isPlayingFrom(pl) {
 			return strings.TrimPrefix(pl.Name, "♥ ")
 		}
 	}
 	return ""
+}
+
+// isPlayingFrom reports whether pl is the playing context (Liked Songs
+// plays as the account's collection).
+func (m Model) isPlayingFrom(pl source.Playlist) bool {
+	uri := m.playbackContextURI
+	return pl.URI == uri || (pl.ID == likedPlaylistID && isAccountCollection(uri))
 }
 
 // queueRows builds the queue view: Now playing, Next in queue, Next from
@@ -98,10 +103,14 @@ func (m Model) queueRows(queue []source.Track) (rows []source.Track, info string
 		if len(rows) > 0 {
 			rows = append(rows, source.Track{IsSeparator: true})
 		}
-		rows = append(rows, source.Track{Name: name, Artist: strconv.Itoa(n), IsSeparator: true})
+		count := ""
+		if n > 0 {
+			count = strconv.Itoa(n)
+		}
+		rows = append(rows, source.Track{Name: name, Artist: count, IsSeparator: true})
 	}
 	if m.track != nil {
-		section("Now playing", 1)
+		section("Now playing", 0)
 		rows = append(rows, *m.track)
 	}
 	if len(queued) > 0 {
@@ -150,7 +159,14 @@ func durationLabel(d time.Duration) string {
 func (m *Model) showQueue(queue []source.Track) {
 	rows, info := m.queueRows(queue)
 	cursor := m.tracklist.Cursor()
-	refresh := m.showingQueue() && !m.tracklist.loading
+	playing := ""
+	if m.track != nil {
+		playing = m.track.ID
+	}
+	// A refresh keeps the cursor, unless the queue moved on (a new track
+	// playing), when the rows under it are different ones.
+	refresh := m.showingQueue() && !m.tracklist.loading && playing == m.queueShownFor
+	m.queueShownFor = playing
 	m.tracklist.SetTracks(rows, "Queue", queueViewURI)
 	m.tracklist.SetHeaderInfo(info)
 	m.tracklist.SetArt("")
