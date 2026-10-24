@@ -48,14 +48,14 @@ jobs:
           fi
           echo "--- release notes ---"; cat "$RUNNER_TEMP/release-notes.md"
 
-      - name: Mint a tap and bucket token from the GitHub App
+      - name: Mint a Scoop bucket token from the GitHub App
         id: tap-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.TAP_BUMP_APP_ID }}
           private-key: ${{ secrets.TAP_BUMP_APP_PRIVATE_KEY }}
           owner: danfry1
-          repositories: homebrew-tap,scoop-bucket
+          repositories: scoop-bucket
 
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
@@ -63,7 +63,6 @@ jobs:
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
           SCOOP_BUCKET_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
 
       - name: Verify the release notes were applied
@@ -77,6 +76,68 @@ jobs:
             echo "release body is empty; setting it from CHANGELOG.md"
             gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
+
+  # Bump the source-built formula in danfry1/homebrew-tap to this tag. The
+  # formula builds from GitHub's source archive for the tag, so only the URL and
+  # that archive's sha256 change. The tap push uses a short-lived App token.
+  homebrew-formula:
+    name: Bump Homebrew formula
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Mint a tap token from the GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.TAP_BUMP_APP_ID }}
+          private-key: ${{ secrets.TAP_BUMP_APP_PRIVATE_KEY }}
+          owner: danfry1
+          repositories: homebrew-tap
+
+      - name: Check out the tap
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: danfry1/homebrew-tap
+          token: ${{ steps.app-token.outputs.token }}
+          path: tap
+
+      - name: Point the formula at this tag's source archive
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz"
+          sha=$(curl --fail --silent --show-error --location --retry 3 "$url" | sha256sum | cut -d' ' -f1)
+          formula=tap/waxon.rb
+          sed -i -E \
+            -e "s#^  url \"[^\"]*\"#  url \"${url}\"#" \
+            -e "s#^  sha256 \"[0-9a-f]*\"#  sha256 \"${sha}\"#" \
+            "$formula"
+          grep -qF "url \"${url}\"" "$formula"
+          grep -qF "sha256 \"${sha}\"" "$formula"
+          cat "$formula"
+
+      - name: Commit and push as the App bot
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          cd tap
+          if git diff --quiet; then
+            echo "Formula already up to date; nothing to commit."
+            exit 0
+          fi
+          bot_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          git commit -am "waxon ${TAG#v}"
+          git push
 
   # Runs after every asset is on the release, in the same run that built them, and
   # signs build provenance for the published files. Kept separate from the build and
