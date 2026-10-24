@@ -32,8 +32,12 @@ brew install danfry1/tap/waxon
 > they're trusted. If you see `Error: Refusing to load formula ... from
 > untrusted tap`, run the `brew trust danfry1/tap` line above (once) and retry.
 >
-> **Upgrading from ≤ 1.6.0?** waxon moved from a formula to a cask. Once:
-> `brew uninstall --formula waxon && brew install danfry1/tap/waxon`.
+> The formula builds waxon from source (Homebrew fetches Go for the build), so
+> macOS never quarantines the binary.
+>
+> **Installed the cask (1.7.0 – 1.10.0)?** waxon is a formula again, built from
+> source instead of shipping an unsigned binary. Once:
+> `brew uninstall --cask waxon && brew install danfry1/tap/waxon`.
 
 **Nix** (flakes):
 
