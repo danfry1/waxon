@@ -90,6 +90,7 @@ func (s *Setup) progress() string {
 
 func (s *Setup) stepContent(width int) (title, body, keys string) {
 	text := lipgloss.NewStyle().Foreground(ColorText).Width(width)
+	link := lipgloss.NewStyle().Foreground(ColorAccent)
 	dim := StyleDimText.Width(width)
 	switch s.step {
 	case stepWelcome:
@@ -144,7 +145,8 @@ func (s *Setup) stepContent(width int) (title, body, keys string) {
 			b.WriteString(dim.Render("The page after approving won't load (it can't reach this machine). That's expected: copy its address from the address bar.") + "\n\n")
 		default:
 			b.WriteString(s.spin.View() + " " + text.Render("Approve waxon in your browser") + "\n\n")
-			b.WriteString(dim.Render("Waiting for Spotify. Browser didn't open? ctrl+o opens it, or ctrl+y copies the link."))
+			b.WriteString(dim.Render("Waiting for Spotify. Browser didn't open? Open this link (ctrl+y copies it):") + "\n\n")
+			b.WriteString(link.Width(width).Render(s.login.URL()))
 			if !s.login.Listening() {
 				b.WriteString("\n\n" + dim.Render("Another program is using waxon's sign-in port, so the page after approving won't load. Copy its address from the address bar and paste it below."))
 			}
@@ -202,13 +204,16 @@ func (s *Setup) stepContent(width int) (title, body, keys string) {
 		switch {
 		case s.err != "":
 		case s.deps.Remote && s.playerURL != "":
-			b.WriteString(text.Render("Open this link on any device:") + "\n\n" +
-				lipgloss.NewStyle().Foreground(ColorAccent).Width(width).Render(s.playerURL))
+			b.WriteString(text.Render("Open this link on any device:") + "\n\n" + link.Width(width).Render(s.playerURL))
 		default:
 			b.WriteString(s.spin.View() + " " + text.Inline(true).Render("Waiting for approval…"))
+			if s.playerURL != "" {
+				b.WriteString("\n\n" + dim.Render("Browser didn't open? Open this link (ctrl+y copies it):") + "\n\n" + link.Width(width).Render(s.playerURL))
+			}
 		}
 		if s.playerPaste {
-			b.WriteString("\n\n" + s.inputLine("Address", "", width))
+			b.WriteString("\n\n" + dim.Render("After approving, the page won't load. That's expected: copy its address from the address bar and paste it here.") +
+				"\n\n" + s.inputLine("Address", "", width))
 		}
 		return "Sign in the player", b.String(), "ctrl+o open link · ctrl+y copy link · esc back"
 

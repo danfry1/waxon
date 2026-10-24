@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	myauth "github.com/danfry1/waxon/auth"
 	"github.com/danfry1/waxon/config"
+	"github.com/danfry1/waxon/player"
 	"github.com/danfry1/waxon/source"
 	myspotify "github.com/danfry1/waxon/spotify"
 )
@@ -30,7 +32,7 @@ func healthyEnv(t *testing.T) doctorEnv {
 		profile:    func(context.Context) (string, error) { return "dan", nil },
 		devices:    func(context.Context) ([]source.Device, error) { return []source.Device{{Name: "Phone"}}, nil },
 		lyrics:     func(context.Context) error { return nil },
-		player:     func(string) (string, string, error) { return "", "", errors.New("not installed") },
+		player:     func(string) (string, string, error) { return "", "", player.ErrNotInstalled },
 		playerDir:  filepath.Join(dir, "librespot"),
 		colour:     "true colour",
 		cacheDir:   dir,
@@ -111,5 +113,28 @@ func TestDoctorOpenLoginFile(t *testing.T) {
 	out, _ := doctorOutput(t, env)
 	if !strings.Contains(out, "chmod 600") {
 		t.Errorf("a world-readable login should be flagged:\n%s", out)
+	}
+}
+
+func TestDoctorUnreadableLogin(t *testing.T) {
+	env := healthyEnv(t)
+	env.profile = func(context.Context) (string, error) {
+		return "", fmt.Errorf("%w: %w", errBadLogin, errors.New("unexpected end of JSON input"))
+	}
+	out, failed := doctorOutput(t, env)
+	if failed == 0 || !strings.Contains(out, "can't be read") || strings.Contains(out, "internet connection") {
+		t.Errorf("a corrupt token file should point at waxon auth, not the network:\n%s", out)
+	}
+}
+
+func TestDoctorBrokenLibrespot(t *testing.T) {
+	env := healthyEnv(t)
+	env.config = func() (config.Config, error) { return config.Config{ClientID: "x", Player: "librespot"}, nil }
+	env.player = func(string) (string, string, error) {
+		return "/bin/librespot", "", errors.New("/bin/librespot doesn't run (exec format error)")
+	}
+	out, failed := doctorOutput(t, env)
+	if failed == 0 || !strings.Contains(out, "doesn't run") || !strings.Contains(out, "reinstall") {
+		t.Errorf("failed=%d\n%s", failed, out)
 	}
 }

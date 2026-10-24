@@ -107,6 +107,8 @@ func runDoctor(ctx context.Context, env doctorEnv) []check {
 				who = "signed in as " + name
 			}
 			add(check{"Signed in", checkOK, fmt.Sprintf("%s (Spotify answered in %s)", who, took), ""})
+		case errors.Is(perr, errBadLogin):
+			add(check{"Signed in", checkFail, "the saved login can't be read: " + perr.Error(), "waxon auth signs in again"})
 		case httpStatus(perr) == http.StatusUnauthorized || httpStatus(perr) == http.StatusBadRequest:
 			add(check{"Signed in", checkFail, "Spotify no longer accepts the saved login", "waxon auth signs in again"})
 		case httpStatus(perr) == http.StatusTooManyRequests:
@@ -155,12 +157,19 @@ func runDoctor(ctx context.Context, env doctorEnv) []check {
 		add(check{"Player", checkInfo, "off (optional: plays with no Spotify app open)", "waxon player login sets it up"})
 	case !playerOn:
 		add(check{"Player", checkInfo, "signed in but off", "waxon player login turns it on"})
-	case perr != nil:
+	case errors.Is(perr, player.ErrNotInstalled):
 		add(check{"Player", checkFail, "on, but librespot isn't installed", "install it with: " + player.InstallCommand()})
+	case perr != nil:
+		add(check{"Player", checkFail, "on, but " + perr.Error(), "reinstall it with: " + player.InstallCommand()})
 	case !loggedIn:
 		add(check{"Player", checkFail, "on, but not signed in", "waxon player login"})
 	default:
 		add(check{"Player", checkOK, fmt.Sprintf("%s (%s), plays as %q", version, bin, env.playerName), ""})
+	}
+	if creds := filepath.Join(env.playerDir, "credentials.json"); runtime.GOOS != "windows" {
+		if info, err := os.Stat(creds); err == nil && info.Mode().Perm()&0o077 != 0 {
+			add(check{"Player login", checkWarn, fmt.Sprintf("%s is readable by other users (%v)", creds, info.Mode().Perm()), "chmod 600 " + creds})
+		}
 	}
 
 	// Lyrics come from lrclib.net.
@@ -224,6 +233,9 @@ func printDoctor(w io.Writer, checks []check) (failed int) {
 	return failed
 }
 
+// errBadLogin marks a saved login that couldn't be read at all.
+var errBadLogin = errors.New("unreadable login")
+
 // runDoctorCommand is `waxon doctor`.
 func runDoctorCommand() int {
 	cacheDir := filepath.Dir(app.DefaultSnapshotPath())
@@ -266,7 +278,7 @@ func savedSource() (*myspotify.PlayerSource, error) {
 	tokenPath := myauth.DefaultTokenPath()
 	token, err := myauth.LoadToken(tokenPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errBadLogin, err)
 	}
 	return myspotify.NewPlayerSource(myspotify.NewClient(effectiveClientID(), token, tokenPath)), nil
 }
@@ -293,11 +305,12 @@ func librespotVersion(path string) (bin, version string, err error) {
 		return "", "", err
 	}
 	out, err := exec.Command(bin, "--version").Output() //nolint:gosec // the user's own librespot
+	if err != nil {
+		return bin, "", fmt.Errorf("%s doesn't run (%w)", bin, err)
+	}
 	version = "librespot"
-	if err == nil {
-		if f := strings.Fields(string(out)); len(f) >= 2 {
-			version = f[0] + " " + f[1]
-		}
+	if f := strings.Fields(string(out)); len(f) >= 2 {
+		version = f[0] + " " + f[1]
 	}
 	return bin, version, nil
 }

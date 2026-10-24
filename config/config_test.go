@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -267,5 +268,58 @@ func TestSaveThemeRoundTrip(t *testing.T) {
 	}
 	if got.Theme != "dracula" || got.Keys["quit"] != "q,ctrl+c" {
 		t.Errorf("round trip: %+v", got)
+	}
+}
+
+func TestSaveRefusesToOverwriteBrokenConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	broken := []byte(`{"theme": "nord", "keys": {"next": "l"},}`) // trailing comma
+	if err := os.WriteFile(path, broken, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := saveTo(path, Config{Player: "off"})
+	if err == nil || !strings.Contains(err.Error(), "fix or delete") {
+		t.Fatalf("saveTo = %v; want a refusal that says how to fix it", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != string(broken) {
+		t.Errorf("the broken config was overwritten:\n%s", got)
+	}
+}
+
+func TestSaveKeepsUnknownKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"theme": "nord", "future_option": {"a": 1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveTo(path, Config{Player: "librespot"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	for _, want := range []string{`"future_option"`, `"theme": "nord"`, `"player": "librespot"`} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("saved config is missing %s:\n%s", want, got)
+		}
+	}
+}
+
+// An empty file, "null", or a Notepad byte-order mark is an empty config,
+// not a broken one: saving fills it in.
+func TestSaveOverEmptyishConfig(t *testing.T) {
+	for _, body := range []string{"", "  \n", "null", "\xef\xbb\xbf{\"theme\": \"nord\"}"} {
+		path := filepath.Join(t.TempDir(), "config.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := saveTo(path, Config{Player: "off"}); err != nil {
+			t.Errorf("%q: saveTo = %v", body, err)
+			continue
+		}
+		got, err := loadFrom(path)
+		if err != nil || got.Player != "off" {
+			t.Errorf("%q: after save got %+v, %v", body, got, err)
+		}
+		if strings.Contains(body, "nord") && got.Theme != "nord" {
+			t.Errorf("%q: the theme was lost", body)
+		}
 	}
 }

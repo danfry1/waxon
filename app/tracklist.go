@@ -788,6 +788,7 @@ type NavState struct {
 	headerInfo string
 	notice     string
 	contextURI string
+	want       string // what the list was waiting for (TrackList.want)
 	artBlock   string
 	cursor     int
 	offset     int
@@ -803,6 +804,7 @@ func (tl *TrackList) GetState(pane Pane) NavState {
 		headerInfo: tl.headerInfo,
 		notice:     tl.notice,
 		contextURI: tl.contextURI,
+		want:       tl.want,
 		artBlock:   tl.artBlock,
 		cursor:     tl.cursor,
 		offset:     tl.offset,
@@ -821,6 +823,10 @@ func (tl *TrackList) RestoreState(s NavState) {
 	tl.headerInfo = s.headerInfo
 	tl.notice = s.notice
 	tl.contextURI = s.contextURI
+	// Back on this view, it waits for what it waited for before, so a
+	// slower page for the one opened meanwhile can't replace it (and the
+	// empty start view still takes the startup load).
+	tl.want = s.want
 	tl.artBlock = s.artBlock
 	tl.filtered, tl.filteredIdx = nil, nil
 	tl.filterText = ""

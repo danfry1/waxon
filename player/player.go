@@ -172,7 +172,11 @@ func signIn(ctx context.Context, bin, dir string, paste bool, in io.Reader, out 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // the user's own librespot
-	cmd.Stdout, cmd.Stderr = out, out
+	errs := &errorTail{w: out}
+	cmd.Stdout, cmd.Stderr = errs, errs
+	// A browser librespot launches can inherit its output pipes; don't wait
+	// on them for longer than this once librespot itself has exited.
+	cmd.WaitDelay = 2 * time.Second
 	// Give librespot a real pipe and copy in into it ourselves: os/exec's
 	// own copy of a non-file Stdin is waited on by Wait, and in may be a
 	// pipe nothing is ever written to (the setup's paste field).
@@ -205,10 +209,7 @@ func signIn(ctx context.Context, bin, dir string, paste bool, in io.Reader, out 
 			if complete(dir) {
 				return nil
 			}
-			if err == nil {
-				err = errors.New("librespot exited")
-			}
-			return fmt.Errorf("sign-in didn't finish: %w", err)
+			return signInError(errs.last(), err)
 		case <-tick.C:
 			if complete(dir) {
 				cancel()
@@ -220,6 +221,50 @@ func signIn(ctx context.Context, bin, dir string, paste bool, in io.Reader, out 
 			return ctx.Err()
 		}
 	}
+}
+
+// signInError explains why librespot's sign-in ended without credentials,
+// from its last error line when it logged one.
+func signInError(last string, err error) error {
+	switch {
+	case strings.Contains(strings.ToLower(last), "address already in use"), strings.Contains(strings.ToLower(last), "address in use"):
+		return errors.New("librespot's sign-in port (5588) is in use, probably by another sign-in; close it and try again")
+	case last != "":
+		return errors.New("librespot: " + last)
+	case err != nil:
+		return fmt.Errorf("librespot exited: %w", err)
+	}
+	return errors.New("librespot exited before signing in")
+}
+
+// errorTail forwards librespot's output and keeps its last error line.
+type errorTail struct {
+	w    io.Writer
+	mu   sync.Mutex
+	line string
+}
+
+func (e *errorTail) Write(p []byte) (int, error) {
+	for _, line := range strings.Split(string(p), "\n") {
+		if strings.Contains(line, "ERROR") || strings.Contains(strings.ToLower(line), "error:") {
+			if _, msg, ok := strings.Cut(line, "] "); ok {
+				line = msg
+			}
+			e.mu.Lock()
+			e.line = strings.TrimSpace(line)
+			e.mu.Unlock()
+		}
+	}
+	if e.w == nil {
+		return len(p), nil
+	}
+	return e.w.Write(p)
+}
+
+func (e *errorTail) last() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.line
 }
 
 // Sidecar is a running librespot device.

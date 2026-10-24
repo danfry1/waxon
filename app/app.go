@@ -1020,7 +1020,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{m.refreshPlaylists()}
 		if id := m.pendingViewRefresh; id != "" {
 			m.pendingViewRefresh = ""
-			if m.tracklist.ContextURI() == "spotify:playlist:"+id {
+			// Only while that playlist is still shown: not if the user has
+			// opened another meanwhile, even one still loading.
+			if m.showingLoaded("spotify:playlist:" + id) {
 				cmds = append(cmds, m.forgetPage(id))
 				for _, pl := range m.playlists {
 					if pl.ID == id {

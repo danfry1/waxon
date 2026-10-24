@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -77,6 +78,12 @@ func loadFrom(path string) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
+	// An empty file (touch config.json), "null", or one saved by Windows
+	// Notepad with a byte-order mark is still a config, just an empty one.
+	data = bytes.TrimSpace(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")))
+	if len(data) == 0 || string(data) == "null" {
+		return Config{}, nil
+	}
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
@@ -86,13 +93,18 @@ func loadFrom(path string) (Config, error) {
 
 func saveTo(path string, updates Config) error {
 	// Load existing config so we don't clobber fields the caller didn't set.
-	existing, _ := loadFrom(path)
+	// A file that doesn't parse is the user's to fix: saving over it would
+	// throw away everything in it.
+	existing, err := loadFrom(path)
+	if err != nil {
+		return fmt.Errorf("%w (fix or delete %s, then try again)", err, path)
+	}
 	merged := merge(existing, updates)
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	data, err := json.MarshalIndent(merged, "", "  ")
+	data, err := marshalKeepingUnknown(path, merged)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
@@ -101,6 +113,32 @@ func saveTo(path string, updates Config) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// marshalKeepingUnknown encodes cfg over the keys already in the file at
+// path, so keys this version of waxon doesn't know (added by hand, or by a
+// newer waxon) survive a save.
+func marshalKeepingUnknown(path string, cfg Config) ([]byte, error) {
+	out := map[string]json.RawMessage{}
+	if data, err := os.ReadFile(path); err == nil {
+		data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+		_ = json.Unmarshal(data, &out) // it parsed as a Config just now
+	}
+	if out == nil { // the file said null
+		out = map[string]json.RawMessage{}
+	}
+	known, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(known, &fields); err != nil {
+		return nil, err
+	}
+	for k, v := range fields {
+		out[k] = v
+	}
+	return json.MarshalIndent(out, "", "  ")
 }
 
 // merge returns a Config where each zero-valued field in updates is

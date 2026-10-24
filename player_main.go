@@ -29,7 +29,9 @@ func runPlayer(args []string) int {
 	switch sub {
 	case "login":
 		if interactiveTerminal() {
-			if !runSetup(setupDeps("", ""), app.SetupPlayerOnly).Finished() {
+			// PlayerOn, not Finished: leaving the last screen with ctrl+c
+			// still leaves the player signed in and on.
+			if !runSetup(setupDeps("", ""), app.SetupPlayerOnly).PlayerOn() {
 				return 1
 			}
 			fmt.Printf("waxon now plays through its own device, %q, whenever nothing else is playing.\n", player.DeviceName())
@@ -157,10 +159,26 @@ func newPlayerRunner(cfg config.Config) (*playerRunner, string) {
 // device is already online (another waxon is running it), reporting an
 // unexpected exit to the TUI.
 func (r *playerRunner) start(ctx context.Context, src source.RichSource, p *tea.Program) {
+	r.launch(ctx, src, p, true)
+}
+
+// launch starts librespot in the background. With deferToRunning, it
+// doesn't when this machine's device is already listed (another waxon runs
+// it); a restart asked for from the UI skips that check, since Spotify can
+// list a device that died moments ago.
+func (r *playerRunner) launch(ctx context.Context, src source.RichSource, p *tea.Program, deferToRunning bool) {
 	if r == nil {
 		return
 	}
 	go func() {
+		if !deferToRunning {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if !r.stopped {
+				r.run(p)
+			}
+			return
+		}
 		lookup, cancel := context.WithTimeout(ctx, 3*time.Second)
 		devices, err := src.Devices(lookup)
 		cancel()
@@ -174,19 +192,23 @@ func (r *playerRunner) start(ctx context.Context, src source.RichSource, p *tea.
 		}
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		if r.stopped {
-			return
+		if !r.stopped {
+			r.run(p)
 		}
-		s, err := player.Start(r.bin, r.dir, r.name, playerLog(), func(err error) {
-			slog.Warn("player exited", "error", err)
-			p.Send(app.PlayerExitedMsg{Err: err})
-		})
-		if err != nil {
-			p.Send(app.PlayerExitedMsg{Err: err})
-			return
-		}
-		r.sidecar = s
 	}()
+}
+
+// run starts librespot; r.mu must be held.
+func (r *playerRunner) run(p *tea.Program) {
+	s, err := player.Start(r.bin, r.dir, r.name, playerLog(), func(err error) {
+		slog.Warn("player exited", "error", err)
+		p.Send(app.PlayerExitedMsg{Err: err})
+	})
+	if err != nil {
+		p.Send(app.PlayerExitedMsg{Err: err})
+		return
+	}
+	r.sidecar = s
 }
 
 func (r *playerRunner) stop() {
