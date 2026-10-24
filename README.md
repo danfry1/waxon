@@ -345,7 +345,7 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
 {
   "theme": "catppuccin-mocha",
   "colors": { "accent": "#F5C2E7" },
-  "keys":   { "next": "l,right", "prev": "h,left", "quit": "ctrl+q" }
+  "keys":   { "next": "n,>", "prev": "p,<", "quit": "ctrl+q" }
 }
 ```
 
@@ -355,7 +355,7 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
   <img src="demo/recordings/themes.gif" alt="switching themes with :theme" width="800">
 </p>
 
-**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices mode back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings.
+**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices mode back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings. If a custom key is misspelt, has no keys, or is already another action's, waxon says so when it starts and uses the rest.
 
 **Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
 

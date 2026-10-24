@@ -171,13 +171,14 @@ func splitColumns(cats []helpCategory, n int) [][]helpCategory {
 }
 
 // ViewHelp renders the help overlay as a centered floating panel. Columns are
-// chosen from the terminal width (3 when it fits, else 2), and content is
-// clipped to the terminal height rather than overflowing it.
+// chosen from the terminal width (3 when it fits, else 2); what doesn't fit
+// the terminal's height scrolls (scroll is the first row shown).
 func ViewHelp(width, height int) string {
-	return viewHelp(DefaultKeyMap(), width, height)
+	return viewHelp(DefaultKeyMap(), width, height, 0)
 }
 
-func viewHelp(k KeyMap, width, height int) string {
+// helpBody is the help overlay's columns as lines, and its width.
+func helpBody(k KeyMap, width int) (lines []string, overlayW int) {
 	const colW = 30    // preferred column width
 	const colWMin = 24 // narrowest column before dropping to fewer columns
 	const gap = 2
@@ -190,10 +191,8 @@ func viewHelp(k KeyMap, width, height int) string {
 	if avail := (width - 8 - gap*(ncols-1)) / ncols; avail < cw {
 		cw = max(16, avail)
 	}
-	overlayW := cw*ncols + gap*(ncols-1) + 4
+	overlayW = cw*ncols + gap*(ncols-1) + 4
 
-	titleStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-	hintStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
 	catStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Bold(true)
 	keyStyle := lipgloss.NewStyle().Foreground(ColorText)
 	descStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
@@ -227,14 +226,35 @@ func viewHelp(k KeyMap, width, height int) string {
 		rendered = append(rendered, lipgloss.NewStyle().Width(cw).Render(renderCol(c)))
 	}
 	columns := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
+	return strings.Split(columns, "\n"), overlayW
+}
 
+// helpRows is how many body rows fit on screen: border (2), padding (2),
+// the header and the blank line under it, and a line for the scroll hint.
+func helpRows(height int) int { return max(1, height-7) }
+
+// helpMaxScroll is the furthest the help overlay scrolls.
+func helpMaxScroll(k KeyMap, width, height int) int {
+	lines, _ := helpBody(k, width)
+	return max(0, len(lines)-helpRows(height))
+}
+
+func viewHelp(k KeyMap, width, height, scroll int) string {
+	titleStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	hintStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	lines, overlayW := helpBody(k, width)
 	header := titleStyle.Render("Keybindings") + "  " + hintStyle.Render("? / Esc / q to close")
-	content := header + "\n\n" + columns
-
-	// Clip to the terminal: border (2) + padding (2) rows are reserved.
-	maxLines := height - 4
-	if lines := strings.Split(content, "\n"); maxLines > 2 && len(lines) > maxLines {
-		content = strings.Join(lines[:maxLines-1], "\n") + "\n" + hintStyle.Render("… (enlarge the terminal to see everything)")
+	content := header + "\n\n"
+	if rows := helpRows(height); len(lines) > rows {
+		scroll = max(0, min(scroll, len(lines)-rows))
+		content += strings.Join(lines[scroll:scroll+rows], "\n")
+		more := "↓ j/k to scroll"
+		if scroll == len(lines)-rows {
+			more = "↑ j/k to scroll"
+		}
+		content += "\n" + hintStyle.Render(more)
+	} else {
+		content += strings.Join(lines, "\n")
 	}
 
 	border := lipgloss.NewStyle().
