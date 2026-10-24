@@ -29,7 +29,9 @@ func runPlayer(args []string) int {
 	switch sub {
 	case "login":
 		if interactiveTerminal() {
-			if !runSetup(setupDeps("", ""), app.SetupPlayerOnly).Finished() {
+			// PlayerOn, not Finished: leaving the last screen with ctrl+c
+			// still leaves the player signed in and on.
+			if !runSetup(setupDeps("", ""), app.SetupPlayerOnly).PlayerOn() {
 				return 1
 			}
 			fmt.Printf("waxon now plays through its own device, %q, whenever nothing else is playing.\n", player.DeviceName())

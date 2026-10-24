@@ -86,13 +86,18 @@ func loadFrom(path string) (Config, error) {
 
 func saveTo(path string, updates Config) error {
 	// Load existing config so we don't clobber fields the caller didn't set.
-	existing, _ := loadFrom(path)
+	// A file that doesn't parse is the user's to fix: saving over it would
+	// throw away everything in it.
+	existing, err := loadFrom(path)
+	if err != nil {
+		return fmt.Errorf("%w (fix or delete %s, then try again)", err, path)
+	}
 	merged := merge(existing, updates)
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	data, err := json.MarshalIndent(merged, "", "  ")
+	data, err := marshalKeepingUnknown(path, merged)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
@@ -101,6 +106,28 @@ func saveTo(path string, updates Config) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// marshalKeepingUnknown encodes cfg over the keys already in the file at
+// path, so keys this version of waxon doesn't know (added by hand, or by a
+// newer waxon) survive a save.
+func marshalKeepingUnknown(path string, cfg Config) ([]byte, error) {
+	out := map[string]json.RawMessage{}
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &out) // it parsed as a Config just now
+	}
+	known, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(known, &fields); err != nil {
+		return nil, err
+	}
+	for k, v := range fields {
+		out[k] = v
+	}
+	return json.MarshalIndent(out, "", "  ")
 }
 
 // merge returns a Config where each zero-valued field in updates is

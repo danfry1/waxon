@@ -263,7 +263,11 @@ func (s *Setup) update(msg tea.Msg) tea.Cmd {
 			return s.enter()
 		}
 		_, manager, command := s.deps.Player.Installer()
-		s.err = "librespot still isn't installed. Run '" + command + "' yourself, then press r to check again."
+		s.err = "librespot still isn't installed"
+		if msg.err != nil {
+			s.err += " (the install said: " + msg.err.Error() + ")"
+		}
+		s.err += ". Run '" + command + "' yourself, then press r to check again."
 		if manager == "cargo" {
 			s.err += " (cargo puts it in ~/.cargo/bin, which needs to be on your PATH.)"
 		}
@@ -290,7 +294,7 @@ func (s *Setup) update(msg tea.Msg) tea.Cmd {
 		if msg.err != nil {
 			s.input.Blur()
 			s.playerPaste = false
-			s.err = "The player's sign-in didn't finish: " + msg.err.Error() + ". Press enter to try again."
+			s.err = "Couldn't sign the player in: " + msg.err.Error() + ". Press enter to try again."
 			return nil
 		}
 		if err := s.deps.Player.Enable(); err != nil {

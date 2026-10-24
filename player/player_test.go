@@ -39,6 +39,9 @@ func fakeLibrespot(mode string, args []string) int {
 		time.Sleep(time.Minute)
 	case "abandon": // the user gives up: no credentials
 		return 1
+	case "portbusy":
+		fmt.Fprintln(os.Stderr, "[2026-10-24T14:00:00Z ERROR librespot] Failed to bind OAuth server: Address already in use (os error 48)")
+		return 1
 	case "serve":
 		fmt.Fprintln(os.Stderr, "[INFO  librespot] "+strings.Join(args, " "))
 		time.Sleep(time.Minute)
@@ -232,5 +235,19 @@ func TestLoginReturnsWithUnusedPipeStdin(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Login hung waiting on its stdin pipe")
+	}
+}
+
+func TestLoginExplainsBusyPort(t *testing.T) {
+	err := Login(context.Background(), fake(t, "portbusy"), filepath.Join(t.TempDir(), "l"), false, nil, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "5588") || strings.Contains(err.Error(), "exit status") {
+		t.Errorf("Login = %v; want the busy port explained", err)
+	}
+}
+
+func TestLoginReportsLibrespotsError(t *testing.T) {
+	err := Login(context.Background(), fake(t, "fail"), filepath.Join(t.TempDir(), "l"), false, nil, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "Bad credentials") || strings.Contains(err.Error(), "2026-") {
+		t.Errorf("Login = %v; want librespot's own message, without its log prefix", err)
 	}
 }

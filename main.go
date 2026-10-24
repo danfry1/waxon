@@ -400,8 +400,8 @@ Usage:
   waxon          Launch the TUI
   waxon auth     Connect your Spotify account (guided; --own | --shared | --client-id ID)
                  Over SSH, paste the address the browser ends up on when asked
-  waxon logout   Forget the saved Spotify login (keeps your config)
-  waxon player   Play through waxon itself via librespot (login | off)
+  waxon logout   Forget the saved Spotify and player logins (keeps the rest of your config)
+  waxon player   waxon's own player via librespot: status, or login | off
   waxon doctor   Check the login, Spotify app, devices, player and more
   waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
