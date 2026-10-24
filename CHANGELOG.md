@@ -8,12 +8,28 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+
+- waxon can play by itself, with no Spotify app open. With
+  [librespot](https://github.com/librespot-org/librespot) installed, run
+  `waxon player login` once; waxon then starts its own Spotify Connect device
+  in the background, plays through it when nothing else is active, and stops
+  it on quit. `waxon player off` turns it off.
+
 ### Changed
 
 - waxon starts faster: the library and the first page of Liked Songs are
   drawn from a local copy saved on the previous run, then refreshed from
   Spotify in the background. The copy lives in waxon's cache directory and is
   removed by `waxon logout` and `waxon auth`.
+- `+`/`-` change the volume at once instead of after a short pause, and
+  holding the key follows along (a few changes a second) rather than
+  waiting until you let go.
+
+### Fixed
+
+- The volume shown after `+`/`-` or `:vol` no longer jumps back to the old
+  level on devices that report changes late, such as librespot.
 
 ## [1.9.0] - 2026-10-23
 

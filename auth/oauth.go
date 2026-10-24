@@ -162,7 +162,7 @@ func Authenticate(clientID string) (*oauth2.Token, error) {
 		return nil, fmt.Errorf("listen on %s: %w (is another instance running?)", addr, listenErr)
 	}
 
-	remote := isRemoteSession()
+	remote := IsRemoteSession()
 	if remote {
 		fmt.Printf("\n  This looks like an SSH session. Open this URL in a browser on any machine:\n\n    %s\n\n", authURL)
 	} else {
@@ -228,9 +228,9 @@ func closeServer(s *http.Server) {
 	}
 }
 
-// isRemoteSession reports whether waxon is running over SSH, where a browser
+// IsRemoteSession reports whether waxon is running over SSH, where a browser
 // opened here (if any) isn't the one the user is looking at.
-func isRemoteSession() bool {
+func IsRemoteSession() bool {
 	return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != ""
 }
 

@@ -660,12 +660,18 @@ func (m *Model) playbackSettingKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// nudgeVolume moves the shown volume immediately and sends it after a short
-// debounce, so holding + doesn't fire a request per key repeat.
+// nudgeVolume moves the shown volume immediately and sends it at most once
+// per volumeDebounce: at once if nothing was sent that recently, otherwise
+// when the interval is up. Holding + then follows the key without firing a
+// request per key repeat, and the last level is always sent.
 func (m *Model) nudgeVolume(delta int) tea.Cmd {
+	now := time.Now()
 	m.volume = clampInt(m.volume+delta, 0, 100)
-	m.volumeGen++
-	m.volumeHoldUntil = time.Now().Add(volumeHold)
+	m.volumeGen++ // drops any commit still pending
+	if now.Sub(m.volumeSentAt) >= volumeDebounce {
+		return m.runCommand(Command{Type: CmdVolume, IntArg: m.volume})
+	}
+	m.volumeHoldUntil, m.volumeSent = now.Add(volumeHold), false
 	gen := m.volumeGen
 	return tea.Tick(volumeDebounce, func(time.Time) tea.Msg { return volumeCommitMsg{gen} })
 }
@@ -700,6 +706,8 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 		return tea.Quit
 	case CmdVolume:
 		m.volume = cmd.IntArg
+		m.volumeHoldUntil, m.volumeSent = time.Now().Add(volumeSentHold), true
+		m.volumeSentAt = time.Now()
 		vol := cmd.IntArg
 		return deviceAware(func() tea.Msg {
 			if err := src.SetVolume(ctx, vol); err != nil {

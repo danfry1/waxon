@@ -46,6 +46,9 @@ const (
 	volumeStep     = 5
 	volumeDebounce = 250 * time.Millisecond
 	volumeHold     = 2 * time.Second
+	// volumeSentHold caps how long a sent level is kept while Spotify still
+	// reports the old one: librespot reports volume changes seconds late.
+	volumeSentHold = 8 * time.Second
 	// maxPollInterval caps error backoff so recovery is never more than a
 	// minute away once Spotify is reachable again.
 	maxPollInterval = 60 * time.Second
@@ -280,7 +283,9 @@ type Model struct {
 	snapshotReload bool // the live reload of the snapshot's page is in flight
 	snapTracks     []source.Track
 	snapTotal      int
-	pagination     *paginationState // non-nil while a playlist is being lazily loaded
+
+	playerErr  error            // why waxon's own player stopped, if it did
+	pagination *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt       string      // large rendered art for now playing view
 	npArtURL    string      // URL of the art currently rendered for NP
@@ -323,6 +328,8 @@ type Model struct {
 	// volumeHoldUntil keeps polls from overwriting the level meanwhile.
 	volumeGen       int
 	volumeHoldUntil time.Time
+	volumeSent      bool      // the held level was sent; release once Spotify echoes it
+	volumeSentAt    time.Time // last volume sent, to rate-limit a held + key
 	// modeHoldUntil does the same for shuffle and repeat after S / r.
 	modeHoldUntil time.Time
 	// refreshPending counts post-control re-polls still scheduled, so a burst
@@ -382,6 +389,9 @@ type Options struct {
 	// SnapshotPath is where the startup snapshot of the library is kept
 	// (see snapshot.go). "" disables it.
 	SnapshotPath string
+	// PlayerName is the Connect device waxon's own player (librespot) runs
+	// as; "" when it's off. Playback with no active device prefers it.
+	PlayerName string
 }
 
 // WithOptions returns a copy of m with opts applied.
@@ -538,9 +548,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.track = msg.track
 		m.playbackContextURI = msg.contextURI
 		// Hold a volume the user just set until Spotify reports it back, so
-		// a poll that was already in flight doesn't snap the level back.
-		if time.Now().After(m.volumeHoldUntil) {
+		// a stale poll doesn't snap the level back. Within a couple of points
+		// counts as back: devices round the level to their own steps.
+		switch {
+		case time.Now().After(m.volumeHoldUntil):
 			m.volume = msg.volume
+		case m.volumeSent && absInt(msg.volume-m.volume) <= 2:
+			m.volumeHoldUntil, m.volumeSent = time.Time{}, false
 		}
 		if time.Now().After(m.modeHoldUntil) {
 			m.shuffleOn = msg.shuffleOn
@@ -600,6 +614,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case snapshotLoadedMsg:
 		return m.applySnapshot(msg.snap)
+
+	case PlayerExitedMsg:
+		return m.handlePlayerExited(msg)
 
 	case playlistsLoadedMsg:
 		m.playlists = msg.playlists
@@ -1001,7 +1018,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.gen != m.volumeGen {
 			return m, nil
 		}
-		m.volumeHoldUntil = time.Now().Add(volumeHold)
 		return m, m.runCommand(Command{Type: CmdVolume, IntArg: m.volume})
 
 	case likedBatchMsg:
