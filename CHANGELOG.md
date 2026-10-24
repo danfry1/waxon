@@ -15,6 +15,13 @@ Each release's section is also used verbatim as the GitHub Release notes.
   it, and a tonearm whose needle moves across the record as the track
   plays. It turns smoothly at 33⅓ rpm (it used to step twice a second at
   about 1 rpm), and only while it's on screen and playing.
+- Media keys: the keyboard's play/pause, next and previous keys control
+  waxon, and the system's Now Playing (Control Center on macOS, MPRIS on
+  Linux desktops) shows the track, its cover and progress, with working
+  buttons and scrubbing. Set `"media_keys": false` to turn it off.
+- Changing the volume shows a level meter: the part Spotify hasn't
+  applied yet is drawn dimly and fills in, with a brief glow, once the new
+  level takes effect. The status bar's volume dims and glows the same way.
 
 ### Changed
 
@@ -35,6 +42,7 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 - Now Playing no longer shows the terminal's own background in a box
   around the cover and the text; everything sits on the gradient.
+- A toast's dismiss timer no longer hides a newer toast early.
 - An artist or album page that fails to load goes back to the view it was
   opened from, with a message, instead of loading forever. A view that is
   loading no longer shows the previous one's track count and genres.

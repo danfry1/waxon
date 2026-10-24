@@ -699,6 +699,7 @@ func snapVolume(cur, delta int) int {
 // request per key repeat, and the last level is always sent.
 func (m *Model) nudgeVolume(delta int) tea.Cmd {
 	now := time.Now()
+	m.startVolumeChange()
 	m.volume = snapVolume(m.volume, delta)
 	m.volumeGen++ // drops any commit still pending
 	if now.Sub(m.volumeSentAt) >= volumeDebounce {
@@ -707,6 +708,19 @@ func (m *Model) nudgeVolume(delta int) tea.Cmd {
 	m.volumeHoldUntil, m.volumeSent = now.Add(volumeHold), false
 	gen := m.volumeGen
 	return tea.Tick(volumeDebounce, func(time.Time) tea.Msg { return volumeCommitMsg{gen} })
+}
+
+// startVolumeChange marks a volume change in flight and shows the meter;
+// the level before it is the one Spotify has accepted.
+func (m *Model) startVolumeChange() {
+	if !m.volumeInFlight {
+		m.volumeAccepted, m.volumeInFlight = m.volume, true
+	}
+	m.toast.ShowVolume() // dismissed once Spotify accepts the level
+}
+
+func volumeGlowTick(id int) tea.Cmd {
+	return tea.Tick(volumePulseStep, func(time.Time) tea.Msg { return volumeGlowMsg{id} })
 }
 
 // repeatLabel names a repeat mode the way the :repeat command spells it.
@@ -739,16 +753,21 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 		m.quitting = true
 		return tea.Quit
 	case CmdVolume:
+		m.startVolumeChange()
 		m.volume = cmd.IntArg
+		m.volumeGen++ // replies to earlier levels are now stale
 		m.volumeHoldUntil, m.volumeSent = time.Now().Add(volumeSentHold), true
 		m.volumeLast, m.volumeLastSet = cmd.IntArg, true
 		m.volumeSentAt = time.Now()
-		vol := cmd.IntArg
+		vol, gen := cmd.IntArg, m.volumeGen
 		return deviceAware(func() tea.Msg {
 			if err := src.SetVolume(ctx, vol); err != nil {
-				return trackErrorMsg{err}
+				if errors.Is(err, source.ErrNoActiveDevice) {
+					return trackErrorMsg{err} // deviceAware recovers this
+				}
+				return volumeFailedMsg{gen, err}
 			}
-			return cmdFlashMsg{fmt.Sprintf("Volume: %d%%", vol)}
+			return volumeSetMsg{vol, gen}
 		})
 	case CmdShuffle:
 		m.shuffleOn = !m.shuffleOn
