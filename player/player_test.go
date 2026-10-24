@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -34,7 +35,7 @@ func fakeLibrespot(mode string, args []string) int {
 	case "login": // the user approves after a moment; then it keeps playing
 		fmt.Println("Browse to: https://accounts.spotify.com/authorize?…")
 		time.Sleep(200 * time.Millisecond)
-		_ = os.WriteFile(filepath.Join(dir, "credentials.json"), []byte(`{}`), 0o600)
+		_ = os.WriteFile(filepath.Join(dir, "credentials.json"), []byte(`{}`), 0o644) // as librespot does
 		time.Sleep(time.Minute)
 	case "abandon": // the user gives up: no credentials
 		return 1
@@ -195,5 +196,23 @@ func TestReloginSignsInAfresh(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(filepath.Join(dir, "login-*")); len(left) != 0 {
 		t.Errorf("sign-in dir left behind: %v", left)
+	}
+}
+
+func TestLoginKeepsCredentialsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" { // no Unix permission bits
+		t.Skip()
+	}
+	dir := filepath.Join(t.TempDir(), "librespot")
+	if err := Login(context.Background(), fake(t, "login"), dir, false, nil, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(credentialsPath(dir))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("credentials mode = %v (%v), want 0600", info.Mode().Perm(), err)
+	}
+	dirInfo, _ := os.Stat(dir)
+	if dirInfo.Mode().Perm() != 0o700 {
+		t.Errorf("dir mode = %v, want 0700", dirInfo.Mode().Perm())
 	}
 }
