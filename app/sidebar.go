@@ -31,6 +31,9 @@ func (s sidebarItem) Title() string {
 }
 
 func (s sidebarItem) Description() string {
+	if st, ok := libraryRowStyles[s.playlist.ID]; ok {
+		return st.desc
+	}
 	if s.playlist.TrackCount == 0 {
 		return ""
 	}
@@ -98,9 +101,17 @@ func NewSidebar(width, height int) Sidebar {
 }
 
 func (s *Sidebar) SetPlaylists(playlists []source.Playlist) {
-	items := make([]list.Item, len(playlists))
+	// Liked Songs first, then the collection rows, then the playlists. The
+	// library always starts with Liked Songs (source.Playlists puts it
+	// there); a list that doesn't isn't the library, and gets no rows.
+	items := make([]list.Item, 0, len(playlists)+len(libraryRows))
 	for i, pl := range playlists {
-		items[i] = sidebarItem{playlist: pl}
+		items = append(items, sidebarItem{playlist: pl})
+		if i == 0 && pl.ID == likedPlaylistID {
+			for _, row := range libraryRows {
+				items = append(items, sidebarItem{playlist: row, icon: libraryRowTile(row.ID)})
+			}
+		}
 	}
 	s.allItems = items
 	s.refreshVisible()
@@ -315,6 +326,13 @@ func (s *Sidebar) SetCursorFromClick(y int) {
 func (s *Sidebar) Move(n int) {
 	if total := len(s.list.Items()); total > 0 {
 		s.list.Select(max(0, min(total-1, s.list.Index()+n)))
+	}
+}
+
+// Goto puts the cursor on row i (clamped to the list).
+func (s *Sidebar) Goto(i int) {
+	if total := len(s.list.Items()); total > 0 {
+		s.list.Select(max(0, min(total-1, i)))
 	}
 }
 

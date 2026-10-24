@@ -209,7 +209,7 @@ Explore discographies, browse full albums, and navigate with a browser-like back
 
 ### Your Library
 
-`ga` opens your saved albums and `gA` the artists you follow; Enter opens one, and `/` filters by name or artist.
+Under **Liked Songs** in the Library, **Albums · Artists · Podcasts** opens Recently Played and the albums, artists and shows you've saved and follow (also `:recent`, `:albums`, `:artists`, `:podcasts`). Enter opens one, and `/` filters by name or artist.
 
 <p align="center">
   <img src="demo/recordings/library.gif" alt="saved albums and followed artists" width="800">
@@ -217,7 +217,7 @@ Explore discographies, browse full albums, and navigate with a browser-like back
 
 ### Podcasts
 
-`gp` lists the shows you follow. Each opens to its episodes, newest first; episodes play, queue, like and add to playlists like tracks do.
+**Podcasts** (under Albums · Artists · Podcasts, or `:podcasts`) lists the shows you follow. Each opens to its episodes, newest first; episodes play, queue, like and add to playlists like tracks do.
 
 <p align="center">
   <img src="demo/recordings/podcasts.gif" alt="podcasts" width="800">
@@ -241,7 +241,8 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `gg`             | Go to top           |
 | `G`              | Go to bottom        |
 | `Ctrl+u` / `Ctrl+d` | Half page up / down |
-| `5j` / `12G` / `12gg` | Counts, as in vim (track list) |
+| `5j` / `12G` / `12gg` / `6]` | Counts, as in vim |
+| `Esc`            | Clear a filter or a half-typed count |
 
 ### Panes
 
@@ -249,7 +250,6 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 |------------------|---------------------|
 | `h` / `l`        | Focus left / right pane |
 | `Tab`            | Cycle pane          |
-| `1` / `2`        | Library / queue section (from the sidebar; in the track list digits are counts) |
 
 ### Go-to (g prefix)
 
@@ -258,10 +258,8 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `gl`  | Go to library               |
 | `gq`  | Go to queue                 |
 | `gc`  | Jump to currently playing track (loads its playlist/album if you've navigated away) |
-| `gr`  | Recently played             |
-| `ga`  | Saved albums (also `:albums`) |
-| `gA`  | Followed artists (also `:artists`) |
-| `gp`  | Podcasts (also `:podcasts`) |
+| `ga`  | Album of the selected track (in Now Playing: the playing one) |
+| `gA`  | Artist of the selected track |
 
 ### Playback
 
@@ -270,8 +268,9 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `Space`          | Play / pause        |
 | `Enter`          | Play selected       |
 | `n` / `p`        | Next / previous track |
-| `[` / `]`        | Seek -5s / +5s      |
+| `[` / `]`        | Seek -5s / +5s (`6]` is +30s) |
 | `-` / `+`        | Volume -5 / +5      |
+| `m`              | Mute / unmute       |
 | `S`              | Toggle shuffle      |
 | `r`              | Cycle repeat        |
 
@@ -279,9 +278,11 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 
 | Key   | Action              |
 |-------|---------------------|
-| `o`   | Context actions menu |
-| `a`   | Add to queue        |
-| `f`   | Like / unlike       |
+| `o`   | Actions menu for the selection (each row has a number; `a`, `f`, `+`, `d` work in it too) |
+| `O`   | Actions menu for the **playing** track, from anywhere |
+| `a`   | Add the selection to the queue |
+| `f`   | Like / unlike the selection |
+| `F`   | Like / unlike the **playing** track, from anywhere |
 | `v`   | Visual mode (select a range) |
 | `/`   | Filter current view |
 | `s`   | Spotify search      |
@@ -305,23 +306,30 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 
 | Key              | Action              |
 |------------------|---------------------|
-| `N`              | Now Playing view    |
+| `N`              | Now Playing view (playback, `s`, `D`, `M`, `:` and `?` work in it too) |
 | `f` / `a` / `o`  | Like / queue / actions for the **playing** track (in Now Playing) |
-| `V`              | Toggle vinyl mode (in Now Playing) |
+| `v`              | Toggle vinyl mode (in Now Playing) |
 | `l`              | Toggle synced lyrics (in Now Playing) |
 | `Backspace` / `b` | Go back           |
 | `?`              | Toggle help overlay |
-| `q`              | Quit               |
+| `q` / `Ctrl+c`   | Quit               |
 | `Esc`            | Close / cancel      |
+
+In search, `Tab` moves from the query to the results, where `j`/`k` move and `a`, `f` and `o` act on the selected track; `Tab` or `/` goes back to typing.
 
 ## Commands
 
-Enter command mode by pressing `:`, then type a command.
+Enter command mode by pressing `:`, then type a command. As you type, the likeliest command shows dimmed after the cursor (and then what it takes); `Tab` or `→` accepts it. The playback commands read like the CLI's (`waxon next`, `waxon seek 1:30`).
 
 | Command                 | Description          |
 |-------------------------|----------------------|
-| `:vol <0-100>`          | Set volume           |
-| `:shuffle`              | Toggle shuffle       |
+| `:play` / `:pause` / `:toggle` | Resume / pause / play-pause |
+| `:next` / `:prev`       | Next / previous track |
+| `:seek ±N` / `:seek M:SS` | Seek by N seconds, or to a time |
+| `:vol <0-100>` / `:vol ±N` | Set or change the volume |
+| `:mute`                 | Mute / unmute        |
+| `:like [on\|off]`       | Like / unlike the playing track |
+| `:shuffle [on\|off]`    | Shuffle              |
 | `:repeat off\|all\|one` | Set repeat mode      |
 | `:device`               | Open device switcher |
 | `:device -`             | Back to the previous device |
@@ -335,6 +343,7 @@ Enter command mode by pressing `:`, then type a command.
 | `:vinyl`                | Now Playing, in vinyl mode |
 | `:theme <name>`         | Switch colour theme (saved to config) |
 | `:playlist new <name>`  | Create a playlist    |
+| `:h`                    | Help                 |
 | `:q`                    | Quit                 |
 
 ## Configuration
@@ -355,7 +364,7 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
   <img src="demo/recordings/themes.gif" alt="switching themes with :theme" width="800">
 </p>
 
-**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices mode back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings. If a custom key is misspelt, has no keys, or is already another action's, waxon says so when it starts and uses the rest.
+**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down mute shuffle repeat visual add_queue like like_playing actions actions_playing devices mode back filter search command help now_playing quit`. The `g`-prefix motions (`gg gl gq gc ga gA`) and `Esc` are fixed. The `?` help overlay always shows your live bindings. If a custom key is misspelt, has no keys, or is already another action's, waxon says so when it starts and uses the rest.
 
 **Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
 

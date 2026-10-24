@@ -625,6 +625,25 @@ func transferRetrying(ctx context.Context, src source.RichSource, deviceID strin
 	return err
 }
 
+// shufflePlay turns shuffle on and plays contextURI, so it starts on a
+// random track rather than the first.
+func (m Model) shufflePlay(contextURI string) tea.Cmd {
+	src, ctx := m.source, m.ctx
+	return deviceAware(func() tea.Msg {
+		if err := src.SetShuffle(ctx, true); err != nil {
+			return trackErrorMsg{err}
+		}
+		err := src.PlayTrack(ctx, contextURI, "")
+		if errors.Is(err, source.ErrNoActiveDevice) && hasActiveDevice(ctx, src) {
+			return playlistUnplayableMsg{} // as in playPlaylistFromStart
+		}
+		if err != nil {
+			return trackErrorMsg{err}
+		}
+		return controlDoneMsg{}
+	})
+}
+
 func (m Model) playPlaylistFromStart(contextURI string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
@@ -776,6 +795,9 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 		m.quitting = true
 		return tea.Quit
 	case CmdVolume:
+		if cmd.StrArg == "rel" {
+			cmd.IntArg = max(0, min(100, m.volume+cmd.IntArg))
+		}
 		m.startVolumeChange()
 		m.volume = cmd.IntArg
 		m.volumeGen++ // replies to earlier levels are now stale
@@ -794,6 +816,9 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 		})
 	case CmdShuffle:
 		m.shuffleOn = !m.shuffleOn
+		if cmd.StrArg != "" {
+			m.shuffleOn = cmd.StrArg == "on"
+		}
 		state := m.shuffleOn
 		label := "Shuffle on"
 		if !state {
@@ -819,10 +844,55 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 			return m.switchDevice(cmd.StrArg)
 		}
 		return m.fetchDevices()
+	case CmdControl:
+		switch cmd.StrArg {
+		case "play":
+			return m.controlCmd(src.Play)
+		case "pause":
+			return m.controlCmd(src.Pause)
+		case "next":
+			return m.controlCmd(src.Next)
+		case "prev":
+			return m.controlCmd(src.Previous)
+		}
+		if m.track != nil && m.track.Playing {
+			return m.controlCmd(src.Pause)
+		}
+		return m.controlCmd(src.Play)
+	case CmdSeek:
+		d := time.Duration(cmd.IntArg) * time.Second
+		switch {
+		case m.track == nil:
+			m.toast.Show("No track playing", "", ToastError)
+			return scheduleAutoDismiss()
+		case cmd.StrArg == "+":
+			return m.seekRelative(d)
+		case cmd.StrArg == "-":
+			return m.seekRelative(-d)
+		}
+		return m.seekTo(d)
+	case CmdLike:
+		if m.track == nil {
+			m.toast.Show("No track playing", "", ToastError)
+			return scheduleAutoDismiss()
+		}
+		if (cmd.StrArg == "on" && m.liked) || (cmd.StrArg == "off" && !m.liked) {
+			return nil // already so
+		}
+		return m.toggleLike(m.track.ID, m.liked)
+	case CmdMute:
+		nm, c, _ := m.toggleMute()
+		*m = nm
+		return c
+	case CmdHelp:
+		m.mode = ModeHelp
+		return nil
 	case CmdRecent:
+		m.mode = ModeNormal // it opens in the track list
 		m.pushNav()
 		return m.fetchRecentlyPlayed()
 	case CmdCollection:
+		m.mode = ModeNormal
 		return m.openCollection(cmd.StrArg)
 	case CmdNowPlaying:
 		return m.openNowPlaying(npView(cmd.IntArg))
@@ -882,6 +952,17 @@ func (m Model) openActions() (Model, tea.Cmd) {
 	if pl == nil {
 		m.toast.Show("No playlist selected", "", ToastError)
 		return m, scheduleAutoDismiss()
+	}
+	if isCollection(pl.ID) {
+		return m.openSidebarRow(*pl) // nothing to do to it but open it
+	}
+	if m.sidebar.Section() == SectionQueue {
+		// A queued track, not a playlist: the track's own menu.
+		popup := NewTrackActions(pl.Name, "", pl.URI, "", "", "", m.likedCache[pl.ID], m.width, m.height)
+		m.actions = &popup
+		m.actionsReturn = ModeNormal
+		m.mode = ModeActions
+		return m, m.checkLikeStatus(pl.ID)
 	}
 	popup := NewPlaylistActions(pl.Name, pl.URI, m.width, m.height)
 	m.actions = &popup
@@ -977,6 +1058,12 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 	case ActionPlayPlaylist:
 		if subj.uri != "" {
 			return m, m.playPlaylistFromStart(subj.uri)
+		}
+	case ActionShufflePlaylist:
+		if subj.uri != "" {
+			m.shuffleOn = true
+			m.modeHoldUntil = time.Now().Add(volumeHold)
+			return m, m.shufflePlay(subj.uri)
 		}
 	case ActionOpenPlaylistSpotify:
 		if subj.uri != "" {

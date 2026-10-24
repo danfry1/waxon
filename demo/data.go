@@ -31,14 +31,14 @@ const (
 
 func buildPlaylists() ([]source.Playlist, map[string][]source.Track, []source.Track) {
 	playlists := []source.Playlist{
-		{ID: "pl-liked", URI: "spotify:playlist:liked", Name: "Liked Songs", ImageURL: artPLLiked, TrackCount: 21},
+		{ID: "liked", URI: "spotify:collection:tracks", Name: "Liked Songs", ImageURL: artPLLiked, TrackCount: 21},
 		{ID: "pl-rock", URI: "spotify:playlist:rock", Name: "Classic Rock", ImageURL: artPLRock, TrackCount: 14, Editable: true},
 		{ID: "pl-coding", URI: "spotify:playlist:coding", Name: "Late Night Coding", ImageURL: artPLCoding, TrackCount: 13, Editable: true},
 		{ID: "pl-jazz", URI: "spotify:playlist:jazz", Name: "Jazz Essentials", ImageURL: artPLJazz, TrackCount: 8},
 	}
 
 	tracksByPL := map[string][]source.Track{
-		"pl-liked": {
+		"liked": {
 			track("t56", "Let It Happen", "Tame Impala", "Currents", artCurrents, "artist-ti", "album-currents", 7*time.Minute+46*time.Second),
 			track("t61", "Smells Like Teen Spirit", "Nirvana", "Nevermind", artNevermind, "artist-nv", "album-nevermind", 5*time.Minute+1*time.Second),
 			track("t60", "Get Lucky", "Daft Punk", "Random Access Memories", artRAM, "artist-dp", "album-ram", 6*time.Minute+9*time.Second),

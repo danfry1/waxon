@@ -38,9 +38,9 @@ Type "N"
 Sleep 3s
 
 # Vinyl: the record turns with the cover on its label
-Type "V"
+Type "v"
 Sleep 5s
-Type "V"
+Type "v"
 Sleep 500ms
 
 Escape

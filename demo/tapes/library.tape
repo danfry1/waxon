@@ -13,8 +13,14 @@ Enter
 Sleep 2s
 Show
 
-# Saved albums
-Type "ga"
+# Albums, under Albums · Artists · Podcasts in the Library
+Type "j"
+Sleep 600ms
+Enter
+Sleep 1s
+Type "j"
+Sleep 600ms
+Enter
 Sleep 1.5s
 
 # Browse, then open an album
@@ -35,8 +41,12 @@ Sleep 1.5s
 Escape
 Sleep 600ms
 
-# Followed artists, then open one
-Type "gA"
+# Artists, then open one
+Type "b"
+Sleep 600ms
+Type "j"
+Sleep 600ms
+Enter
 Sleep 1.5s
 Type "jjjjjjj"
 Sleep 600ms

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -110,5 +111,128 @@ func TestKeysProblemShown(t *testing.T) {
 	res, _ := m.Update(keysProblemMsg{m.opts.KeysProblem})
 	if mm := res.(Model); !mm.toast.Visible() || !strings.Contains(mm.toast.detail, "nxt") {
 		t.Errorf("toast %q / %q", mm.toast.message, mm.toast.detail)
+	}
+}
+
+// In the menu, a row's number or the main view's letter runs it at once.
+func TestMenuShortcuts(t *testing.T) {
+	queued := ""
+	stub := &StubSource{AddToQueueFn: func(_ context.Context, id string) error { queued = id; return nil }}
+	for _, k := range []string{"a", "4"} { // a: queue; 4: the fourth row, Add to Queue
+		queued = ""
+		m := newTestModel(stub)
+		m.tracklist.SetTracks([]source.Track{{ID: "t1", URI: "spotify:track:t1", Name: "Song"}}, "L", "")
+		m.focusPane = PaneTrackList
+		res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+		m = res.(Model)
+		if m.mode != ModeActions {
+			t.Fatalf("o didn't open the menu")
+		}
+		res, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		if cmd != nil {
+			cmd()
+		}
+		if queued != "t1" || res.(Model).mode == ModeActions {
+			t.Errorf("o %s: queued %q, mode %v", k, queued, res.(Model).mode)
+		}
+	}
+}
+
+// F likes the playing track, from the track list or Now Playing.
+func TestShiftFLikesPlaying(t *testing.T) {
+	for _, mode := range []Mode{ModeNormal, ModeNowPlaying} {
+		saved := ""
+		stub := &StubSource{SaveTrackFn: func(_ context.Context, id string) error { saved = id; return nil }}
+		m := newTestModel(stub)
+		m.mode = mode
+		m.track = &source.Track{ID: "playing", Name: "Now"}
+		m.tracklist.SetTracks([]source.Track{{ID: "sel"}}, "L", "")
+		m.focusPane = PaneTrackList
+		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("F")})
+		if cmd != nil {
+			cmd()
+		}
+		if saved != "playing" {
+			t.Errorf("mode %v: F liked %q, want the playing track", mode, saved)
+		}
+	}
+}
+
+// Search, devices, : and ? open from Now Playing and close back to it.
+func TestOverlaysFromNowPlayingReturnToIt(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.mode = ModeNowPlaying
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = res.(Model)
+	if m.mode != ModeSearch {
+		t.Fatalf("s from Now Playing: mode %v", m.mode)
+	}
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if got := res.(Model).mode; got != ModeNowPlaying {
+		t.Errorf("Esc from search went to %v, want Now Playing", got)
+	}
+}
+
+// m mutes, and m again brings the volume back.
+func TestMute(t *testing.T) {
+	var set []int
+	stub := &StubSource{SetVolumeFn: func(_ context.Context, v int) error { set = append(set, v); return nil }}
+	m := newTestModel(stub)
+	m.volume = 60
+	res, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	cmd()
+	res, cmd = res.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	cmd()
+	if len(set) != 2 || set[0] != 0 || set[1] != 60 {
+		t.Errorf("volumes set = %v, want [0 60]", set)
+	}
+	_ = res
+}
+
+// A count multiplies a seek: 6] is +30s.
+func TestCountedSeek(t *testing.T) {
+	var to time.Duration
+	stub := &StubSource{SeekFn: func(_ context.Context, d time.Duration) error { to = d; return nil }}
+	m := newTestModel(stub)
+	m.track = &source.Track{ID: "t", Position: time.Minute, Duration: 5 * time.Minute}
+	m.focusPane = PaneTrackList
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("6")})
+	_, cmd := res.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+	runCmdTree(cmd)
+	if to < time.Minute+29*time.Second || to > time.Minute+31*time.Second {
+		t.Errorf("6] seeked to %v, want about 1:30", to)
+	}
+}
+
+// Esc clears a filter left applied.
+func TestEscClearsFilter(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.tracklist.SetTracks([]source.Track{{ID: "1", Name: "a"}, {ID: "2", Name: "b"}}, "L", "")
+	m.focusPane = PaneTrackList
+	m.tracklist.SetFilter("a")
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	mm := res.(Model)
+	if got := mm.tracklist.FilterText(); got != "" {
+		t.Errorf("filter after Esc = %q", got)
+	}
+}
+
+// Tab in search moves to the results, where a queues the selected track
+// instead of typing into the query.
+func TestSearchTabActsOnResults(t *testing.T) {
+	queued := ""
+	stub := &StubSource{AddToQueueFn: func(_ context.Context, id string) error { queued = id; return nil }}
+	m := newTestModel(stub)
+	s := NewSearch(80, 24)
+	s.results = &source.SearchResults{Tracks: []source.Track{{ID: "r1", Name: "Hit"}}}
+	m.search, m.mode = &s, ModeSearch
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	res, cmd := res.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if cmd != nil {
+		runCmdTree(cmd)
+	}
+	mm := res.(Model)
+	if queued != "r1" || mm.search.input.Value() != "" {
+		t.Errorf("queued %q, query %q; want the result queued and nothing typed", queued, mm.search.input.Value())
 	}
 }

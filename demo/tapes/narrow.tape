@@ -23,7 +23,7 @@ Enter
 Sleep 1.5s
 Type "h"
 Sleep 1.2s
-Type "j"
+Type "jj"
 Sleep 500ms
 Enter
 Sleep 1.5s

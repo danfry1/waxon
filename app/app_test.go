@@ -45,9 +45,14 @@ func TestGTrackerFeed(t *testing.T) {
 			want: []GAction{GActionNone, GActionCurrent},
 		},
 		{
-			name: "gr produces GActionRecent",
-			keys: []string{"g", "r"},
-			want: []GAction{GActionNone, GActionRecent},
+			name: "ga produces GActionGoAlbum",
+			keys: []string{"g", "a"},
+			want: []GAction{GActionNone, GActionGoAlbum},
+		},
+		{
+			name: "gA produces GActionGoArtist",
+			keys: []string{"g", "A"},
+			want: []GAction{GActionNone, GActionGoArtist},
 		},
 		{
 			name: "unknown second key resets",
@@ -660,10 +665,11 @@ func TestParseCommandSearchNoArgs(t *testing.T) {
 	}
 }
 
+// A signed volume is a change, as in the CLI: vol -5 lowers it by 5.
 func TestParseCommandVolNegative(t *testing.T) {
-	_, err := ParseCommand("vol -5")
-	if err == nil {
-		t.Fatal("expected error for negative volume")
+	got, err := ParseCommand("vol -5")
+	if err != nil || got.IntArg != -5 || got.StrArg != "rel" {
+		t.Fatalf("vol -5 = %+v, %v; want a change of -5", got, err)
 	}
 }
 

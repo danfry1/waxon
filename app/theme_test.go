@@ -153,6 +153,10 @@ func TestKeyMapFromOverrides(t *testing.T) {
 	if _, err := KeyMapFromOverrides(map[string]string{"next": " , "}); err == nil {
 		t.Error("empty key list should error")
 	}
+	// A retired action says what replaced it, rather than "unknown".
+	if _, err := KeyMapFromOverrides(map[string]string{"section1": "1"}); err == nil || !strings.Contains(err.Error(), "gl") {
+		t.Errorf("retired action should point to its replacement, got %v", err)
+	}
 	if _, err := KeyMapFromOverrides(map[string]string{"next": ">", "prev": "<"}); err != nil {
 		t.Errorf("keys no one else uses shouldn't be reported: %v", err)
 	}

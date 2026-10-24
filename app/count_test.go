@@ -41,15 +41,6 @@ func TestCountMotions(t *testing.T) {
 	}
 }
 
-func TestDigitsSwitchSectionsFromSidebar(t *testing.T) {
-	m := countModel(5)
-	m.focusPane = PaneSidebar
-	m, _ = press(t, m, "2")
-	if m.sidebar.Section() != SectionQueue {
-		t.Error("2 from the sidebar should still open the queue")
-	}
-}
-
 func TestCountInVisualMode(t *testing.T) {
 	m := countModel(10)
 	m, _ = press(t, m, "v", "3", "j")

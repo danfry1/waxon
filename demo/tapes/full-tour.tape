@@ -67,12 +67,10 @@ Sleep 300ms
 Enter
 Sleep 2s
 
-# -- Browse to artist via actions (Play → Queue → Go to Artist) --
+# -- Browse to the artist from the actions menu: o, then 2 (Go to Artist) --
 Type "o"
 Sleep 800ms
-Type "jj"
-Sleep 300ms
-Enter
+Type "2"
 Sleep 2s
 
 # -- Browse Tame Impala discography, enter Currents --
