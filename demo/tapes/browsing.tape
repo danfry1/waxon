@@ -21,13 +21,11 @@ Sleep 500ms
 Type "o"
 Sleep 800ms
 
-# Go to Artist (3rd item: Play → Add to Queue → Go to Artist)
-Type "jj"
-Sleep 300ms
-Enter
+# Go to Artist: the menu's second row
+Type "2"
 Sleep 2s
 
-# Browse Tame Impala artist page — top tracks + discography
+# Browse Tame Impala artist page — Play / Shuffle, top tracks, discography
 Type "j"
 Sleep 400ms
 Type "j"

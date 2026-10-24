@@ -792,11 +792,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.pagination = nil
 		m.tracklist.SetTracks(msg.rows, msg.title, "")
+		m.tracklist.SetColumnTitles(collectionColumns[msg.id]...)
 		m.tracklist.SetHeaderInfo(msg.info)
 		m.tracklist.SetArt("")
 		if msg.notice != "" {
 			m.tracklist.SetNotice(msg.notice)
 		}
+		return m, m.fetchRowIcons()
+
+	case rowIconLoadedMsg:
+		m.tracklist.SetRowIcon(msg.url, msg.icon)
 		return m, nil
 
 	case tracksLoadedMsg:
@@ -986,9 +991,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pagination = nil
 			tracks := buildArtistTrackList(msg.page)
 			m.tracklist.SetTracks(tracks, msg.page.Name, "")
+			if len(msg.page.Tracks) == 0 {
+				m.tracklist.SetColumnTitles(artistPageColumns...) // releases, not tracks
+			}
 			m.tracklist.SetHeaderInfo(formatArtistInfo(msg.page))
-			if len(msg.page.Tracks) == 0 && len(tracks) > 1 {
-				// No top tracks: start on the first release, not its heading.
+			if len(msg.page.Tracks) == 0 && msg.page.ID == "" && len(tracks) > 1 {
+				// No top tracks or Play row: start on the first release, not
+				// its heading.
 				m.tracklist.GotoTop()
 				m.tracklist.MoveDown(1)
 			}
@@ -1000,7 +1009,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.track != nil {
 				m.tracklist.SetNowPlaying(m.track.ID)
 			}
-			jumpCmd := m.applyPendingJump()
+			jumpCmd := tea.Batch(m.applyPendingJump(), m.fetchRowIcons())
 			if msg.page.ImageURL != "" {
 				return m, tea.Batch(jumpCmd, m.fetchPlaylistArt(msg.page.ImageURL))
 			}

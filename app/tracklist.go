@@ -27,7 +27,13 @@ type TrackList struct {
 	// while something that isn't a playlist loads, "" when nothing was asked.
 	want string
 
-	table       table.Model
+	table table.Model
+	// colTitles replaces the column headers for a view that isn't a track
+	// list (an artist's releases, saved albums); nil is the default.
+	colTitles []string
+	// rowIcons are the covers of album, artist and show rows, by image URL,
+	// drawn into their (otherwise empty) leading cells.
+	rowIcons    map[string]string
 	tracks      []source.Track
 	filtered    []source.Track // subset visible after filter; nil means no filter active
 	filteredIdx []int          // index into tracks for each filtered row
@@ -216,6 +222,10 @@ func (tl *TrackList) SetTracks(tracks []source.Track, title, contextURI string) 
 	tl.headerInfo = ""
 	tl.notice = ""
 	tl.contextURI = contextURI
+	if tl.colTitles != nil {
+		tl.colTitles = nil // a new view starts with the track headers
+		tl.table.SetColumns(tl.columns())
+	}
 
 	// Re-apply active filter when tracks are refreshed
 	if tl.filterText != "" {
@@ -259,19 +269,16 @@ func (tl *TrackList) rebuildRows() {
 			} else {
 				// Section divider: ─── ALBUMS ─────────────
 				label := " " + strings.ToUpper(t.Name) + " "
+				if t.Artist != "" {
+					label = " " + strings.ToUpper(t.Name) + " · " + t.Artist + " "
+				}
 				colW := tl.columnWidth(2)
-				rightPad := colW - 4 - len(label) // 4 for left dashes
+				rightPad := colW - 4 - ansi.StringWidth(label) // 4 for left dashes
 				if rightPad < 3 {
 					rightPad = 3
 				}
 				divider := strings.Repeat("─", 4) + label + strings.Repeat("─", rightPad)
-				rows[i] = table.Row{
-					" ",
-					"",
-					divider,
-					t.Artist,
-					"",
-				}
+				rows[i] = table.Row{" ", "", divider, "", ""}
 			}
 		} else if t.IsAlbumRow {
 			// Album row — no prefix, album name, year in duration col
@@ -413,12 +420,34 @@ func (tl *TrackList) VisualSelection() ([]source.Track, []int) {
 // MoveUp moves the selection up by n rows.
 func (tl *TrackList) MoveUp(n int) {
 	tl.cursor -= n
+	tl.skipSeparators(-1)
 	tl.syncViewport()
+}
+
+// skipSeparators moves the cursor off section lines and blank rows, which
+// there's nothing to do on: on in the direction it was moving (dir), or
+// back the other way at the end of the list.
+func (tl *TrackList) skipSeparators(dir int) {
+	display := tl.displayTracks()
+	n := len(display)
+	if n == 0 {
+		return
+	}
+	tl.cursor = clampInt(tl.cursor, 0, n-1)
+	for _, d := range []int{dir, -dir} {
+		for i := tl.cursor; i >= 0 && i < n; i += d {
+			if !display[i].IsSeparator {
+				tl.cursor = i
+				return
+			}
+		}
+	}
 }
 
 // MoveDown moves the selection down by n rows.
 func (tl *TrackList) MoveDown(n int) {
 	tl.cursor += n
+	tl.skipSeparators(1)
 	tl.syncViewport()
 }
 
@@ -594,11 +623,80 @@ func (tl *TrackList) tableHeight() int {
 	return max(3, tl.height-extra)
 }
 
+// columns is trackColumns for this pane, with the view's own headers.
+func (tl *TrackList) columns() []table.Column {
+	cols := trackColumns(tl.width)
+	for i, title := range tl.colTitles {
+		if i < len(cols) {
+			cols[i].Title = title
+		}
+	}
+	return cols
+}
+
+// SetColumnTitles names the columns for the view being shown (until the
+// next SetTracks); a title per column, marker first.
+func (tl *TrackList) SetColumnTitles(titles ...string) {
+	tl.colTitles = titles
+	tl.table.SetColumns(tl.columns())
+}
+
+// SetRowIcon sets the cover drawn on rows whose image is url.
+func (tl *TrackList) SetRowIcon(url, icon string) {
+	if tl.rowIcons == nil {
+		tl.rowIcons = map[string]string{}
+	}
+	tl.rowIcons[url] = icon
+}
+
+// RowIconURLs are the images of the rows shown that have no cover yet.
+func (tl *TrackList) RowIconURLs() []string {
+	var urls []string
+	seen := map[string]bool{}
+	for _, t := range tl.tracks {
+		if u := t.ArtworkURL; t.IsAlbumRow && u != "" && !seen[u] && tl.rowIcons[u] == "" {
+			seen[u] = true
+			urls = append(urls, u)
+		}
+	}
+	return urls
+}
+
+// rowIconCol is where a row's cover starts: past the marker column, in the
+// number column that album rows leave empty.
+const rowIconCol = colMarkerW + tableCellPadding
+
+// withRowIcons draws the visible rows' covers into the rendered table.
+// They're laid in after rendering because the table measures cells without
+// knowing about colour codes, and would cut a coloured cell short.
+func (tl TrackList) withRowIcons(table string) string {
+	if len(tl.rowIcons) == 0 || tl.columnWidth(1) == 0 {
+		return table // no number column to draw them in (narrow pane)
+	}
+	lines := strings.Split(table, "\n")
+	display := tl.displayTracks()
+	first := len(lines) - tl.table.Height() // the rows area follows the header
+	for i := range tl.table.Rows() {
+		li, di := first+i, tl.offset+i
+		if li < 0 || li >= len(lines) || di >= len(display) {
+			continue
+		}
+		t := display[di]
+		icon := tl.rowIcons[t.ArtworkURL]
+		if !t.IsAlbumRow || icon == "" {
+			continue
+		}
+		w := ansi.StringWidth(icon)
+		lines[li] = ansi.Truncate(lines[li], rowIconCol, "") + icon + ansi.TruncateLeft(lines[li], rowIconCol+w, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (tl *TrackList) Resize(width, height int) {
 	tl.width = width
 	tl.height = height
 	tl.table.SetHeight(tl.tableHeight())
-	tl.table.SetColumns(trackColumns(width))
+	tl.table.SetColumns(tl.columns())
 	// Re-render rows with new widths (also re-windows via syncViewport).
 	if len(tl.tracks) > 0 {
 		tl.rebuildRows()
@@ -671,7 +769,7 @@ func (tl TrackList) View(active bool) string {
 	} else if tl.HasNotice() {
 		content = header + "\n\n" + StyleDimText.PaddingLeft(2).Width(max(1, tl.width-4)).Render(tl.notice)
 	} else {
-		content = header + "\n" + tl.table.View()
+		content = header + "\n" + tl.withRowIcons(tl.table.View())
 	}
 
 	return border.
@@ -939,8 +1037,24 @@ func formatArtistInfo(page *source.ArtistPage) string {
 	return strings.Join(parts, " · ")
 }
 
+// The Play and Shuffle rows at the top of an artist page.
+const (
+	playArtistRowID    = "artist:play"
+	shuffleArtistRowID = "artist:shuffle"
+)
+
 func buildArtistTrackList(page *source.ArtistPage) []source.Track {
-	tracks := append([]source.Track{}, page.Tracks...)
+	var tracks []source.Track
+	if page.ID != "" {
+		// Spotify won't list an artist's top tracks to most apps, so a page
+		// could have nothing to play: these play the artist on Spotify.
+		uri := "spotify:artist:" + page.ID
+		tracks = append(tracks,
+			source.Track{ID: playArtistRowID, URI: uri, Name: "▶  Play " + page.Name, IsAlbumRow: true},
+			source.Track{ID: shuffleArtistRowID, URI: uri, Name: "⇄  Shuffle", IsAlbumRow: true},
+		)
+	}
+	tracks = append(tracks, page.Tracks...)
 
 	var albums, singles []source.ArtistAlbum
 	for _, a := range page.Albums {
@@ -962,7 +1076,7 @@ func buildArtistTrackList(page *source.ArtistPage) []source.Track {
 		gap()
 		tracks = append(tracks, source.Track{
 			Name:        "Albums",
-			Artist:      fmt.Sprintf("%d %s", len(albums), pluralize(len(albums), "album", "albums")),
+			Artist:      strconv.Itoa(len(albums)),
 			IsSeparator: true,
 		})
 		for _, album := range albums {
@@ -970,6 +1084,7 @@ func buildArtistTrackList(page *source.ArtistPage) []source.Track {
 				Name:       album.Name,
 				Artist:     album.Year,
 				AlbumID:    album.ID,
+				ArtworkURL: album.ImageURL,
 				IsAlbumRow: true,
 			})
 		}
@@ -979,7 +1094,7 @@ func buildArtistTrackList(page *source.ArtistPage) []source.Track {
 		gap()
 		tracks = append(tracks, source.Track{
 			Name:        "Singles & EPs",
-			Artist:      fmt.Sprintf("%d %s", len(singles), pluralize(len(singles), "single", "singles")),
+			Artist:      strconv.Itoa(len(singles)),
 			IsSeparator: true,
 		})
 		for _, single := range singles {
@@ -987,6 +1102,7 @@ func buildArtistTrackList(page *source.ArtistPage) []source.Track {
 				Name:       single.Name,
 				Artist:     single.Year,
 				AlbumID:    single.ID,
+				ArtworkURL: single.ImageURL,
 				IsAlbumRow: true,
 			})
 		}

@@ -92,6 +92,7 @@ type ArtistAlbum struct {
 
 // ArtistPage holds data for the artist detail view.
 type ArtistPage struct {
+	ID       string
 	Name     string
 	ImageURL string
 	Genres   []string

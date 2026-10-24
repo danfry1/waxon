@@ -535,6 +535,7 @@ func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.
 	imageURL := pickImageURL(artist.Images, thumbArtMinPx)
 
 	return &source.ArtistPage{
+		ID:       artistID,
 		Name:     artist.Name,
 		ImageURL: imageURL,
 		Genres:   artist.Genres,
