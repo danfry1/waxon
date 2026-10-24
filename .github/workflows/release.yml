@@ -77,11 +77,12 @@ jobs:
             gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
 
-  # Bump the source-built formula in danfry1/homebrew-tap to this tag. The
-  # formula builds from GitHub's source archive for the tag, so only the URL and
-  # that archive's sha256 change. The tap push uses a short-lived App token.
+  # Open a pull request on danfry1/homebrew-tap that points waxon.rb at this
+  # tag's source archive. The tap's CI builds and tests bottles on that pull
+  # request; publishing them is a manual `brew pr-pull` run in the tap. The
+  # push and the pull request use a short-lived App token scoped to the tap.
   homebrew-formula:
-    name: Bump Homebrew formula
+    name: Open Homebrew formula PR
     needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -108,36 +109,60 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
+          FORMULA: waxon
         run: |
           set -euo pipefail
           url="https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz"
           sha=$(curl --fail --silent --show-error --location --retry 3 "$url" | sha256sum | cut -d' ' -f1)
-          formula=tap/waxon.rb
+          file="tap/${FORMULA}.rb"
+          # Drop the bottle block: its bottles belong to the old version. Publishing
+          # the tap pull request (brew pr-pull) writes a new block; if the PR is
+          # merged without publishing, the formula builds from source instead of
+          # pointing at bottles that do not exist.
           sed -i -E \
             -e "s#^  url \"[^\"]*\"#  url \"${url}\"#" \
             -e "s#^  sha256 \"[0-9a-f]*\"#  sha256 \"${sha}\"#" \
-            "$formula"
-          grep -qF "url \"${url}\"" "$formula"
-          grep -qF "sha256 \"${sha}\"" "$formula"
-          cat "$formula"
+            -e '/^  bottle do$/,/^  end$/d' \
+            "$file"
+          # Removing the block leaves two blank lines; brew style allows one.
+          cat -s "$file" > "$file.new" && mv "$file.new" "$file"
+          grep -qF "url \"${url}\"" "$file"
+          grep -qF "sha256 \"${sha}\"" "$file"
+          ! grep -q '^  bottle do$' "$file"
+          cat "$file"
 
-      - name: Commit and push as the App bot
+      - name: Push a branch and open the pull request
         env:
           TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          FORMULA: waxon
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
           set -euo pipefail
           cd tap
           if git diff --quiet; then
-            echo "Formula already up to date; nothing to commit."
+            echo "Formula already points at ${TAG}; nothing to do."
             exit 0
           fi
+          version="${TAG#v}"
+          branch="${FORMULA}-${version}"
           bot_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
           git config user.name "${APP_SLUG}[bot]"
           git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
-          git commit -am "waxon ${TAG#v}"
-          git push
+          git switch -c "$branch"
+          git commit -am "${FORMULA} ${version}"
+          # A re-run replaces the bot's own branch; main is never force-pushed.
+          git push --force origin "$branch"
+          if [ -n "$(gh pr list --repo danfry1/homebrew-tap --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "Pull request for ${branch} already open; branch updated."
+            exit 0
+          fi
+          head_sha=$(git rev-parse HEAD)
+          pr_url=$(gh pr create --repo danfry1/homebrew-tap --base main --head "$branch" \
+            --title "${FORMULA} ${version}" \
+            --body "Points \`${FORMULA}.rb\` at the ${TAG} source archive, opened by the ${REPO} release workflow. Publish the bottles once CI is green (do not use the merge button).")
+          gh pr comment "$pr_url" --body "Publish: \`gh workflow run publish.yml -R danfry1/homebrew-tap -f pull_request=${pr_url##*/} -f head_sha=${head_sha}\`"
 
   # Runs after every asset is on the release, in the same run that built them, and
   # signs build provenance for the published files. Kept separate from the build and
