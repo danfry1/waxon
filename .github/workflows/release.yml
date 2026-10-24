@@ -115,12 +115,20 @@ jobs:
           url="https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz"
           sha=$(curl --fail --silent --show-error --location --retry 3 "$url" | sha256sum | cut -d' ' -f1)
           file="tap/${FORMULA}.rb"
+          # Drop the bottle block: its bottles belong to the old version. Publishing
+          # the tap pull request (brew pr-pull) writes a new block; if the PR is
+          # merged without publishing, the formula builds from source instead of
+          # pointing at bottles that do not exist.
           sed -i -E \
             -e "s#^  url \"[^\"]*\"#  url \"${url}\"#" \
             -e "s#^  sha256 \"[0-9a-f]*\"#  sha256 \"${sha}\"#" \
+            -e '/^  bottle do$/,/^  end$/d' \
             "$file"
+          # Removing the block leaves two blank lines; brew style allows one.
+          cat -s "$file" > "$file.new" && mv "$file.new" "$file"
           grep -qF "url \"${url}\"" "$file"
           grep -qF "sha256 \"${sha}\"" "$file"
+          ! grep -q '^  bottle do$' "$file"
           cat "$file"
 
       - name: Push a branch and open the pull request
@@ -150,9 +158,11 @@ jobs:
             echo "Pull request for ${branch} already open; branch updated."
             exit 0
           fi
-          gh pr create --repo danfry1/homebrew-tap --base main --head "$branch" \
+          head_sha=$(git rev-parse HEAD)
+          pr_url=$(gh pr create --repo danfry1/homebrew-tap --base main --head "$branch" \
             --title "${FORMULA} ${version}" \
-            --body "Points \`${FORMULA}.rb\` at the ${TAG} source archive, opened by the ${REPO} release workflow. Publish the bottles after CI passes: \`gh workflow run publish.yml -R danfry1/homebrew-tap -f pull_request=<this PR>\`."
+            --body "Points \`${FORMULA}.rb\` at the ${TAG} source archive, opened by the ${REPO} release workflow. Publish the bottles once CI is green (do not use the merge button).")
+          gh pr comment "$pr_url" --body "Publish: \`gh workflow run publish.yml -R danfry1/homebrew-tap -f pull_request=${pr_url##*/} -f head_sha=${head_sha}\`"
 
   # Runs after every asset is on the release, in the same run that built them, and
   # signs build provenance for the published files. Kept separate from the build and
