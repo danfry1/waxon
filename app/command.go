@@ -20,6 +20,7 @@ const (
 	CmdCollection // StrArg: collection ID (saved albums, followed artists, podcasts)
 	CmdTheme
 	CmdNewPlaylist
+	CmdNowPlaying // IntArg: the npView to open on
 )
 
 // commandHelp is the user-facing list of : commands shown in the help overlay.
@@ -34,6 +35,8 @@ var commandHelp = []helpBinding{
 	{":albums", "saved albums"},
 	{":artists", "followed artists"},
 	{":podcasts", "podcasts"},
+	{":lyrics", "now playing: lyrics"},
+	{":vinyl", "now playing: vinyl"},
 	{":theme NAME", "switch colour theme"},
 	{":playlist new NAME", "create a playlist"},
 	{":q", "quit"},
@@ -106,6 +109,11 @@ func ParseCommand(input string) (Command, error) {
 		return Command{Type: CmdCollection, StrArg: collectionArtistsID}, nil
 	case "podcasts", "shows":
 		return Command{Type: CmdCollection, StrArg: collectionPodcastsID}, nil
+
+	case "lyrics":
+		return Command{Type: CmdNowPlaying, IntArg: int(npViewLyrics)}, nil
+	case "vinyl":
+		return Command{Type: CmdNowPlaying, IntArg: int(npViewVinyl)}, nil
 
 	case "playlist", "pl":
 		if len(args) >= 2 && args[0] == "new" {

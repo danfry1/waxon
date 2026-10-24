@@ -19,6 +19,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Changed
 
+- Now Playing reopens the way you left it: on the lyrics, the vinyl or the
+  cover. `:lyrics` and `:vinyl` open it straight on those.
 - waxon starts faster: the library and the first page of Liked Songs are
   drawn from a local copy saved on the previous run, then refreshed from
   Spotify in the background. The copy lives in waxon's cache directory and is
