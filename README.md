@@ -148,7 +148,7 @@ Full-screen album art rendered with Unicode half-blocks, gradient backgrounds, a
 
 ### Synced Lyrics
 
-Press `l` in Now Playing for time-synced lyrics (via [lrclib](https://lrclib.net) — no account, no API key, nothing to set up). The current line lights up and the rest gently fade as the song plays.
+Press `l` in Now Playing (or run `:lyrics` from anywhere) for time-synced lyrics (via [lrclib](https://lrclib.net) — no account, no API key, nothing to set up). The current line lights up and the rest gently fade as the song plays.
 
 <p align="center">
   <img src="demo/recordings/lyrics.gif" alt="time-synced lyrics" width="800">
@@ -301,6 +301,8 @@ Enter command mode by pressing `:`, then type a command.
 | `:albums`               | Saved albums         |
 | `:artists`              | Followed artists     |
 | `:podcasts`             | Podcasts             |
+| `:lyrics`               | Now Playing, on the synced lyrics |
+| `:vinyl`                | Now Playing, in vinyl mode |
 | `:theme <name>`         | Switch colour theme (saved to config) |
 | `:playlist new <name>`  | Create a playlist    |
 | `:q`                    | Quit                 |

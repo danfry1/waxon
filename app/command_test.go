@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/danfry1/waxon/source"
+)
 
 func TestParseCommand(t *testing.T) {
 	tests := []struct {
@@ -61,5 +65,35 @@ func TestParseCommandErrors(t *testing.T) {
 				t.Fatalf("ParseCommand(%q) expected error", input)
 			}
 		})
+	}
+}
+
+func TestNowPlayingCommandsOpenView(t *testing.T) {
+	for _, tc := range []struct {
+		input         string
+		lyrics, vinyl bool
+	}{
+		{"lyrics", true, false},
+		{"vinyl", false, true},
+	} {
+		m := newTestModel(&StubSource{})
+		m.track = &source.Track{ID: "t1", Name: "Song"}
+		m.lyricsView, m.vinylMode = !tc.lyrics, !tc.vinyl // the other view was last open
+		m.executeCommand(tc.input)
+		if m.mode != ModeNowPlaying || m.lyricsView != tc.lyrics || m.vinylMode != tc.vinyl {
+			t.Errorf(":%s → mode=%v lyrics=%v vinyl=%v", tc.input, m.mode, m.lyricsView, m.vinylMode)
+		}
+	}
+}
+
+func TestNowPlayingReopensAsLeft(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.track = &source.Track{ID: "t1", Name: "Song"}
+	for _, k := range []string{"N", "l", "N", "N"} { // open, lyrics, close, reopen
+		res, _ := m.Update(runeKey(k))
+		m = res.(Model)
+	}
+	if m.mode != ModeNowPlaying || !m.lyricsView {
+		t.Errorf("reopening Now Playing should show the lyrics again; mode=%v lyrics=%v", m.mode, m.lyricsView)
 	}
 }

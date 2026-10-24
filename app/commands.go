@@ -744,6 +744,8 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 		return m.fetchRecentlyPlayed()
 	case CmdCollection:
 		return m.openCollection(cmd.StrArg)
+	case CmdNowPlaying:
+		return m.openNowPlaying(npView(cmd.IntArg))
 	case CmdTheme:
 		return m.setTheme(cmd.StrArg)
 	case CmdNewPlaylist:
