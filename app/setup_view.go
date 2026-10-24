@@ -99,11 +99,14 @@ func (s *Setup) stepContent(width int) (title, body, keys string) {
 			"enter start · q quit"
 
 	case stepChooseApp:
-		return "Connect Spotify",
-			dim.Render("waxon talks to Spotify through a Spotify \"app\". Pick one:") + "\n\n" +
-				s.choice(0, "Your own app", "recommended · about 2 minutes", "No rate limits. Spotify blocks one thing for personal apps: an artist's top tracks.", width) + "\n\n" +
-				s.choice(1, "The shared app", "zero setup", "Works now, but Spotify throttles it for everyone at once, so expect occasional pauses.", width),
-			"↑↓ choose · enter continue · esc back"
+		return "How should waxon connect?",
+			dim.Render("Spotify needs a developer \"app\" (a free API key) before anything can talk to it.") + "\n\n" +
+				s.card(0, "Your own app", "Recommended",
+					"About 2 minutes: waxon shows every click. No rate limits, so no pauses.", width) + "\n" +
+				s.card(1, "waxon's shared app", "Zero setup",
+					"Works straight away, but Spotify throttles it for every waxon user at once, so expect occasional pauses.", width) + "\n\n" +
+				dim.Render("Not sure? Pick your own app. You can switch later with waxon auth."),
+			"1 / 2 or ↑↓ choose · enter continue · esc back"
 
 	case stepOwnApp:
 		redirect := ""
@@ -117,6 +120,7 @@ func (s *Setup) stepContent(width int) (title, body, keys string) {
 			"Tick Web API, then Save",
 			"Open the app's Settings and copy its Client ID",
 		}
+		caveat := "Spotify blocks one thing for personal apps: an artist's top tracks (artist pages still list their albums)."
 		var b strings.Builder
 		num := lipgloss.NewStyle().Foreground(ColorAccent).Width(3)
 		item := lipgloss.NewStyle().Foreground(ColorText).Width(width - 3)
@@ -124,6 +128,7 @@ func (s *Setup) stepContent(width int) (title, body, keys string) {
 			b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, num.Render(strconv.Itoa(i+1)+"."), item.Render(st)) + "\n")
 		}
 		b.WriteString("\n" + s.inputLine("Client ID", s.clientIDStatus(), width))
+		b.WriteString("\n\n" + dim.Render(caveat))
 		return "Create your Spotify app", b.String(),
 			"enter continue · ctrl+o open dashboard · ctrl+y copy redirect URI · esc back"
 
@@ -171,11 +176,12 @@ func (s *Setup) stepContent(width int) (title, body, keys string) {
 			found := StyleDimText.Render("Found on your account: ") + lipgloss.NewStyle().Foreground(ColorText).Render(strings.Join(names, " · "))
 			b.WriteString(lipgloss.NewStyle().Width(width).Render(found) + "\n\n")
 		}
-		b.WriteString(s.choice(0, "Your Spotify apps", "nothing to install",
-			"Play on your phone, desktop app or speakers. waxon is the remote.", width) + "\n\n")
-		b.WriteString(s.choice(1, "Right here in waxon", s.playerStatus(),
-			"No Spotify app needed: waxon plays through librespot, an open-source Spotify Connect client. It's unofficial and signs in as the Spotify desktop app; its login stays on this computer.", width))
-		return "Where should music play?", b.String(), "↑↓ choose · enter continue · s skip"
+		b.WriteString(s.card(0, "Your Spotify apps", "Nothing to install",
+			"Your phone, the desktop app or a speaker plays; waxon is the remote.", width) + "\n")
+		b.WriteString(s.card(1, "Right here in waxon", s.playerStatus(),
+			"No Spotify app needed. Uses librespot, an open-source player that signs in as the Spotify desktop app (unofficial); its login stays on this computer.", width) + "\n\n")
+		b.WriteString(dim.Render("Not sure? Start with your Spotify apps. Press D in waxon to add this any time."))
+		return "Where should music play?", b.String(), "1 / 2 or ↑↓ choose · enter continue"
 
 	case stepInstall:
 		args, manager, command := s.deps.Player.Installer()
@@ -228,14 +234,36 @@ func (s *Setup) stepContent(width int) (title, body, keys string) {
 	return "", "", ""
 }
 
-// choice renders one selectable option with its tag and description.
-func (s *Setup) choice(i int, name, tag, desc string, width int) string {
-	marker, nameStyle := "  ", lipgloss.NewStyle().Foreground(ColorTextSec).Bold(true)
-	if s.cursor == i {
-		marker, nameStyle = lipgloss.NewStyle().Foreground(ColorAccent).Render("▸ "), lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+// card renders option i as a bordered box: its number key, name and badge,
+// then a description. The highlighted one gets the accent border.
+func (s *Setup) card(i int, name, badge, desc string, width int) string {
+	selected := s.cursor == i
+	border, numStyle := ColorBorder, StyleDimText
+	nameStyle := lipgloss.NewStyle().Foreground(ColorTextSec).Bold(true)
+	badgeStyle := StyleDimText
+	descStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	if selected {
+		border = ColorAccent
+		numStyle = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+		nameStyle = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+		badgeStyle = lipgloss.NewStyle().Foreground(ColorAccent)
+		descStyle = lipgloss.NewStyle().Foreground(ColorText)
 	}
-	head := marker + nameStyle.Render(name) + StyleDimText.Render("  "+tag)
-	return head + "\n" + lipgloss.NewStyle().Foreground(ColorTextSec).Width(width-2).PaddingLeft(2).Render(desc)
+	inner := width - 4 // border and padding
+	head := numStyle.Render(strconv.Itoa(i+1)) + "  " + nameStyle.Render(name)
+	tag := badgeStyle.Render(badge)
+	if gap := inner - lipgloss.Width(head) - lipgloss.Width(tag); gap >= 2 {
+		head += strings.Repeat(" ", gap) + tag
+	} else {
+		head += "\n   " + tag
+	}
+	body := descStyle.Width(inner - 3).PaddingLeft(3).Render(desc)
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(border).
+		Padding(0, 1).
+		Width(width - 2).
+		Render(head + "\n" + body)
 }
 
 func (s *Setup) inputLine(label, status string, width int) string {
@@ -265,14 +293,10 @@ func (s *Setup) openedNote() string {
 	return " (opened in your browser)"
 }
 
-// playerStatus is the built-in player option's tag.
+// playerStatus is the built-in player option's badge.
 func (s *Setup) playerStatus() string {
 	if s.deps.Player.Installed() {
-		return "librespot installed ✓"
+		return "librespot ready"
 	}
-	_, manager, _ := s.deps.Player.Installer()
-	if manager == "" {
-		return "needs librespot"
-	}
-	return "installs librespot with " + manager
+	return "Installs librespot"
 }

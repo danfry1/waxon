@@ -369,6 +369,12 @@ func (s *Setup) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return s.handleInputKey(msg)
 	}
 
+	// On the two choice steps, a number picks that option and continues.
+	if k := msg.String(); (k == "1" || k == "2") && (s.step == stepChooseApp || s.step == stepPlayback) {
+		s.cursor = int(k[0] - '1')
+		msg = tea.KeyMsg{Type: tea.KeyEnter}
+	}
+
 	switch s.step {
 	case stepWelcome:
 		switch msg.String() {

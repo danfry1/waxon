@@ -198,7 +198,7 @@ func TestSetupSharedAppToYourDevices(t *testing.T) {
 	h.devices = []source.Device{{Name: "Phone"}, {Name: "Laptop"}}
 	h.key("enter") // welcome
 	h.wantStep(stepChooseApp)
-	h.key("j", "enter") // the shared app
+	h.key("2") // the shared app
 	h.wantStep(stepPlayback)
 	if len(h.begun) != 1 || h.begun[0] != sharedTestID {
 		t.Fatalf("sign-in started with %v, want the shared ID", h.begun)
@@ -486,4 +486,16 @@ func TestSetupConnectedEvenIfLeftAtPlayback(t *testing.T) {
 	if !h.s.Connected() || h.s.Finished() {
 		t.Errorf("connected=%v finished=%v; the account was saved before quitting", h.s.Connected(), h.s.Finished())
 	}
+}
+
+func TestSetupNumberKeysPickAndContinue(t *testing.T) {
+	h := newSetupHarness(t, SetupFull, nil)
+	h.key("enter")
+	h.key("2") // the shared app, straight to sign-in
+	h.wantStep(stepPlayback)
+	if h.begun[0] != sharedTestID {
+		t.Errorf("2 should pick the shared app, began %v", h.begun)
+	}
+	h.key("1") // your Spotify apps
+	h.wantStep(stepDone)
 }
