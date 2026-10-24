@@ -78,8 +78,7 @@ homebrew_casks:
       end
 
 # Windows: Scoop manifest in danfry1/scoop-bucket. The token is minted per run
-# from a GitHub App by the release workflow; when it isn't configured the
-# upload is skipped rather than failing the release.
+# from a GitHub App by the release workflow.
 scoops:
   - repository:
       owner: danfry1
@@ -89,8 +88,6 @@ scoops:
     homepage: https://github.com/danfry1/waxon
     description: A vim-modal Spotify client for the terminal
     license: GPL-3.0
-    # The workflow always sets the variable (empty when the App isn't configured).
-    skip_upload: "{{ if .Env.SCOOP_BUCKET_GITHUB_TOKEN }}false{{ else }}true{{ end }}"
 
 checksum:
   name_template: "checksums.txt"
