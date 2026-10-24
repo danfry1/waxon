@@ -65,12 +65,12 @@ func TestVinylHeldWhileBlurred(t *testing.T) {
 
 func TestVinylFrameMemoised(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
-	vinylFrame(img, 0.5, 8, 4, nil)
+	vinylFrame(img, 0.5, 0, 8, 4, nil, rgb{})
 	vinylMemo.out = "sentinel"
-	if b := vinylFrame(img, 0.5, 8, 4, nil); b != "sentinel" {
+	if b := vinylFrame(img, 0.5, 0, 8, 4, nil, rgb{}); b != "sentinel" {
 		t.Error("same inputs should reuse the memoised frame")
 	}
-	if c := vinylFrame(img, 0.6, 8, 4, nil); c == "sentinel" || c == "" {
+	if c := vinylFrame(img, 0.6, 0, 8, 4, nil, rgb{}); c == "sentinel" || c == "" {
 		t.Error("a new angle should re-render")
 	}
 }
