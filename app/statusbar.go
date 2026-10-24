@@ -14,33 +14,44 @@ type StatusBar struct {
 	width      int
 	visualHint string // selection summary shown in VISUAL mode
 	pending    string // count prefix being typed (vim's showcmd)
-	volumeLook volumeLook
+	volume     volumeShow
 }
 
-// volumeLook is how the volume is drawn: dimmed from a press until Spotify
-// accepts the level, then a short pulse (bright, then accent) as it lands.
-type volumeLook int
+// volumeShow is how the volume is drawn. While a change is in flight the
+// level Spotify has accepted so far is drawn solidly and the rest of the
+// way to the new level dimly; once the last level lands it glows faintly in
+// the accent, fading out over volumeFadeSteps. Tapping again never re-dims
+// what has landed or cuts a glow short, so rapid presses look steady.
+type volumeShow struct {
+	level    int // the level shown (the newest one set)
+	accepted int // the level Spotify has accepted
+	pending  bool
+	glow     int // fade steps left
+}
 
 const (
-	volumeSteady volumeLook = iota
-	volumePending
-	volumeAccent
-	volumeBright
+	volumeFadeSteps = 6
+	// volumePulseStep is how long each step of the fade shows.
+	volumePulseStep = 70 * time.Millisecond
+	// volumeGlowPeak is how far towards the accent the glow starts: a hint
+	// of it, not a flash.
+	volumeGlowPeak = 0.7
 )
 
-// volumePulseStep is how long each step of the pulse shows.
-const volumePulseStep = 180 * time.Millisecond
+// tint is the glow's accent blended over from.
+func (v volumeShow) tint(from lipgloss.Color) lipgloss.Color {
+	return blendColor(from, ColorAccent, volumeGlowPeak*float64(v.glow)/volumeFadeSteps)
+}
 
-// volumeText renders "♪ N%" in the current look; steady uses base.
+// volumeText renders "♪ N%": faint while a change is in flight, tinted by
+// the glow after, otherwise in base.
 func (s StatusBar) volumeText(volume int, base lipgloss.Style) string {
 	text := fmt.Sprintf("♪ %d%%", volume)
-	switch s.volumeLook {
-	case volumePending:
+	switch v := s.volume; {
+	case v.pending:
 		return lipgloss.NewStyle().Foreground(ColorTextDim).Faint(true).Render(text)
-	case volumeAccent:
-		return lipgloss.NewStyle().Foreground(ColorAccent).Render(text)
-	case volumeBright:
-		return lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(text)
+	case v.glow > 0:
+		return lipgloss.NewStyle().Foreground(v.tint(ColorTextDim)).Render(text)
 	}
 	return base.Render(text)
 }

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -18,8 +19,10 @@ const (
 	ToastInfo
 )
 
-// clearToastMsg dismisses the current toast.
-type clearToastMsg struct{}
+// clearToastMsg dismisses the toast if it has been up for toastDuration
+// (at is when the timer fired; zero dismisses it now). A timer left over
+// from an earlier toast doesn't cut a newer one short.
+type clearToastMsg struct{ at time.Time }
 
 const toastDuration = 3 * time.Second
 
@@ -29,6 +32,11 @@ type Toast struct {
 	detail    string
 	toastType ToastType
 	visible   bool
+	shownAt   time.Time
+	// meter makes this the volume toast, drawn from volume (set by the
+	// model each frame).
+	meter  bool
+	volume volumeShow
 }
 
 // Show makes the toast visible with the given content.
@@ -48,6 +56,20 @@ func (t *Toast) Show(message, detail string, tt ToastType) {
 	t.detail = detail
 	t.toastType = tt
 	t.visible = true
+	t.meter = false
+	t.shownAt = time.Now()
+}
+
+// ShowVolume shows (or keeps up) the volume meter.
+func (t *Toast) ShowVolume() {
+	t.message, t.detail, t.toastType = "Volume", "", ToastInfo
+	t.visible, t.meter, t.shownAt = true, true, time.Now()
+}
+
+// Expired reports whether a dismiss timer that fired at at should hide the
+// toast.
+func (t Toast) Expired(at time.Time) bool {
+	return at.IsZero() || at.Sub(t.shownAt) >= toastDuration-50*time.Millisecond
 }
 
 // Hide clears the toast.
@@ -63,7 +85,7 @@ func (t Toast) Visible() bool {
 // scheduleAutoDismiss returns a Cmd that will send clearToastMsg after the toast duration.
 func scheduleAutoDismiss() tea.Cmd {
 	return tea.Tick(toastDuration, func(t time.Time) tea.Msg {
-		return clearToastMsg{}
+		return clearToastMsg{at: t}
 	})
 }
 
@@ -98,6 +120,9 @@ func (t Toast) View(screenWidth int) string {
 	if !t.visible || t.message == "" {
 		return ""
 	}
+	if t.meter {
+		return t.meterView()
+	}
 
 	bc := t.borderColor()
 
@@ -116,6 +141,35 @@ func (t Toast) View(screenWidth int) string {
 		BorderForeground(bc).
 		Padding(0, 1).
 		Render(sb.String())
+}
+
+// meterWidth is the volume bar's length in cells.
+const meterWidth = 16
+
+// meterView is the volume toast: the accepted level in the accent, the
+// part still on its way dim, and a frame that glows faintly as the last
+// level lands.
+func (t Toast) meterView() string {
+	v := t.volume
+	cells := func(level int) int { return (max(0, min(100, level))*meterWidth + 50) / 100 }
+	solid, target := cells(v.accepted), cells(v.level)
+	if !v.pending {
+		solid = target
+	}
+	lo, hi := min(solid, target), max(solid, target)
+	on := lipgloss.NewStyle().Foreground(ColorAccent)
+	coming := lipgloss.NewStyle().Foreground(ColorTextDim)
+	off := lipgloss.NewStyle().Foreground(ColorBorder)
+	label := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	bar := on.Render(strings.Repeat("━", lo)) + coming.Render(strings.Repeat("━", hi-lo)) +
+		off.Render(strings.Repeat("─", meterWidth-hi))
+	line := on.Render("♪") + "  " + label.Render("Volume") + "  " + bar + "  " +
+		label.Render(fmt.Sprintf("%3d%%", v.level))
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(v.tint(ColorTextDim)).
+		Padding(0, 1).
+		Render(line)
 }
 
 // Overlay composites the toast box onto the top-right corner of the rendered view.

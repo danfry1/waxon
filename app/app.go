@@ -79,8 +79,8 @@ type (
 	volumeCommitMsg struct{ gen int }
 	// volumeSetMsg: Spotify accepted the level sent at press gen.
 	volumeSetMsg struct{ vol, gen int }
-	// volumePulseMsg steps the pulse shown once a level is accepted.
-	volumePulseMsg struct{ gen int }
+	// volumeGlowMsg steps the fade of glow id.
+	volumeGlowMsg  struct{ id int }
 	trackUpdateMsg struct {
 		track      *source.Track
 		volume     int
@@ -369,7 +369,13 @@ type Model struct {
 	volumeLast      int  // the level waxon last set, shown while the device reports it within rounding
 	volumeLastSet   bool
 	volumeSentAt    time.Time // last volume sent, to rate-limit a held + key
-	volumeLook      volumeLook
+	// The volume display (volumeShow): a change is in flight from a press
+	// until Spotify accepts the newest level; volumeAccepted is the last
+	// level it accepted; volumeGlow counts the glow's fade down.
+	volumeInFlight bool
+	volumeAccepted int
+	volumeGlow     int
+	volumeGlowID   int
 	// modeHoldUntil does the same for shuffle and repeat after S / r.
 	modeHoldUntil time.Time
 	// refreshPending counts post-control re-polls still scheduled, so a burst
@@ -1095,6 +1101,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyPendingJump()
 
 	case noActiveDeviceMsg:
+		// A volume change waits on a device now, perhaps forever (the
+		// picker can be cancelled); its retry still lands it if one is chosen.
+		m.volumeInFlight = false
+		if m.toast.meter {
+			m.toast.Hide()
+		}
 		return m, m.fetchDevicesForRetry(msg.retry)
 
 	case deviceChoicesMsg:
@@ -1186,22 +1198,24 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, scheduleAutoDismiss()
 
 	case volumeSetMsg:
-		m.toast.Show(fmt.Sprintf("Volume: %d%%", msg.vol), "", ToastInfo)
+		m.volumeAccepted = msg.vol
 		if msg.gen != m.volumeGen {
-			return m, scheduleAutoDismiss() // a newer level is on its way
+			return m, nil // a newer level is on its way
 		}
-		m.volumeLook = volumeBright
-		return m, tea.Batch(scheduleAutoDismiss(), volumePulseTick(msg.gen))
+		m.volumeInFlight = false
+		m.volumeGlow = volumeFadeSteps
+		m.volumeGlowID++
+		m.toast.ShowVolume()
+		return m, tea.Batch(scheduleAutoDismiss(), volumeGlowTick(m.volumeGlowID))
 
-	case volumePulseMsg:
-		if msg.gen != m.volumeGen || m.volumeLook <= volumePending {
+	case volumeGlowMsg:
+		if msg.id != m.volumeGlowID || m.volumeGlow == 0 {
 			return m, nil
 		}
-		m.volumeLook--
-		if m.volumeLook > volumePending {
-			return m, volumePulseTick(msg.gen)
+		m.volumeGlow--
+		if m.volumeGlow > 0 {
+			return m, volumeGlowTick(msg.id)
 		}
-		m.volumeLook = volumeSteady
 		return m, nil
 
 	case trackLikedMsg:
@@ -1253,7 +1267,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A rejected change (e.g. a device without volume control) should
 		// show Spotify's real state on the next poll, not the optimistic one.
 		m.volumeHoldUntil, m.modeHoldUntil = time.Time{}, time.Time{}
-		m.volumeLook = volumeSteady
+		m.volumeInFlight = false
+		if m.toast.meter {
+			m.toast.Hide() // the level never landed; an error toast may follow
+		}
 		m.resumeCursor = 0
 		m.consecutiveErrors++
 		m.noteRateLimit(msg.err)
@@ -1310,7 +1327,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case clearToastMsg:
-		m.toast.Hide()
+		if m.toast.Expired(msg.at) {
+			m.toast.Hide()
+		}
 		return m, nil
 
 	case progressTickMsg:
@@ -2516,7 +2535,8 @@ func (m Model) View() string {
 	if m.count > 0 {
 		m.statusbar.pending = strconv.Itoa(m.count)
 	}
-	m.statusbar.volumeLook = m.volumeLook
+	show := volumeShow{level: m.volume, accepted: m.volumeAccepted, pending: m.volumeInFlight, glow: m.volumeGlow}
+	m.statusbar.volume, m.toast.volume = show, show
 	var view string
 	if m.artStatusBar() {
 		artView := m.albumart.View()

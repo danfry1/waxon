@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/danfry1/waxon/source"
 )
 
@@ -58,15 +60,25 @@ func TestVolumeClampsAndHoldsAgainstPoll(t *testing.T) {
 	}
 }
 
-// The volume shows dimmed until Spotify accepts it, then pulses back to
-// normal; an acceptance for a level already superseded changes nothing.
-func TestVolumeDimsUntilAcceptedThenPulses(t *testing.T) {
+// While a change is in flight the meter keeps what Spotify has accepted
+// and shows the rest as pending; the newest level landing ends that and
+// starts a glow that fades out, and a stale acceptance changes nothing.
+func TestVolumeMeterShowsPendingThenGlows(t *testing.T) {
 	m := newTestModel(&StubSource{})
 	m.volume = 50
 	result, cmd := m.Update(runeKey("+"))
 	m = result.(Model)
-	if m.volumeLook != volumePending {
-		t.Fatalf("look after a press = %v, want pending", m.volumeLook)
+	if !m.volumeInFlight || m.volumeAccepted != 50 || m.volume != 55 {
+		t.Fatalf("after a press: inFlight=%v accepted=%d volume=%d", m.volumeInFlight, m.volumeAccepted, m.volume)
+	}
+	if !m.toast.Visible() || !m.toast.meter {
+		t.Fatal("a press should show the volume meter")
+	}
+	// A dismiss timer from an earlier toast fires mid-change.
+	result, _ = m.Update(clearToastMsg{at: time.Now().Add(-time.Second)})
+	m = result.(Model)
+	if !m.toast.Visible() {
+		t.Fatal("an earlier toast's timer hid the volume meter")
 	}
 	ack, ok := cmd().(volumeSetMsg)
 	if !ok {
@@ -76,19 +88,37 @@ func TestVolumeDimsUntilAcceptedThenPulses(t *testing.T) {
 	m = result.(Model)
 	result, _ = m.Update(ack)
 	m = result.(Model)
-	if m.volumeLook != volumePending {
-		t.Fatalf("a stale ack ended the wait: look = %v", m.volumeLook)
+	if !m.volumeInFlight || m.volumeAccepted != 55 || m.volumeGlow != 0 {
+		t.Fatalf("a stale ack: inFlight=%v accepted=%d glow=%d", m.volumeInFlight, m.volumeAccepted, m.volumeGlow)
 	}
 
 	result, _ = m.Update(volumeSetMsg{vol: m.volume, gen: m.volumeGen})
 	m = result.(Model)
-	want := []volumeLook{volumeBright, volumeAccent, volumeSteady}
-	for i, w := range want {
-		if m.volumeLook != w {
-			t.Fatalf("pulse step %d: look = %v, want %v", i, m.volumeLook, w)
-		}
-		result, _ = m.Update(volumePulseMsg{gen: m.volumeGen})
+	if m.volumeInFlight || m.volumeGlow != volumeFadeSteps {
+		t.Fatalf("once accepted: inFlight=%v glow=%d", m.volumeInFlight, m.volumeGlow)
+	}
+	// Another press mid-glow doesn't cut it short.
+	result, _ = m.Update(runeKey("+"))
+	m = result.(Model)
+	for range volumeFadeSteps {
+		result, _ = m.Update(volumeGlowMsg{id: m.volumeGlowID})
 		m = result.(Model)
+	}
+	if m.volumeGlow != 0 {
+		t.Errorf("glow left after the fade = %d", m.volumeGlow)
+	}
+}
+
+func TestVolumeMeterDrawsPendingPart(t *testing.T) {
+	bar := func(v volumeShow) string {
+		return ansi.Strip(Toast{visible: true, meter: true, message: "Volume", volume: v}.View(80))
+	}
+	pending := bar(volumeShow{level: 100, accepted: 50, pending: true})
+	if !strings.Contains(pending, "━━━━━━━━━━━━━━━━") || !strings.Contains(pending, "100%") {
+		t.Errorf("pending meter should run to the new level:\n%s", pending)
+	}
+	if got := bar(volumeShow{level: 0}); strings.Contains(got, "━") {
+		t.Errorf("0%% should draw an empty bar:\n%s", got)
 	}
 }
 
