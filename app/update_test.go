@@ -4358,7 +4358,7 @@ func TestSidebarIconsSurviveQueueToggle(t *testing.T) {
 
 func TestRenderVinylSmallImage(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	got := renderVinyl(img, 0.0, 10, 5, nil)
+	got := renderVinyl(img, 0.0, 0, 10, 5, nil, rgb{})
 	if got == "" {
 		t.Fatal("renderVinyl with valid image should return non-empty string")
 	}
@@ -4369,19 +4369,19 @@ func TestRenderVinylSmallImage(t *testing.T) {
 
 func TestRenderVinylZeroDimensions(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	if got := renderVinyl(img, 0.0, 0, 0, nil); got != "" {
+	if got := renderVinyl(img, 0.0, 0, 0, 0, nil, rgb{}); got != "" {
 		t.Errorf("renderVinyl(0,0) = %q, want empty", got)
 	}
-	if got := renderVinyl(img, 0.0, 0, 5, nil); got != "" {
+	if got := renderVinyl(img, 0.0, 0, 0, 5, nil, rgb{}); got != "" {
 		t.Errorf("renderVinyl(0,5) = %q, want empty", got)
 	}
-	if got := renderVinyl(img, 0.0, 5, 0, nil); got != "" {
+	if got := renderVinyl(img, 0.0, 0, 5, 0, nil, rgb{}); got != "" {
 		t.Errorf("renderVinyl(5,0) = %q, want empty", got)
 	}
 }
 
 func TestRenderVinylNilImage(t *testing.T) {
-	if got := renderVinyl(nil, 0.0, 10, 5, nil); got != "" {
+	if got := renderVinyl(nil, 0.0, 0, 10, 5, nil, rgb{}); got != "" {
 		t.Errorf("renderVinyl(nil) = %q, want empty", got)
 	}
 }
