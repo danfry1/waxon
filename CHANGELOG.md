@@ -8,6 +8,13 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- On Windows, waxon keeps its config and logins in `%AppData%\waxon`, the
+  standard place, instead of `%USERPROFILE%\.config\waxon`. An existing
+  folder is moved there the first time the new version runs; if it can't
+  be moved, waxon carries on using it.
+
 ## [1.10.0] - 2026-10-24
 
 ### Added

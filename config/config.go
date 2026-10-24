@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Config holds persistent waxon user configuration.
@@ -36,20 +37,80 @@ type Config struct {
 	PlayerPath string `json:"player_path,omitempty"`
 }
 
-// Dir returns the waxon config directory, following XDG conventions:
-// $XDG_CONFIG_HOME/waxon or ~/.config/waxon.
+// Dir returns the waxon config directory: $XDG_CONFIG_HOME/waxon when set,
+// else ~/.config/waxon on Linux and macOS, and %AppData%\waxon on Windows
+// (before 1.11, Windows used %USERPROFILE%\.config\waxon too; MigrateDir
+// moves it, and until it has, that's still where config is read from).
 func Dir() string {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+	return dirFor(runtime.GOOS, os.Getenv, os.UserHomeDir, os.UserConfigDir, exists)
+}
+
+// legacyDir is where waxon kept its config on every platform before 1.11.
+func legacyDir(getenv func(string) string, home func() (string, error)) string {
+	h, err := home()
+	if err != nil || h == "" {
+		// os.UserHomeDir knows the platform convention ($HOME on Unix,
+		// %USERPROFILE% on Windows); $HOME alone is empty on Windows and
+		// would make the path relative to the working directory.
+		h = getenv("HOME")
+	}
+	return filepath.Join(h, ".config", "waxon")
+}
+
+// dirFor is Dir with its environment passed in, for tests.
+func dirFor(goos string, getenv func(string) string, home, userConfig func() (string, error), exists func(string) bool) string {
+	if xdg := getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "waxon")
 	}
-	// os.UserHomeDir knows the platform convention ($HOME on Unix,
-	// %USERPROFILE% on Windows); $HOME alone is empty on Windows and would
-	// make the path relative to the working directory.
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		home = os.Getenv("HOME")
+	legacy := legacyDir(getenv, home)
+	if goos != "windows" {
+		return legacy
 	}
-	return filepath.Join(home, ".config", "waxon")
+	appData, err := userConfig()
+	if err != nil || appData == "" {
+		return legacy
+	}
+	current := filepath.Join(appData, "waxon")
+	if !exists(current) && exists(legacy) {
+		return legacy // not moved yet (MigrateDir couldn't, or hasn't run)
+	}
+	return current
+}
+
+// MigrateDir moves a Windows config directory from its pre-1.11 place
+// (%USERPROFILE%\.config\waxon) to %AppData%\waxon. It does nothing on
+// other platforms, when $XDG_CONFIG_HOME is set, or once moved; if the move
+// fails, waxon keeps using the old place. Call it once at startup.
+func MigrateDir() error {
+	return migrateDir(runtime.GOOS, os.Getenv, os.UserHomeDir, os.UserConfigDir, exists, os.Rename)
+}
+
+func migrateDir(goos string, getenv func(string) string, home, userConfig func() (string, error),
+	exists func(string) bool, rename func(from, to string) error,
+) error {
+	if goos != "windows" || getenv("XDG_CONFIG_HOME") != "" {
+		return nil
+	}
+	appData, err := userConfig()
+	if err != nil || appData == "" {
+		return nil //nolint:nilerr // no %AppData%: Dir keeps using the old place
+	}
+	from, to := legacyDir(getenv, home), filepath.Join(appData, "waxon")
+	if !exists(from) || exists(to) {
+		return nil
+	}
+	if err := os.MkdirAll(appData, 0o700); err != nil {
+		return err
+	}
+	if err := rename(from, to); err != nil {
+		return fmt.Errorf("moving waxon's config from %s to %s: %w", from, to, err)
+	}
+	return nil
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // DefaultPath returns the path to the config file (~/.config/waxon/config.json).
