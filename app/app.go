@@ -329,7 +329,9 @@ type Model struct {
 	// volumeHoldUntil keeps polls from overwriting the level meanwhile.
 	volumeGen       int
 	volumeHoldUntil time.Time
-	volumeSent      bool      // the held level was sent; release once Spotify echoes it
+	volumeSent      bool // the held level was sent; release once Spotify echoes it
+	volumeLast      int  // the level waxon last set, shown while the device reports it within rounding
+	volumeLastSet   bool
 	volumeSentAt    time.Time // last volume sent, to rate-limit a held + key
 	// modeHoldUntil does the same for shuffle and repeat after S / r.
 	modeHoldUntil time.Time
@@ -567,9 +569,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Hold a volume the user just set until Spotify reports it back, so
 		// a stale poll doesn't snap the level back. Within a couple of points
 		// counts as back: devices round the level to their own steps.
+		// Afterwards, a level within a couple of points of the one waxon
+		// set is still that one (librespot reports 60% as 59%); anything
+		// further off was changed elsewhere.
 		switch {
 		case time.Now().After(m.volumeHoldUntil):
-			m.volume = msg.volume
+			if m.volumeLastSet && absInt(msg.volume-m.volumeLast) <= 2 {
+				m.volume = m.volumeLast
+			} else {
+				m.volume, m.volumeLastSet = msg.volume, false
+			}
 		case m.volumeSent && absInt(msg.volume-m.volume) <= 2:
 			m.volumeHoldUntil, m.volumeSent = time.Time{}, false
 		}

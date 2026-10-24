@@ -143,3 +143,37 @@ func TestHeldVolumeKeySendsPerInterval(t *testing.T) {
 		t.Errorf("SetVolume calls = %v, want [55 65]", sent)
 	}
 }
+
+func TestSnapVolume(t *testing.T) {
+	for _, tc := range []struct{ cur, delta, want int }{
+		{59, 5, 60}, {60, 5, 65}, {59, -5, 55}, {60, -5, 55}, {98, 5, 100}, {3, -5, 0}, {0, -5, 0}, {100, 5, 100},
+	} {
+		if got := snapVolume(tc.cur, tc.delta); got != tc.want {
+			t.Errorf("snapVolume(%d, %+d) = %d, want %d", tc.cur, tc.delta, got, tc.want)
+		}
+	}
+}
+
+// librespot stores volume in 64 steps and reports 60% back as 59%; the
+// level waxon set stays on screen, so the next press goes 60 → 65.
+func TestSetVolumeSurvivesDeviceRounding(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.runCommand(Command{Type: CmdVolume, IntArg: 60})
+	m.volumeHoldUntil = time.Time{} // the hold is over
+	poll := func(vol int) {
+		res, _ := m.Update(trackUpdateMsg{volume: vol})
+		m = res.(Model)
+	}
+	poll(59)
+	if m.volume != 60 {
+		t.Fatalf("a rounded report replaced the set level: %d", m.volume)
+	}
+	poll(80) // changed on another device
+	if m.volume != 80 {
+		t.Errorf("a real change elsewhere should show; volume=%d", m.volume)
+	}
+	poll(79)
+	if m.volume != 79 {
+		t.Errorf("after an outside change, reports apply as they are; volume=%d", m.volume)
+	}
+}

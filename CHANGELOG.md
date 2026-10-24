@@ -49,6 +49,12 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Fixed
 
+- The first play on a device that was only just activated (often waxon's
+  own player) no longer fails with "Restriction violated": waxon retries
+  it for a moment while the device gets ready.
+- `+`/`-` move the volume in round steps (55, 60, 65) whatever level it
+  started at, and keep doing so on devices that round the level they report
+  (librespot shows 60% as 59%).
 - The volume shown after `+`/`-` or `:vol` no longer jumps back to the old
   level on devices that report changes late, such as librespot.
 
