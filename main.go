@@ -25,6 +25,9 @@ var version = "dev"
 func main() {
 	cleanup := initLogging()
 	defer cleanup()
+	if err := config.MigrateDir(); err != nil {
+		slog.Warn("config stays in its old place", "error", err)
+	}
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
