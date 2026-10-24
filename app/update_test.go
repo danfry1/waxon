@@ -470,8 +470,8 @@ func TestHandleKeyNowPlayingEscape(t *testing.T) {
 	if model.mode != ModeNormal {
 		t.Errorf("mode = %v, want ModeNormal", model.mode)
 	}
-	if model.vinylMode {
-		t.Error("vinylMode should be false after escaping NowPlaying")
+	if !model.vinylMode {
+		t.Error("vinyl mode should be remembered after escaping Now Playing")
 	}
 }
 
@@ -3083,7 +3083,7 @@ func TestHandleKeyNowPlayingQuit(t *testing.T) {
 	m.mode = ModeNowPlaying
 	m.vinylMode = true
 
-	// q should close NowPlaying and reset vinyl mode
+	// q should close Now Playing, remembering vinyl mode for next time
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}
 	result, _ := m.Update(msg)
 	model := result.(Model)
@@ -3091,8 +3091,8 @@ func TestHandleKeyNowPlayingQuit(t *testing.T) {
 	if model.mode != ModeNormal {
 		t.Errorf("mode = %v, want ModeNormal", model.mode)
 	}
-	if model.vinylMode {
-		t.Error("vinylMode should be false after q in NowPlaying")
+	if !model.vinylMode {
+		t.Error("vinyl mode should be remembered after q in Now Playing")
 	}
 }
 

@@ -1227,12 +1227,39 @@ func (m *Model) ensureLyrics() tea.Cmd {
 	return m.fetchLyrics(*m.track)
 }
 
+// npView is what Now Playing's art region shows.
+type npView int
+
+const (
+	npViewLast   npView = iota // as Now Playing was last left
+	npViewCover                // the album cover
+	npViewLyrics               // synced lyrics
+	npViewVinyl                // the spinning record
+)
+
+// openNowPlaying opens Now Playing on view, loading what it needs.
+func (m *Model) openNowPlaying(view npView) tea.Cmd {
+	m.mode = ModeNowPlaying
+	if view != npViewLast {
+		m.lyricsView, m.vinylMode = view == npViewLyrics, view == npViewVinyl
+		if m.vinylMode {
+			m.vinylAngle = 0
+		}
+	}
+	cmds := []tea.Cmd{m.ensureLyrics()} // so the hint can say if there are lyrics
+	if m.track != nil && m.track.ArtworkURL != "" && m.npArtURL != m.track.ArtworkURL {
+		cmds = append(cmds, m.fetchNPArt(m.track.ArtworkURL))
+	} else {
+		m.renderNPArt() // kitty art is only placed while the view is open
+	}
+	return tea.Batch(cmds...)
+}
+
 func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.NowPlaying), msg.Type == tea.KeyEscape, msg.String() == "q":
+		// Lyrics/vinyl stay chosen: N reopens Now Playing as it was left.
 		m.mode = ModeNormal
-		m.vinylMode = false
-		m.lyricsView = false
 		return m, nil
 	case msg.String() == "V":
 		m.vinylMode = !m.vinylMode
@@ -1590,14 +1617,7 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.NowPlaying):
 		m.gtracker.Reset()
-		m.mode = ModeNowPlaying
-		cmds := []tea.Cmd{m.ensureLyrics()} // so the hint can say if there are lyrics
-		if m.track != nil && m.track.ArtworkURL != "" && m.npArtURL != m.track.ArtworkURL {
-			cmds = append(cmds, m.fetchNPArt(m.track.ArtworkURL))
-		} else {
-			m.renderNPArt() // kitty art is only placed while the view is open
-		}
-		return m, tea.Batch(cmds...)
+		return m, m.openNowPlaying(npViewLast)
 
 	case key.Matches(msg, m.keys.Quit):
 		m.cancel()
