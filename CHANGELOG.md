@@ -22,6 +22,10 @@ Each release's section is also used verbatim as the GitHub Release notes.
   devices, so the player can be set up from inside waxon.
 - `waxon player` shows whether the player is installed, signed in and on,
   and the next step if not.
+- `waxon doctor` checks everything waxon depends on — config, which Spotify
+  app, the login (and whether Spotify still accepts it), devices, the
+  player, the lyrics service and the terminal — and prints the fix for
+  anything that's wrong. It exits non-zero when something is broken.
 
 - waxon can play by itself, with no Spotify app open. With
   [librespot](https://github.com/librespot-org/librespot) installed, run

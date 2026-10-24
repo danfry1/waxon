@@ -250,6 +250,19 @@ func (p *PlayerSource) currentUserID(ctx context.Context) (string, error) {
 	return p.userID, nil
 }
 
+// Profile returns the signed-in user's ID and display name (for
+// `waxon doctor`).
+func (p *PlayerSource) Profile(ctx context.Context) (id, name string, err error) {
+	var me struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"display_name"`
+	}
+	if err := p.apiGet(ctx, "/me", &me); err != nil {
+		return "", "", err
+	}
+	return me.ID, me.DisplayName, nil
+}
+
 // --- source.PlaylistSource ---
 
 func (p *PlayerSource) AddToPlaylist(ctx context.Context, playlistID, trackID string) error {

@@ -102,6 +102,7 @@ waxon player          # is waxon's own player set up?
 waxon player login    # set it up (or sign it in again)
 waxon player off      # stop using it
 waxon logout          # forget the saved logins
+waxon doctor          # something wrong? checks everything and says what to fix
 ```
 
 **Over SSH** (or whenever the browser is on another machine): open the link
@@ -425,10 +426,14 @@ The client ID is saved to `~/.config/waxon/config.json` automatically, so you on
 
 ## Troubleshooting
 
+Start with `waxon doctor`. It checks your config, Spotify app, login (and
+whether Spotify accepts it), devices, waxon's player, the lyrics service and
+your terminal, and prints the fix for anything wrong.
+
 | Symptom | Cause / fix |
 |---|---|
 | *Spotify rate limit* / *Spotify is rate limiting* toasts | Spotify is throttling the app. waxon backs off automatically and honours Spotify's `Retry-After`. If it keeps happening, the shared client ID is busy — [use your own](#using-your-own-spotify-app-recommended-if-you-see-rate-limits). |
-| *No active Spotify device* | Spotify must be open somewhere (desktop, phone, speaker). waxon picks the only available device automatically or asks with `D`. |
+| *No active Spotify device* | Spotify must be open somewhere (desktop, phone, speaker), or let waxon play by itself: `D` → **play here with waxon**. waxon picks the only available device automatically or asks with `D`. |
 | *Not available with this Spotify app* | Spotify blocks that endpoint for development-mode (personal) apps — currently only artists' top tracks. |
 | A followed playlist shows no tracks | Spotify only lets development-mode (personal) apps list playlists you own or collaborate on. Press Enter to play it anyway, or `o` to open it in Spotify. |
 | *Permission needed — run `waxon auth`* | Your saved token predates a feature that needs extra permissions (e.g. playlist editing). Re-run `waxon auth` once. |
