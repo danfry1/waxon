@@ -55,12 +55,15 @@ ignoring your keys.
   applied yet is drawn dimly and fills in, with a brief glow, once the new
   level takes effect. The status bar's volume dims and glows the same way.
 - `M` switches between playing in waxon and controlling the Spotify app
-  on this computer, carrying on from the same point. `:device -` goes back to the
-  device you were on before, and `:device <name>` switches to a device by
-  name.
+  on this computer, carrying on from the same point. `:device -` goes back
+  to the device you were on before, and `:device <name>` switches to a
+  device by name.
 - When the Spotify desktop app is installed but closed, the device picker
   offers to open it, and `M` does too: waxon starts it in the background
   and moves playback there once it's online.
+- `waxon doctor` warns when waxon's logins sit in a git repository (a
+  dotfiles repo, say) or a folder a sync service uploads (Dropbox, iCloud
+  Drive, OneDrive, Google Drive), where they could leave the machine.
 
 ### Changed
 

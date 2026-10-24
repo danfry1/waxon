@@ -59,6 +59,7 @@ type doctorEnv struct {
 	colour     string // "true colour", "256 colours", "no colour"; "" when not a terminal
 	cacheDir   string
 	now        func() time.Time
+	exists     func(path string) bool
 }
 
 func runDoctor(ctx context.Context, env doctorEnv) []check {
@@ -71,6 +72,11 @@ func runDoctor(ctx context.Context, env doctorEnv) []check {
 		add(check{"Config", checkFail, err.Error(), "fix or delete " + env.configPath})
 	} else {
 		add(check{"Config", checkOK, env.configPath, ""})
+	}
+	// The logins live beside config.json: warn when that folder would
+	// leave this machine with a dotfiles repo or a sync service.
+	if where, fix := exposure(filepath.Dir(env.configPath), env.exists); where != "" {
+		add(check{"Logins", checkWarn, "waxon's logins are in " + where + ", so they could leave this machine", fix})
 	}
 	clientID := cfg.ClientID
 	switch {
@@ -233,6 +239,43 @@ func printDoctor(w io.Writer, checks []check) (failed int) {
 	return failed
 }
 
+// syncFolders are path parts of folders that sync services upload.
+var syncFolders = []struct{ part, name string }{
+	{"Dropbox", "Dropbox"},
+	{"OneDrive", "OneDrive"},
+	{"Google Drive", "Google Drive"},
+	{filepath.Join("Library", "Mobile Documents"), "iCloud Drive"},
+	{filepath.Join("Library", "CloudStorage"), "a cloud-storage folder"},
+}
+
+// exposure reports where dir would be copied off the machine: a git
+// repository (a dotfiles repo, say) or a synced folder, with the fix.
+func exposure(dir string, exists func(string) bool) (where, fix string) {
+	for d := dir; ; d = filepath.Dir(d) {
+		if exists(filepath.Join(d, ".git")) {
+			return "the git repository at " + d, "add " + relOr(d, dir) + "/ to its .gitignore (or move the repository)"
+		}
+		if parent := filepath.Dir(d); parent == d {
+			break
+		}
+	}
+	for _, f := range syncFolders {
+		if strings.Contains(dir, string(filepath.Separator)+f.part+string(filepath.Separator)) ||
+			strings.HasSuffix(dir, string(filepath.Separator)+f.part) {
+			return f.name, "set XDG_CONFIG_HOME to a folder that isn't synced, then run waxon auth"
+		}
+	}
+	return "", ""
+}
+
+// relOr is path relative to base, or path itself.
+func relOr(base, path string) string {
+	if rel, err := filepath.Rel(base, path); err == nil {
+		return rel
+	}
+	return path
+}
+
 // errBadLogin marks a saved login that couldn't be read at all.
 var errBadLogin = errors.New("unreadable login")
 
@@ -266,6 +309,10 @@ func runDoctorCommand() int {
 		colour:     terminalColour(),
 		cacheDir:   cacheDir,
 		now:        time.Now,
+		exists: func(p string) bool {
+			_, err := os.Stat(p)
+			return err == nil
+		},
 	}
 	if printDoctor(os.Stdout, runDoctor(context.Background(), env)) > 0 {
 		return 1

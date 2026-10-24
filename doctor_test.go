@@ -37,6 +37,7 @@ func healthyEnv(t *testing.T) doctorEnv {
 		colour:     "true colour",
 		cacheDir:   dir,
 		now:        time.Now,
+		exists:     func(string) bool { return false },
 	}
 }
 
@@ -135,6 +136,33 @@ func TestDoctorBrokenLibrespot(t *testing.T) {
 	}
 	out, failed := doctorOutput(t, env)
 	if failed == 0 || !strings.Contains(out, "doesn't run") || !strings.Contains(out, "reinstall") {
+		t.Errorf("failed=%d\n%s", failed, out)
+	}
+}
+
+func TestDoctorWarnsWhenLoginsCanLeaveTheMachine(t *testing.T) {
+	sep := string(filepath.Separator)
+	home := filepath.Join(sep+"home", "dan")
+	repo := filepath.Join(home, ".config")
+	inRepo := func(p string) bool { return p == filepath.Join(repo, ".git") }
+	if where, fix := exposure(filepath.Join(repo, "waxon"), inRepo); !strings.Contains(where, "git repository") || !strings.Contains(fix, "waxon/ to its .gitignore") {
+		t.Errorf("dotfiles repo: %q / %q", where, fix)
+	}
+	none := func(string) bool { return false }
+	if where, _ := exposure(filepath.Join(home, "Library", "Mobile Documents", "com~apple~CloudDocs", "waxon"), none); where != "iCloud Drive" {
+		t.Errorf("iCloud: %q", where)
+	}
+	if where, _ := exposure(filepath.Join(home, "Dropbox", "config", "waxon"), none); where != "Dropbox" {
+		t.Errorf("Dropbox: %q", where)
+	}
+	if where, _ := exposure(filepath.Join(home, ".config", "waxon"), none); where != "" {
+		t.Errorf("a plain config folder flagged as %q", where)
+	}
+
+	env := healthyEnv(t)
+	env.exists = func(p string) bool { return p == filepath.Join(filepath.Dir(env.configPath), ".git") }
+	out, failed := doctorOutput(t, env)
+	if failed != 0 || !strings.Contains(out, "could leave this machine") {
 		t.Errorf("failed=%d\n%s", failed, out)
 	}
 }
