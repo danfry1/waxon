@@ -36,6 +36,7 @@ type apiSimplePlaylist struct {
 	Name          string     `json:"name"`
 	Images        []apiImage `json:"images"`
 	Collaborative bool       `json:"collaborative"`
+	SnapshotID    string     `json:"snapshot_id"`
 	Owner         struct {
 		ID string `json:"id"`
 	} `json:"owner"`
@@ -348,6 +349,7 @@ func (p *PlayerSource) Playlists(ctx context.Context) ([]source.Playlist, error)
 				ImageURL:   imageURL,
 				TrackCount: total,
 				Editable:   pl.Collaborative || (me != "" && pl.Owner.ID == me),
+				Snapshot:   pl.SnapshotID,
 			})
 		}
 		offset += len(page.Items)
