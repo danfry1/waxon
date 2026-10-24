@@ -113,7 +113,9 @@ func helpCategories(k KeyMap) []helpCategory {
 			},
 		},
 		{
-			Title: "NOW PLAYING",
+			// These keys mean something else in the main view (l focuses
+			// the track list), so say where they work.
+			Title: "NOW PLAYING (" + keyLabel(k.NowPlaying) + " first)",
 			Bindings: []helpBinding{
 				{"l", "synced lyrics"},
 				{"V", "vinyl mode"},

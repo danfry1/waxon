@@ -116,9 +116,9 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 		sections = append(sections, dimStyle.Render(timeStr))
 		sections = append(sections, "")
 		lyricsHint := npLyricsHint(lyr)
-		hint := "space play · n/p skip · f like · a queue · " + lyricsHint + " · o actions · N close"
+		hint := "space play · n/p skip · f like · a queue · " + lyricsHint + " · V vinyl · o actions · N close"
 		if width < lipgloss.Width(hint)+2 {
-			hint = "space · n/p · f · a · l · o · N"
+			hint = "space · n/p · f · a · l · V · o · N"
 		}
 		sections = append(sections, dimStyle.Render(hint))
 	}
