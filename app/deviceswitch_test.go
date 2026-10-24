@@ -82,9 +82,9 @@ func TestSwapGoesBackToThePreviousDevice(t *testing.T) {
 	}
 }
 
-// With nothing to go back to, swapping toggles this computer between
-// waxon's player and the Spotify app, starting the app when it's closed.
-func TestSwapOpensTheSpotifyAppFromThePlayer(t *testing.T) {
+// gd from waxon's player goes to the Spotify app, starting it when it's
+// closed.
+func TestToggleOpensTheSpotifyAppFromThePlayer(t *testing.T) {
 	spotifyAppPoll = time.Millisecond
 	t.Cleanup(func() { spotifyAppPoll = time.Second })
 	var mu sync.Mutex
@@ -104,17 +104,17 @@ func TestSwapOpensTheSpotifyAppFromThePlayer(t *testing.T) {
 		return nil
 	}})
 	m.deviceName = playerDev.Name
-	run(t, m, m.switchDevice("-"))
+	run(t, m, m.switchDevice(toggleHere))
 	if opened != 1 || len(*moved) != 1 || (*moved)[0] != appDev.ID {
 		t.Errorf("opened %d times, moved to %v; want the app opened once and playback on it", opened, *moved)
 	}
 }
 
-func TestSwapFromTheSpotifyAppGoesToThePlayer(t *testing.T) {
+func TestToggleFromTheSpotifyAppGoesToThePlayer(t *testing.T) {
 	stub, moved := switchStub(playerDev, appDev)
 	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
 	m.deviceName = appDev.Name
-	run(t, m, m.switchDevice("-"))
+	run(t, m, m.switchDevice(toggleHere))
 	if len(*moved) != 1 || (*moved)[0] != playerDev.ID {
 		t.Errorf("moved to %v, want waxon's player", *moved)
 	}
@@ -242,15 +242,40 @@ func TestRefusedCommandOnActiveDeviceIsShown(t *testing.T) {
 	}
 }
 
-// Two swaps in a row go there and back, even before a poll has caught up
-// with the first.
-func TestSwapTwiceGoesThereAndBack(t *testing.T) {
+// Two toggles in a row go there and back, even before a poll has caught
+// up with the first.
+func TestToggleTwiceGoesThereAndBack(t *testing.T) {
 	stub, moved := switchStub(playerDev, appDev)
 	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
 	m.deviceName = playerDev.Name
-	m = run(t, m, m.switchDevice("-"))
-	m = run(t, m, m.switchDevice("-"))
+	m = run(t, m, m.switchDevice(toggleHere))
+	m = run(t, m, m.switchDevice(toggleHere))
 	if len(*moved) != 2 || (*moved)[0] != appDev.ID || (*moved)[1] != playerDev.ID {
 		t.Errorf("moved to %v, want the app and then back to waxon's player", *moved)
+	}
+}
+
+// gd is strictly this computer's two: having been on a phone in between
+// doesn't send it there (":device -" does).
+func TestToggleIgnoresThePreviousDevice(t *testing.T) {
+	stub, moved := switchStub(playerDev, appDev, phoneDev)
+	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
+	m.deviceName, m.prevDevice = playerDev.Name, phoneDev.Name
+	run(t, m, m.switchDevice(toggleHere))
+	if len(*moved) != 1 || (*moved)[0] != appDev.ID {
+		t.Errorf("gd moved to %v, want the Spotify app", *moved)
+	}
+}
+
+func TestGDKeyToggles(t *testing.T) {
+	stub, moved := switchStub(playerDev, appDev)
+	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
+	m.deviceName = playerDev.Name
+	res, _ := m.Update(runeKey("g"))
+	m = res.(Model)
+	res, cmd := m.Update(runeKey("d"))
+	run(t, res.(Model), cmd)
+	if len(*moved) != 1 || (*moved)[0] != appDev.ID {
+		t.Errorf("gd moved to %v, want the Spotify app", *moved)
 	}
 }

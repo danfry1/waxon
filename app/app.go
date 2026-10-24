@@ -1145,7 +1145,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.device != m.deviceName {
 			m.prevDevice, m.deviceName = m.deviceName, msg.device
 		}
-		m.toast.Show("Playback → "+msg.device, "", ToastInfo)
+		title, detail := m.modeLabel(msg.device)
+		m.toast.Show(title, detail, ToastSuccess)
 		return m, scheduleAutoDismiss()
 
 	case spotifyAppMsg:
@@ -1831,7 +1832,7 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		case GActionPodcasts:
 			return m, m.openCollection(collectionPodcastsID)
 		case GActionSwapDevice:
-			return m, m.switchDevice("-")
+			return m, m.switchDevice(toggleHere)
 		default:
 			return m, nil
 		}

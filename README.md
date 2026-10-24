@@ -121,11 +121,12 @@ If nothing is playing when you press play, waxon picks a device for you:
 its own player when you've set it up, the only device when there's one, or
 it asks which one when there are several.
 
-`gd` swaps back to the device you were on before, so switching between
-waxon's player and the Spotify app is one key. If the Spotify app is
-installed but closed, the picker offers to **open the Spotify app**, and
-`gd` opens it too: waxon starts it in the background and moves playback
-there once it's online.
+`gd` switches waxon between its two modes on this computer: **playing by
+itself** and **controlling the Spotify app**, carrying on from the same
+point. If the Spotify app is installed but closed, `gd` opens it (and the
+picker offers to **open the Spotify app**): waxon starts it in the
+background and hands playback to it once it's online. `:device -` goes back to whichever device you were on before,
+phones and speakers included.
 
 > **About the player login.** Spotify only lets its own apps stream audio, so
 > librespot — an open-source, unofficial Spotify Connect client (it also powers
@@ -261,7 +262,7 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `ga`  | Saved albums (also `:albums`) |
 | `gA`  | Followed artists (also `:artists`) |
 | `gp`  | Podcasts (also `:podcasts`) |
-| `gd`  | Swap to the previous device (also `:device -`) |
+| `gd`  | Play in waxon ⇄ control the Spotify app |
 
 ### Playback
 
@@ -323,7 +324,7 @@ Enter command mode by pressing `:`, then type a command.
 | `:shuffle`              | Toggle shuffle       |
 | `:repeat off\|all\|one` | Set repeat mode      |
 | `:device`               | Open device switcher |
-| `:device -`             | Back to the previous device (`gd`) |
+| `:device -`             | Back to the previous device |
 | `:device <name>`        | Switch to the device whose name contains `<name>` |
 | `:search <query>`       | Search Spotify       |
 | `:recent`               | Recently played      |

@@ -152,7 +152,7 @@ var gMotions = []gMotion{
 	{"a", GActionAlbums, "saved albums"},
 	{"A", GActionArtists, "followed artists"},
 	{"p", GActionPodcasts, "podcasts"},
-	{"d", GActionSwapDevice, "swap device"},
+	{"d", GActionSwapDevice, "play in waxon ⇄ control the Spotify app"},
 }
 
 // GTracker tracks g-prefix two-key motions (see gMotions).

@@ -11,11 +11,19 @@ import (
 	"github.com/danfry1/waxon/source"
 )
 
-// Switching devices without the picker: gd / ":device -" swaps back to the
-// previous device, ":device <name>" picks one by name. Both, like the
-// picker's "open the Spotify app" row, can start this computer's Spotify
-// app when it isn't running (Options.OpenSpotifyApp) and move playback to
-// it once it comes online.
+// Switching devices without the picker: gd toggles this computer between
+// waxon's player and the Spotify app, ":device -" goes back to the previous
+// device, ":device <name>" picks one by name. Like the picker's "open the
+// Spotify app" row, they can start this computer's Spotify app when it
+// isn't running (Options.OpenSpotifyApp) and move playback to it once it
+// comes online.
+
+// Queries for switchDevice besides a name: back to the previous device, and
+// gd's toggle between waxon's player and this computer's Spotify app.
+const (
+	previousDevice = "-"
+	toggleHere     = "\x00here"
+)
 
 // openSpotifyDeviceID marks the device picker's "open the Spotify app" row.
 const openSpotifyDeviceID = "waxon:open-spotify"
@@ -32,8 +40,8 @@ var errSpotifyAppSlow = errors.New("the Spotify app didn't come online")
 type (
 	// playbackMovedMsg: playback is now on device.
 	playbackMovedMsg struct{ device string }
-	// deviceTargetMsg carries the devices for a switch by name (query) or,
-	// with query "-", to the previous device.
+	// deviceTargetMsg carries the devices for a switch by name (query), to
+	// the previous device (previousDevice) or gd's toggle (toggleHere).
 	deviceTargetMsg struct {
 		devices []source.Device
 		query   string
@@ -71,7 +79,7 @@ func (m Model) withOpenSpotify(devices []source.Device) []source.Device {
 // startSpotifyApp starts the Spotify app and moves playback to it (or, with
 // retry, replays the command waiting on a device) once it's online.
 func (m Model) startSpotifyApp(retry tea.Cmd) (Model, tea.Cmd) {
-	m.toast.Show("Opening the Spotify app…", "Playback moves there once it's ready", ToastInfo)
+	m.toast.Show("Opening the Spotify app…", "waxon controls it once it's ready", ToastInfo)
 	return m, tea.Batch(scheduleAutoDismiss(), m.waitForSpotifyApp(retry))
 }
 
@@ -130,8 +138,8 @@ func (m *Model) noteDevice(dev source.Device) {
 	m.deviceTypes[dev.Name] = dev.Type
 }
 
-// switchDevice looks up the devices for a switch by name, or with "-" to
-// the previous device.
+// switchDevice looks up the devices for a switch by name, to the previous
+// device (previousDevice) or for gd's toggle (toggleHere).
 func (m Model) switchDevice(query string) tea.Cmd {
 	src, ctx := m.source, m.ctx
 	return func() tea.Msg {
@@ -147,8 +155,11 @@ func (m Model) deviceTarget(msg deviceTargetMsg) (Model, tea.Cmd) {
 	for _, d := range msg.devices {
 		m.noteDevice(d)
 	}
-	if msg.query == "-" {
+	switch msg.query {
+	case previousDevice:
 		return m.swapDevice(msg.devices)
+	case toggleHere:
+		return m.toggleHere(msg.devices)
 	}
 	q := strings.ToLower(msg.query)
 	var matches []source.Device
@@ -171,18 +182,32 @@ func (m Model) deviceTarget(msg deviceTargetMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// swapDevice moves playback to the device played on before this one. With
-// none, it toggles this computer between waxon's player and the Spotify
-// app, starting the app if it isn't running.
-func (m Model) swapDevice(devices []source.Device) (Model, tea.Cmd) {
-	current, player := m.deviceName, m.opts.PlayerName
-	want := m.prevDevice
-	if want == "" || want == current {
-		want = "" // this computer's Spotify app
-		if player != "" && current != player {
-			want = player
-		}
+// toggleHere moves playback between waxon's player and this computer's
+// Spotify app: to the app from the player, to the player from anywhere
+// else. The app is started if it isn't running.
+func (m Model) toggleHere(devices []source.Device) (Model, tea.Cmd) {
+	want := "" // this computer's Spotify app
+	if player := m.opts.PlayerName; player != "" && m.deviceName != player {
+		want = player
 	}
+	return m.switchTo(want, devices)
+}
+
+// swapDevice moves playback to the device played on before this one. With
+// none, it toggles as gd does.
+func (m Model) swapDevice(devices []source.Device) (Model, tea.Cmd) {
+	want := m.prevDevice
+	if want == "" || want == m.deviceName {
+		return m.toggleHere(devices)
+	}
+	return m.switchTo(want, devices)
+}
+
+// switchTo moves playback to the device named want ("" for this
+// computer's Spotify app), starting the app if that's the one and it isn't
+// running.
+func (m Model) switchTo(want string, devices []source.Device) (Model, tea.Cmd) {
+	player := m.opts.PlayerName
 	for _, d := range devices {
 		if (want != "" && d.Name == want) || (want == "" && m.isComputerApp(d)) {
 			return m.moveTo(d)
@@ -207,6 +232,20 @@ func (m Model) swapDevice(devices []source.Device) (Model, tea.Cmd) {
 // moveTo moves playback to dev, saying so at once: a device that has just
 // come online can take a few seconds to accept it.
 func (m Model) moveTo(dev source.Device) (Model, tea.Cmd) {
-	m.toast.Show("Moving playback to "+dev.Name+"…", "", ToastInfo)
+	title, _ := m.modeLabel(dev.Name)
+	m.toast.Show(title+"…", "", ToastInfo)
 	return m, tea.Batch(scheduleAutoDismiss(), m.transferPlayback(dev.ID, dev.Name))
+}
+
+// modeLabel says what playing on device means for this computer: waxon
+// playing by itself, or controlling the Spotify app (gd's two modes), or
+// just which device it is.
+func (m Model) modeLabel(device string) (title, detail string) {
+	switch {
+	case device != "" && device == m.opts.PlayerName:
+		return "Playing in waxon", "gd hands it to the Spotify app"
+	case m.deviceTypes[device] == "Computer" && m.opts.PlayerName != "":
+		return "Controlling the Spotify app", device + " · gd plays in waxon again"
+	}
+	return "Playing on " + device, ""
 }

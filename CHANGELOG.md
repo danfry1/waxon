@@ -22,10 +22,10 @@ Each release's section is also used verbatim as the GitHub Release notes.
 - Changing the volume shows a level meter: the part Spotify hasn't
   applied yet is drawn dimly and fills in, with a brief glow, once the new
   level takes effect. The status bar's volume dims and glows the same way.
-- `gd` (or `:device -`) swaps back to the device you were on before, so
-  moving between waxon's player and the Spotify app is one key; with no
-  previous device it toggles between those two. `:device <name>` switches
-  to a device by name.
+- `gd` switches between playing in waxon and controlling the Spotify app
+  on this computer, carrying on from the same point. `:device -` goes back to the
+  device you were on before, and `:device <name>` switches to a device by
+  name.
 - When the Spotify desktop app is installed but closed, the device picker
   offers to open it, and `gd` does too: waxon starts it in the background
   and moves playback there once it's online.
