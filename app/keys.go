@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -242,20 +243,27 @@ func KeyActionNames() []string {
 }
 
 // KeyMapFromOverrides returns the default KeyMap with the given overrides
-// applied. Each value is a comma-separated list of keys as Bubbletea names
-// them ("j", "down", "ctrl+d", "space", "enter", "esc", "tab", "backspace").
-// Unknown action names or empty key lists are errors so typos don't silently
-// leave a default in place.
+// (action name → comma-separated keys) applied. Every override that can be
+// applied is; the error lists the rest (unknown actions, empty key lists)
+// and keys an override shares with another action, which would shadow one
+// of them, so one typo doesn't throw away the whole keymap.
 func KeyMapFromOverrides(overrides map[string]string) (KeyMap, error) {
 	k := DefaultKeyMap()
 	fields := k.keyBindingFields()
-	for action, spec := range overrides {
+	var problems []string
+	actions := make([]string, 0, len(overrides))
+	for action := range overrides {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+	for _, action := range actions {
 		b, ok := fields[action]
 		if !ok {
-			return k, fmt.Errorf("unknown key action %q (available: %s)", action, strings.Join(KeyActionNames(), ", "))
+			problems = append(problems, fmt.Sprintf("unknown action %q", action))
+			continue
 		}
 		var keys []string
-		for _, part := range strings.Split(spec, ",") {
+		for _, part := range strings.Split(overrides[action], ",") {
 			part = strings.TrimSpace(part)
 			if part == "" {
 				continue
@@ -266,12 +274,43 @@ func KeyMapFromOverrides(overrides map[string]string) (KeyMap, error) {
 			keys = append(keys, part)
 		}
 		if len(keys) == 0 {
-			return k, fmt.Errorf("key action %q has no keys", action)
+			problems = append(problems, fmt.Sprintf("%q has no keys", action))
+			continue
 		}
 		desc := b.Help().Desc
 		*b = key.NewBinding(key.WithKeys(keys...), key.WithHelp(displayKey(keys[0]), desc))
 	}
+	problems = append(problems, keyClashes(fields, overrides)...)
+	if len(problems) > 0 {
+		return k, errors.New(strings.Join(problems, "; "))
+	}
 	return k, nil
+}
+
+// keyClashes lists keys that an overridden action shares with another
+// action: whichever is matched first wins, and the other stops working.
+func keyClashes(fields map[string]*key.Binding, overrides map[string]string) []string {
+	owners := map[string][]string{}
+	for action, b := range fields {
+		for _, kk := range b.Keys() {
+			owners[kk] = append(owners[kk], action)
+		}
+	}
+	var clashes []string
+	for kk, actions := range owners {
+		if len(actions) < 2 {
+			continue
+		}
+		sort.Strings(actions)
+		for _, a := range actions {
+			if _, ok := overrides[a]; ok {
+				clashes = append(clashes, fmt.Sprintf("%q is both %s", displayKey(kk), strings.Join(actions, " and ")))
+				break
+			}
+		}
+	}
+	sort.Strings(clashes)
+	return clashes
 }
 
 // displayKey renders a Bubbletea key name the way the help text shows it.

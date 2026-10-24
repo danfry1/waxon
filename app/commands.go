@@ -998,6 +998,11 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 }
 
 func (m Model) handleAddQueue() (Model, tea.Cmd) {
+	if m.focusPane == PaneSidebar {
+		// The track list's cursor isn't what the user is looking at.
+		m.toast.Show("Pick a track to queue", "Press "+m.keys.FocusRight.Help().Key+" to move to the track list", ToastInfo)
+		return m, scheduleAutoDismiss()
+	}
 	track := m.tracklist.SelectedTrack()
 	if track == nil || track.IsSeparator || track.IsAlbumRow {
 		m.toast.Show("No track selected", "", ToastError)

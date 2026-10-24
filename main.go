@@ -254,10 +254,10 @@ func applyUserConfig() app.Options {
 
 	if len(cfg.Keys) > 0 {
 		km, err := app.KeyMapFromOverrides(cfg.Keys)
+		opts.Keys = &km
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: config keys: %v (using defaults)\n", err)
-		} else {
-			opts.Keys = &km
+			// Shown in the app: stderr is hidden behind the full-screen UI.
+			opts.KeysProblem = err.Error()
 		}
 	}
 	opts.SaveTheme = func(name string) error {

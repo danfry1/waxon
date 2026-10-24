@@ -311,6 +311,16 @@ func (s *Sidebar) SetCursorFromClick(y int) {
 	s.list.Select(globalIdx)
 }
 
+// Move moves the cursor by n rows (negative is up), stopping at the ends.
+func (s *Sidebar) Move(n int) {
+	if total := len(s.list.Items()); total > 0 {
+		s.list.Select(max(0, min(total-1, s.list.Index()+n)))
+	}
+}
+
+// HalfPage is half the rows on screen, what C-d/C-u move by.
+func (s *Sidebar) HalfPage() int { return max(1, s.list.Paginator.PerPage/2) }
+
 func (s Sidebar) Update(msg tea.Msg) (Sidebar, tea.Cmd) {
 	var cmd tea.Cmd
 	s.list, cmd = s.list.Update(msg)

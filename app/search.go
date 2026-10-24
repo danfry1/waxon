@@ -51,12 +51,14 @@ func NewSearch(width, height int) Search {
 func (s Search) Update(msg tea.Msg) (Search, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Letters type into the query, so results move with the arrows and
+		// the same C-n/C-p, C-j/C-k as the playlist picker.
 		switch msg.Type {
-		case tea.KeyDown:
+		case tea.KeyDown, tea.KeyCtrlN, tea.KeyCtrlJ:
 			s.cursor++
 			s.clampCursor()
 			return s, nil
-		case tea.KeyUp:
+		case tea.KeyUp, tea.KeyCtrlP, tea.KeyCtrlK:
 			s.cursor--
 			s.clampCursor()
 			return s, nil
@@ -232,7 +234,7 @@ func (s Search) View() string {
 		content += "\n"
 		content += StyleDimText.Render("  Type to search Spotify") + "\n\n"
 		content += StyleDimText.Render("  Results show tracks, artists, and albums.") + "\n\n"
-		content += lipgloss.NewStyle().Foreground(ColorBorder).Render("  j/k navigate   Enter select   Esc close") + "\n"
+		content += lipgloss.NewStyle().Foreground(ColorBorder).Render("  ↑/↓ or C-n/C-p move   Enter select   Esc close") + "\n"
 	}
 
 	overlay := border.Render(content)
