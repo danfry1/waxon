@@ -181,7 +181,7 @@ func (s StatusBar) ViewModeLine(mode Mode, cmdInput string, filterInput string, 
 			left += "  " + StyleModeFilter.Render("/"+filterActive)
 		}
 	case ModeCommand:
-		left = " " + StyleModeCommand.Render(":") + " " + cmdInput
+		left = " " + StyleModeCommand.Render(":") + " " + cmdInput + StyleDimText.Render(commandSuggestion(cmdInput))
 	case ModeFilter:
 		left = " " + StyleModeFilter.Render("/") + " " + filterInput
 	case ModeSearch:
@@ -286,7 +286,7 @@ func (s StatusBar) ViewNowPlayingWithArt(track *source.Track, shuffleOn bool, re
 	var modeLine string
 	switch mode {
 	case ModeCommand:
-		modeLine = "   " + StyleModeCommand.Render(":") + " " + cmdInput
+		modeLine = "   " + StyleModeCommand.Render(":") + " " + cmdInput + StyleDimText.Render(commandSuggestion(cmdInput))
 	case ModeFilter:
 		modeLine = "   " + StyleModeFilter.Render("/") + " " + filterInput
 	case ModeSearch:

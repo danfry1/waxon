@@ -3,6 +3,8 @@ package app
 import (
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/danfry1/waxon/source"
@@ -11,33 +13,60 @@ import (
 // IDs of the library collections that aren't playlists. Each opens in the
 // track list as navigable rows (albums, artists or shows).
 const (
+	collectionBrowseID   = "collection:browse"
 	collectionRecentID   = "collection:recent"
 	collectionAlbumsID   = "collection:albums"
 	collectionArtistsID  = "collection:artists"
 	collectionPodcastsID = "collection:podcasts"
 )
 
-// libraryRows are the collections listed in the sidebar's Library, after
-// Liked Songs and before the playlists, as in Spotify's own apps.
+// libraryRows are the rows waxon adds to the sidebar's Library after Liked
+// Songs: one, which opens the collections (the playlists, used far more,
+// stay near the top).
 var libraryRows = []source.Playlist{
+	{ID: collectionBrowseID, Name: "Albums · Artists · Podcasts"},
+}
+
+// collections are what the browse row lists, in order.
+var collections = []source.Playlist{
 	{ID: collectionRecentID, Name: "Recently Played"},
 	{ID: collectionAlbumsID, Name: "Albums"},
 	{ID: collectionArtistsID, Name: "Artists"},
 	{ID: collectionPodcastsID, Name: "Podcasts"},
 }
 
-// libraryRowGlyphs mark the collection rows in the sidebar.
-var libraryRowGlyphs = map[string]string{
-	collectionRecentID:   "↺",
-	collectionAlbumsID:   "◉",
-	collectionArtistsID:  "☺",
-	collectionPodcastsID: "◎",
+// libraryRowStyle is how a collection row looks in the sidebar: a tile the
+// size of a playlist's cover, in its own colour (symbols are drawn at
+// different widths by different terminals, and wouldn't line up), and a
+// line under the name as playlists have their track count.
+type libraryRowStyle struct {
+	top, bottom color.RGBA // the tile's two halves
+	desc        string
+}
+
+var libraryRowStyles = map[string]libraryRowStyle{
+	collectionBrowseID:   {color.RGBA{0xa3, 0x7c, 0xf0, 0xff}, color.RGBA{0x4c, 0xa8, 0xf2, 0xff}, "recently played and more"},
+	collectionRecentID:   {color.RGBA{0x2a, 0xc9, 0x6a, 0xff}, color.RGBA{0x14, 0x7a, 0x3f, 0xff}, "the tracks you played last"},
+	collectionAlbumsID:   {color.RGBA{0xa3, 0x7c, 0xf0, 0xff}, color.RGBA{0x5b, 0x3d, 0xb0, 0xff}, "the albums you've saved"},
+	collectionArtistsID:  {color.RGBA{0xf2, 0x9e, 0x4c, 0xff}, color.RGBA{0xb0, 0x5a, 0x1c, 0xff}, "the artists you follow"},
+	collectionPodcastsID: {color.RGBA{0x4c, 0xa8, 0xf2, 0xff}, color.RGBA{0x1f, 0x62, 0xb0, 0xff}, "the shows you follow"},
+}
+
+// libraryRowTile renders the collection id's tile (half-blocks, as covers).
+func libraryRowTile(id string) string {
+	st := libraryRowStyles[id]
+	img := image.NewRGBA(image.Rect(0, 0, 3, 2))
+	for x := range 3 {
+		img.SetRGBA(x, 0, st.top)
+		img.SetRGBA(x, 1, st.bottom)
+	}
+	return renderHalfBlocks(img, 3, 1)
 }
 
 // isCollection reports whether id is one of the library collections rather
 // than a playlist.
 func isCollection(id string) bool {
-	_, ok := libraryRowGlyphs[id]
+	_, ok := libraryRowStyles[id]
 	return ok
 }
 
@@ -59,6 +88,17 @@ var collectionTitles = map[string]string{
 // podcasts in the track list: from their Library rows, or :recent /
 // :albums / :artists / :podcasts.
 func (m *Model) openCollection(id string) tea.Cmd {
+	if id == collectionBrowseID {
+		// The collections themselves, as rows that open them.
+		rows := make([]source.Track, len(collections))
+		for i, c := range collections {
+			rows[i] = source.Track{ID: c.ID, Name: c.Name, Album: libraryRowStyles[c.ID].desc, IsAlbumRow: true}
+		}
+		m.pushNav()
+		m.focusPane = PaneTrackList
+		m.tracklist.SetTracks(rows, "Your Library", "")
+		return nil
+	}
 	if id == collectionRecentID {
 		m.pushNav()
 		m.focusPane = PaneTrackList
@@ -147,6 +187,8 @@ func (m *Model) openRow(t source.Track) (tea.Cmd, bool) {
 		return nil, false
 	}
 	switch {
+	case isCollection(t.ID):
+		return m.openCollection(t.ID), true
 	case t.AlbumID != "":
 		m.pushNav()
 		m.tracklist.SetLoading(t.Name)

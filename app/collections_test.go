@@ -9,8 +9,8 @@ import (
 	"github.com/danfry1/waxon/source"
 )
 
-// The Library lists Liked Songs, then the collections, then the playlists,
-// as in Spotify's apps.
+// The Library lists Liked Songs, then one row for the collections, then
+// the playlists.
 func TestLibraryRowsInSidebar(t *testing.T) {
 	m := newTestModel(&StubSource{})
 	res, _ := m.Update(playlistsLoadedMsg{playlists: []source.Playlist{{ID: likedPlaylistID, Name: "Liked"}, {ID: "p1", Name: "Mine"}}})
@@ -19,13 +19,13 @@ func TestLibraryRowsInSidebar(t *testing.T) {
 	for _, it := range m.sidebar.list.Items() {
 		ids = append(ids, it.(sidebarItem).playlist.ID)
 	}
-	want := []string{likedPlaylistID, collectionRecentID, collectionAlbumsID, collectionArtistsID, collectionPodcastsID, "p1"}
+	want := []string{likedPlaylistID, collectionBrowseID, "p1"}
 	if fmt.Sprint(ids) != fmt.Sprint(want) {
 		t.Errorf("sidebar = %v, want %v", ids, want)
 	}
 }
 
-// Enter on a collection row opens it in the track list.
+// Enter on the browse row lists the collections; Enter on one opens it.
 func TestEnterOnLibraryRowOpensIt(t *testing.T) {
 	m := newTestModel(&StubSource{SavedAlbumsFn: func(context.Context) ([]source.SavedAlbum, error) {
 		return []source.SavedAlbum{{ID: "al1", Name: "Blue"}}, nil
@@ -33,11 +33,17 @@ func TestEnterOnLibraryRowOpensIt(t *testing.T) {
 	res, _ := m.Update(playlistsLoadedMsg{playlists: []source.Playlist{{ID: likedPlaylistID, Name: "Liked"}}})
 	m = res.(Model)
 	m.focusPane = PaneSidebar
-	m.sidebar.Move(2) // Liked, Recently Played, Albums
+	m.sidebar.Move(1) // Liked, then the browse row
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+	if m.focusPane != PaneTrackList || m.tracklist.title != "Your Library" || len(m.tracklist.tracks) != 4 {
+		t.Fatalf("browse row: focus %v, title %q, %d rows", m.focusPane, m.tracklist.title, len(m.tracklist.tracks))
+	}
+	m.tracklist.MoveDown(1) // Recently Played, then Albums
 	res, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = res.(Model)
-	if cmd == nil || m.focusPane != PaneTrackList {
-		t.Fatalf("Enter on Albums: cmd %v, focus %v", cmd != nil, m.focusPane)
+	if cmd == nil {
+		t.Fatal("Enter on Albums: no fetch")
 	}
 	res, _ = m.Update(cmd())
 	if got := res.(Model).tracklist.title; got != "Saved Albums" {

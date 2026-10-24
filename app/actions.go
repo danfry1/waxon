@@ -26,8 +26,9 @@ const (
 	ActionShufflePlaylist
 )
 
-// actionLetters are the menu's letter shortcuts: the same letters as in the
-// main view, so o then a queues just as a does.
+// actionLetters are the menu's letter shortcuts: a and f as in the main
+// view (queue, like), + to add to a playlist and d to remove, as in visual
+// mode.
 var actionLetters = map[string]ActionType{
 	"a": ActionQueue,
 	"f": ActionLike,

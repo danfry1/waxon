@@ -13,8 +13,12 @@ Enter
 Sleep 2s
 Show
 
-# Albums, in the Library
-Type "jj"
+# Albums, under Albums · Artists · Podcasts in the Library
+Type "j"
+Sleep 600ms
+Enter
+Sleep 1s
+Type "j"
 Sleep 600ms
 Enter
 Sleep 1.5s
@@ -38,8 +42,8 @@ Escape
 Sleep 600ms
 
 # Artists, then open one
-Type "gl"
-Sleep 300ms
+Type "b"
+Sleep 600ms
 Type "j"
 Sleep 600ms
 Enter

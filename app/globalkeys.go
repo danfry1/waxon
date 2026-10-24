@@ -56,35 +56,40 @@ func (m Model) handleGlobalKey(msg tea.KeyMsg, count int) (Model, tea.Cmd, bool)
 	case key.Matches(msg, m.keys.Mode):
 		return m, m.switchDevice(toggleHere), true
 	case key.Matches(msg, m.keys.Devices):
-		m.overlayFromNP = m.mode == ModeNowPlaying
 		return m, m.fetchDevices(), true
 	case key.Matches(msg, m.keys.Search):
-		m.overlayFromNP = m.mode == ModeNowPlaying
 		s := NewSearch(m.width, m.height)
 		m.search = &s
 		m.mode = ModeSearch
 		return m, nil, true
 	case key.Matches(msg, m.keys.Command):
-		m.overlayFromNP = m.mode == ModeNowPlaying
 		m.mode = ModeCommand
 		m.cmdInput = ""
 		return m, nil, true
 	case key.Matches(msg, m.keys.Help):
-		m.overlayFromNP = m.mode == ModeNowPlaying
 		m.mode = ModeHelp
 		return m, nil, true
 	}
 	return m, nil, false
 }
 
+// returnsToOpener reports whether mode is one of the overlays that close
+// back to where they were opened (Model.overlayReturn).
+func returnsToOpener(mode Mode) bool {
+	switch mode {
+	case ModeSearch, ModeHelp, ModeCommand, ModeDevices:
+		return true
+	}
+	return false
+}
+
 // leaveOverlay closes search, help, the command line or the device picker,
 // back to Now Playing if that's where it was opened.
 func (m *Model) leaveOverlay() {
 	m.mode = ModeNormal
-	if m.overlayFromNP {
+	if m.overlayReturn == ModeNowPlaying {
 		m.mode = ModeNowPlaying
 	}
-	m.overlayFromNP = false
 }
 
 // openPlayingActions opens the actions menu for the playing track.

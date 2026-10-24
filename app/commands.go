@@ -633,7 +633,11 @@ func (m Model) shufflePlay(contextURI string) tea.Cmd {
 		if err := src.SetShuffle(ctx, true); err != nil {
 			return trackErrorMsg{err}
 		}
-		if err := src.PlayTrack(ctx, contextURI, ""); err != nil {
+		err := src.PlayTrack(ctx, contextURI, "")
+		if errors.Is(err, source.ErrNoActiveDevice) && hasActiveDevice(ctx, src) {
+			return playlistUnplayableMsg{} // as in playPlaylistFromStart
+		}
+		if err != nil {
 			return trackErrorMsg{err}
 		}
 		return controlDoneMsg{}
@@ -884,9 +888,11 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 		m.mode = ModeHelp
 		return nil
 	case CmdRecent:
+		m.mode = ModeNormal // it opens in the track list
 		m.pushNav()
 		return m.fetchRecentlyPlayed()
 	case CmdCollection:
+		m.mode = ModeNormal
 		return m.openCollection(cmd.StrArg)
 	case CmdNowPlaying:
 		return m.openNowPlaying(npView(cmd.IntArg))
@@ -949,6 +955,14 @@ func (m Model) openActions() (Model, tea.Cmd) {
 	}
 	if isCollection(pl.ID) {
 		return m.openSidebarRow(*pl) // nothing to do to it but open it
+	}
+	if m.sidebar.Section() == SectionQueue {
+		// A queued track, not a playlist: the track's own menu.
+		popup := NewTrackActions(pl.Name, "", pl.URI, "", "", "", m.likedCache[pl.ID], m.width, m.height)
+		m.actions = &popup
+		m.actionsReturn = ModeNormal
+		m.mode = ModeActions
+		return m, m.checkLikeStatus(pl.ID)
 	}
 	popup := NewPlaylistActions(pl.Name, pl.URI, m.width, m.height)
 	m.actions = &popup

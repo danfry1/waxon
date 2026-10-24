@@ -55,40 +55,67 @@ var commandHelp = []helpBinding{
 	{":q", "quit"},
 }
 
-// commandNames are the commands Tab completes, ParseCommand's spellings.
+// commandNames are the commands suggested and completed as they're typed,
+// ParseCommand's spellings, the likeliest first (":p" suggests play).
 var commandNames = []string{
-	"albums", "artists", "device", "help", "like", "lyrics", "mute", "next", "pause",
-	"play", "playlist new", "podcasts", "prev", "quit", "recent", "repeat", "search",
-	"seek", "shuffle", "theme", "toggle", "vinyl", "vol",
+	"next", "play", "pause", "prev", "vol", "seek", "search", "shuffle", "like",
+	"mute", "device", "repeat", "recent", "albums", "artists", "podcasts",
+	"lyrics", "vinyl", "theme", "playlist new", "toggle", "help", "quit",
 }
 
-// completeCommand completes the command name being typed in input to the
-// longest prefix the matching commands share; input comes back unchanged
-// if nothing matches or an argument is already being typed.
-func completeCommand(input string) string {
-	if strings.Contains(strings.TrimLeft(input, " "), " ") {
-		return input
+// commandArgHints say what a command takes, shown dimmed once its name is
+// typed.
+var commandArgHints = map[string]string{
+	"vol": "0-100 or ±N", "seek": "±N or M:SS", "search": "query", "shuffle": "on|off",
+	"like": "on|off", "device": "- or name", "repeat": "off|all|one", "theme": "name",
+	"playlist new": "name",
+}
+
+// commandSuggestion is the dimmed text shown after what's typed in command
+// mode: the rest of the likeliest command name, or once a name is complete,
+// what it takes. Tab or → accepts a name.
+func commandSuggestion(input string) string {
+	if input == "" {
+		return ""
 	}
-	prefix := strings.TrimSpace(input)
-	var match []string
+	if name, rest, typingArg := strings.Cut(input, " "); typingArg {
+		if strings.TrimSpace(rest) == "" {
+			return commandArgHints[name]
+		}
+		return ""
+	}
 	for _, n := range commandNames {
-		if strings.HasPrefix(n, prefix) {
-			match = append(match, n)
+		if strings.HasPrefix(n, input) && n != input {
+			return n[len(input):]
 		}
 	}
-	if len(match) == 0 {
+	return ""
+}
+
+// acceptSuggestion completes input to the suggested command name (with a
+// space, ready for an argument), or leaves it as it is.
+func acceptSuggestion(input string) string {
+	if strings.Contains(input, " ") {
 		return input
 	}
-	common := match[0]
-	for _, n := range match[1:] {
-		for !strings.HasPrefix(n, common) {
-			common = common[:len(common)-1]
+	if commandAliases[input] {
+		return input + " "
+	}
+	if s := commandSuggestion(input); s != "" {
+		return input + s + " "
+	}
+	for _, n := range commandNames {
+		if n == input {
+			return input + " "
 		}
 	}
-	if len(match) == 1 {
-		common += " "
-	}
-	return common
+	return input
+}
+
+// commandAliases are the other spellings ParseCommand accepts.
+var commandAliases = map[string]bool{
+	"pl": true, "q": true, "h": true, "volume": true, "previous": true, "shows": true,
+	"devices": true, "themes": true, "colorscheme": true, "colourscheme": true,
 }
 
 type Command struct {
@@ -117,7 +144,7 @@ func ParseCommand(input string) (Command, error) {
 		}
 		arg := args[0]
 		v, err := strconv.Atoi(strings.TrimPrefix(arg, "+"))
-		if err != nil {
+		if err != nil || strings.HasPrefix(arg, "+-") {
 			return Command{}, errors.New("usage: vol <0-100|+N|-N>")
 		}
 		if strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-") {
@@ -142,11 +169,11 @@ func ParseCommand(input string) (Command, error) {
 		if len(args) != 1 {
 			return Command{}, errors.New("usage: seek <+N|-N|SECONDS|M:SS>")
 		}
-		sign := ""
-		if a := args[0]; strings.HasPrefix(a, "+") || strings.HasPrefix(a, "-") {
-			sign = a[:1]
+		sign, rest := "", args[0]
+		if strings.HasPrefix(rest, "+") || strings.HasPrefix(rest, "-") {
+			sign, rest = rest[:1], rest[1:]
 		}
-		secs, err := parseSeconds(strings.TrimLeft(args[0], "+-"))
+		secs, err := parseSeconds(rest)
 		if err != nil {
 			return Command{}, errors.New("usage: seek <+N|-N|SECONDS|M:SS>")
 		}
@@ -236,9 +263,9 @@ func parseSeconds(s string) (int, error) {
 		return 0, errors.New("bad time")
 	}
 	total := 0
-	for _, p := range parts {
+	for i, p := range parts {
 		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 {
+		if err != nil || n < 0 || (i > 0 && n > 59) { // 1:75 isn't a time
 			return 0, errors.New("bad time")
 		}
 		total = total*60 + n

@@ -13,8 +13,12 @@ Enter
 Sleep 2s
 Show
 
-# Podcasts, in the Library
-Type "jjjj"
+# Podcasts, under Albums · Artists · Podcasts in the Library
+Type "j"
+Sleep 600ms
+Enter
+Sleep 1s
+Type "jjj"
 Sleep 600ms
 Enter
 Sleep 1.5s

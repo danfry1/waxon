@@ -209,7 +209,7 @@ Explore discographies, browse full albums, and navigate with a browser-like back
 
 ### Your Library
 
-The Library starts with **Liked Songs**, **Recently Played**, **Albums**, **Artists** and **Podcasts**, then your playlists. Albums and Artists list what you've saved and follow; Enter opens one, and `/` filters by name or artist.
+Under **Liked Songs** in the Library, **Albums · Artists · Podcasts** opens Recently Played and the albums, artists and shows you've saved and follow (also `:recent`, `:albums`, `:artists`, `:podcasts`). Enter opens one, and `/` filters by name or artist.
 
 <p align="center">
   <img src="demo/recordings/library.gif" alt="saved albums and followed artists" width="800">
@@ -217,7 +217,7 @@ The Library starts with **Liked Songs**, **Recently Played**, **Albums**, **Arti
 
 ### Podcasts
 
-**Podcasts** in the Library lists the shows you follow. Each opens to its episodes, newest first; episodes play, queue, like and add to playlists like tracks do.
+**Podcasts** (under Albums · Artists · Podcasts, or `:podcasts`) lists the shows you follow. Each opens to its episodes, newest first; episodes play, queue, like and add to playlists like tracks do.
 
 <p align="center">
   <img src="demo/recordings/podcasts.gif" alt="podcasts" width="800">
@@ -319,7 +319,7 @@ In search, `Tab` moves from the query to the results, where `j`/`k` move and `a`
 
 ## Commands
 
-Enter command mode by pressing `:`, then type a command (`Tab` completes its name). The playback commands read like the CLI's (`waxon next`, `waxon seek 1:30`).
+Enter command mode by pressing `:`, then type a command. As you type, the likeliest command shows dimmed after the cursor (and then what it takes); `Tab` or `→` accepts it. The playback commands read like the CLI's (`waxon next`, `waxon seek 1:30`).
 
 | Command                 | Description          |
 |-------------------------|----------------------|

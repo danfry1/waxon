@@ -17,8 +17,7 @@ the same thing everywhere.
 
 | Was | Now |
 |---|---|
-| `ga` / `gA`: saved albums / followed artists | **Albums** and **Artists** rows in the Library; `ga` / `gA` go to the selected track's album / artist |
-| `gr` / `gp`: recently played / podcasts | **Recently Played** and **Podcasts** rows in the Library |
+| `ga` / `gA` / `gp` / `gr`: saved albums / followed artists / podcasts / recently played | **Albums · Artists · Podcasts** under Liked Songs in the Library (or `:albums`, `:artists`, `:podcasts`, `:recent`); `ga` / `gA` go to the selected track's album / artist |
 | `1` / `2`: Library / Queue | `gl` / `gq`; digits are counts everywhere |
 | `f` in the sidebar liked the playing track | `F` likes the playing track from anywhere; `O` opens its menu |
 | `V` (vinyl, in Now Playing) | `v` (`V` still works) |
@@ -33,15 +32,16 @@ ignoring your keys.
 - `m` mutes and unmutes; a count multiplies a seek (`6]` is +30s); `Esc`
   clears a filter or a half-typed count.
 - The actions menu numbers its rows (`o` then `1` goes to the album) and
-  takes the main view's letters (`a`, `f`, `+`, `d`); Go to Album / Artist
-  come first. Playlists get **Shuffle Play**.
+  takes letters too: `a` queue, `f` like, `+` add to a playlist, `d`
+  remove. Go to Album / Artist come first. Playlists get **Shuffle Play**.
 - In search, `Tab` moves to the results, where `a`, `f` and `o` act on the
   selected track.
 - Now Playing isn't a dead end: playback keys, `s`, `D`, `M`, `:` and `?`
   work in it, and what they open closes back to it.
 - `:play`, `:pause`, `:next`, `:prev`, `:seek ±N|M:SS`, `:vol ±N`, `:mute`,
-  `:like [on|off]`, `:shuffle [on|off]` and `:h`, read like the CLI's, and
-  `Tab` completes command names.
+  `:like [on|off]`, `:shuffle [on|off]` and `:h`, read like the CLI's. As
+  you type one, the rest of it shows dimmed (then what it takes, such as
+  `0-100 or ±N` for `:vol`), and `Tab` or `→` accepts it.
 - Vinyl mode is a proper record now: black grooved vinyl with the cover on
   its centre label, a reflection that stays put as the record turns under
   it, and a tonearm whose needle moves across the record as the track

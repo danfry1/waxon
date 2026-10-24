@@ -124,17 +124,31 @@ func TestCLIStyleCommands(t *testing.T) {
 	}
 }
 
-func TestCompleteCommand(t *testing.T) {
+// What's typed suggests the likeliest command, dimmed; then what it takes.
+func TestCommandSuggestion(t *testing.T) {
+	for in, want := range map[string]string{
+		"ne":    "xt",
+		"p":     "lay", // play comes before pause, prev, podcasts
+		"pla":   "y",
+		"vol ":  "0-100 or ±N",
+		"vol 5": "",
+		"next":  "",
+		"zzz":   "",
+		"":      "",
+	} {
+		if got := commandSuggestion(in); got != want {
+			t.Errorf("suggestion(%q) = %q, want %q", in, got, want)
+		}
+	}
 	for in, want := range map[string]string{
 		"ne":    "next ",
-		"p":     "p",        // play, playlist new, podcasts, prev, pause: no common part past p
-		"pla":   "play",     // play and playlist new
-		"sh":    "shuffle ", // the only one
-		"vol 5": "vol 5",    // an argument: left alone
+		"next":  "next ",
+		"pl":    "pl ", // an alias stays itself
 		"zzz":   "zzz",
+		"vol 5": "vol 5",
 	} {
-		if got := completeCommand(in); got != want {
-			t.Errorf("complete(%q) = %q, want %q", in, got, want)
+		if got := acceptSuggestion(in); got != want {
+			t.Errorf("accept(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

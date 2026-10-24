@@ -27,13 +27,13 @@ func (s sidebarItem) Title() string {
 	if s.icon != "" {
 		return s.icon + " " + s.playlist.Name
 	}
-	if g, ok := libraryRowGlyphs[s.playlist.ID]; ok {
-		return g + " " + s.playlist.Name
-	}
 	return "♫ " + s.playlist.Name
 }
 
 func (s sidebarItem) Description() string {
+	if st, ok := libraryRowStyles[s.playlist.ID]; ok {
+		return st.desc
+	}
 	if s.playlist.TrackCount == 0 {
 		return ""
 	}
@@ -109,7 +109,7 @@ func (s *Sidebar) SetPlaylists(playlists []source.Playlist) {
 		items = append(items, sidebarItem{playlist: pl})
 		if i == 0 && pl.ID == likedPlaylistID {
 			for _, row := range libraryRows {
-				items = append(items, sidebarItem{playlist: row})
+				items = append(items, sidebarItem{playlist: row, icon: libraryRowTile(row.ID)})
 			}
 		}
 	}
@@ -326,6 +326,13 @@ func (s *Sidebar) SetCursorFromClick(y int) {
 func (s *Sidebar) Move(n int) {
 	if total := len(s.list.Items()); total > 0 {
 		s.list.Select(max(0, min(total-1, s.list.Index()+n)))
+	}
+}
+
+// Goto puts the cursor on row i (clamped to the list).
+func (s *Sidebar) Goto(i int) {
+	if total := len(s.list.Items()); total > 0 {
+		s.list.Select(max(0, min(total-1, i)))
 	}
 }
 
