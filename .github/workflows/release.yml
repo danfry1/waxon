@@ -115,6 +115,7 @@ jobs:
           url="https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz"
           sha=$(curl --fail --silent --show-error --location --retry 3 "$url" | sha256sum | cut -d' ' -f1)
           file="tap/${FORMULA}.rb"
+          # A new version starts at revision 0, so drop any revision line.
           # Drop the bottle block: its bottles belong to the old version. Publishing
           # the tap pull request (brew pr-pull) writes a new block; if the PR is
           # merged without publishing, the formula builds from source instead of
@@ -123,6 +124,7 @@ jobs:
             -e "s#^  url \"[^\"]*\"#  url \"${url}\"#" \
             -e "s#^  sha256 \"[0-9a-f]*\"#  sha256 \"${sha}\"#" \
             -e '/^  bottle do$/,/^  end$/d' \
+            -e '/^  revision [0-9]+$/d' \
             "$file"
           # Removing the block leaves two blank lines; brew style allows one.
           cat -s "$file" > "$file.new" && mv "$file.new" "$file"
