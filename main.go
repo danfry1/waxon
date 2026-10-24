@@ -37,6 +37,9 @@ func main() {
 			runAuthWith(newOnboarding(), opts)
 			return
 		case "logout":
+			if err := app.RemoveSnapshot(app.DefaultSnapshotPath()); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not remove the library cache: %v\n", err)
+			}
 			if err := myauth.DeleteToken(myauth.DefaultTokenPath()); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				cleanup()
@@ -162,6 +165,7 @@ func applyUserConfig() app.Options {
 		art, origin = env, "WAXON_ART"
 	}
 	configureArt(art, origin)
+	opts.SnapshotPath = app.DefaultSnapshotPath()
 	if dir := app.DefaultImageCacheDir(); dir != "" {
 		app.SetImageCacheDir(dir)
 		go app.PruneImageCache()
@@ -258,6 +262,10 @@ func authenticateWith(clientID string) {
 	if err := myauth.SaveToken(tokenPath, token); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to save token: %v\n", err)
 		os.Exit(1)
+	}
+	// The cached library may belong to the previous account.
+	if err := app.RemoveSnapshot(app.DefaultSnapshotPath()); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not remove the library cache: %v\n", err)
 	}
 
 	// Persist the client ID so subsequent launches use the same one.

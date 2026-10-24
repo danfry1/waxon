@@ -270,7 +270,17 @@ type Model struct {
 	// restrictedPlaylists holds playlists Spotify won't list for this app
 	// (source.ErrPlaylistRestricted), so reopening one doesn't refetch.
 	restrictedPlaylists map[string]bool
-	pagination          *paginationState // non-nil while a playlist is being lazily loaded
+
+	// Startup snapshot (snapshot.go). libraryLive is set once the live
+	// library has loaded; snapTracks/snapTotal are the newest known first
+	// page of the first playlist; snapshotShown means the track list opened
+	// on the snapshot's page.
+	libraryLive    bool
+	snapshotShown  bool
+	snapshotReload bool // the live reload of the snapshot's page is in flight
+	snapTracks     []source.Track
+	snapTotal      int
+	pagination     *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt       string      // large rendered art for now playing view
 	npArtURL    string      // URL of the art currently rendered for NP
@@ -369,6 +379,9 @@ type Options struct {
 	// SharedClientID is true when waxon is using the bundled (shared) Spotify
 	// client ID. Rate-limit messages then suggest switching to a personal one.
 	SharedClientID bool
+	// SnapshotPath is where the startup snapshot of the library is kept
+	// (see snapshot.go). "" disables it.
+	SnapshotPath string
 }
 
 // WithOptions returns a copy of m with opts applied.
@@ -408,6 +421,7 @@ func (m Model) Init() tea.Cmd {
 		tea.Tick(pollInterval, func(t time.Time) tea.Msg { return pollTickMsg(t) }),
 		tea.Tick(progressTickInterval, func(t time.Time) tea.Msg { return progressTickMsg(t) }),
 		m.fetchPlaylists(),
+		m.loadSnapshot(),
 	)
 }
 
@@ -584,15 +598,23 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("artwork fetch failed", "url", msg.url, "error", msg.err)
 		return m, nil
 
+	case snapshotLoadedMsg:
+		return m.applySnapshot(msg.snap)
+
 	case playlistsLoadedMsg:
 		m.playlists = msg.playlists
+		m.libraryLive = true
 		// sidebar may not exist yet if WindowSizeMsg hasn't arrived;
 		// layoutResize will apply playlists once the sidebar is created.
 		if m.sidebar.width > 0 {
 			m.sidebar.SetPlaylists(msg.playlists)
 		}
-		cmds := []tea.Cmd{m.fetchSidebarIcons(msg.playlists)}
-		if msg.initial && len(msg.playlists) > 0 {
+		cmds := []tea.Cmd{m.fetchSidebarIcons(msg.playlists), m.saveSnapshot()}
+		// Open the first playlist, unless the user has already moved on from
+		// the snapshot's copy of it.
+		if msg.initial && len(msg.playlists) > 0 &&
+			(!m.snapshotShown || m.tracklist.contextURI == msg.playlists[0].URI) {
+			m.snapshotReload = m.snapshotShown
 			cmds = append(cmds, m.fetchPlaylistTracks(msg.playlists[0]))
 		}
 		return m, tea.Batch(cmds...)
@@ -624,6 +646,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.evictTrackCache()
 		}
+		var saveCmd tea.Cmd
+		if len(m.playlists) > 0 && msg.playlistID == m.playlists[0].ID {
+			m.snapTracks, m.snapTotal = msg.tracks, msg.total
+			saveCmd = m.saveSnapshot()
+		}
+		if m.supersededReload(msg) {
+			return m, saveCmd
+		}
 		m.tracklist.SetTracks(msg.tracks, msg.title, msg.contextURI)
 		// Set pagination state for lazy loading
 		if msg.total > 0 && len(msg.tracks) < msg.total {
@@ -644,7 +674,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.track != nil {
 			m.tracklist.SetNowPlaying(m.track.ID)
 		}
-		jumpCmd := m.applyPendingJump()
+		jumpCmd := tea.Batch(saveCmd, m.applyPendingJump())
 		// A filter that survived a refresh resumes loading the rest.
 		if m.tracklist.Filtering() {
 			jumpCmd = tea.Batch(jumpCmd, m.maybeLoadMore())
