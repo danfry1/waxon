@@ -16,6 +16,13 @@ Each release's section is also used verbatim as the GitHub Release notes.
   plays. It turns smoothly at 33⅓ rpm (it used to step twice a second at
   about 1 rpm), and only while it's on screen and playing.
 
+- Media keys: the keyboard's play/pause, next and previous keys control
+  waxon, and the system's Now Playing (Control Center on macOS, MPRIS on
+  Linux desktops) shows the track, its cover and progress, with working
+  buttons and scrubbing. Set `"media_keys": false` to turn it off.
+- The volume shows dimmed after `+`/`-` until Spotify has accepted the new
+  level, then pulses as it takes effect.
+
 ### Changed
 
 - On Windows, waxon keeps its config and logins in `%AppData%\waxon`, the

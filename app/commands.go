@@ -701,12 +701,17 @@ func (m *Model) nudgeVolume(delta int) tea.Cmd {
 	now := time.Now()
 	m.volume = snapVolume(m.volume, delta)
 	m.volumeGen++ // drops any commit still pending
+	m.volumeLook = volumePending
 	if now.Sub(m.volumeSentAt) >= volumeDebounce {
 		return m.runCommand(Command{Type: CmdVolume, IntArg: m.volume})
 	}
 	m.volumeHoldUntil, m.volumeSent = now.Add(volumeHold), false
 	gen := m.volumeGen
 	return tea.Tick(volumeDebounce, func(time.Time) tea.Msg { return volumeCommitMsg{gen} })
+}
+
+func volumePulseTick(gen int) tea.Cmd {
+	return tea.Tick(volumePulseStep, func(time.Time) tea.Msg { return volumePulseMsg{gen} })
 }
 
 // repeatLabel names a repeat mode the way the :repeat command spells it.
@@ -743,12 +748,13 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 		m.volumeHoldUntil, m.volumeSent = time.Now().Add(volumeSentHold), true
 		m.volumeLast, m.volumeLastSet = cmd.IntArg, true
 		m.volumeSentAt = time.Now()
-		vol := cmd.IntArg
+		m.volumeLook = volumePending
+		vol, gen := cmd.IntArg, m.volumeGen
 		return deviceAware(func() tea.Msg {
 			if err := src.SetVolume(ctx, vol); err != nil {
 				return trackErrorMsg{err}
 			}
-			return cmdFlashMsg{fmt.Sprintf("Volume: %d%%", vol)}
+			return volumeSetMsg{vol, gen}
 		})
 	case CmdShuffle:
 		m.shuffleOn = !m.shuffleOn

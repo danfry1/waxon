@@ -156,6 +156,10 @@ Full-screen album art rendered with Unicode half-blocks over a gradient drawn fr
   <img src="demo/recordings/nowplaying.gif" alt="now playing view" width="800">
 </p>
 
+### Media Keys
+
+The keyboard's ⏯ ⏭ ⏮ keys control waxon, and the system's Now Playing (Control Center on macOS; GNOME, KDE and `playerctl` through MPRIS on Linux) shows the track, its cover and progress, with working buttons and scrubbing. They control whatever waxon is playing on: its own player, your phone or a speaker. If another music app is open it may take the keys first.
+
 ### Synced Lyrics
 
 Press `l` in Now Playing (or run `:lyrics` from anywhere) for time-synced lyrics (via [lrclib](https://lrclib.net) — no account, no API key, nothing to set up). The current line lights up and the rest gently fade as the song plays.
@@ -338,6 +342,8 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
 **Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings.
 
 **Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
+
+**Media keys** — on by default on macOS and Linux; `"media_keys": false` turns them and the Now Playing entry off.
 
 **Art** — `"art": "kitty"` draws the status-bar and Now Playing covers as real images using the kitty graphics protocol (kitty, Ghostty); `"auto"` does that only when the terminal is detected as supporting it (not inside tmux), and `"blocks"` (the default) keeps the Unicode half-block art. `WAXON_ART` overrides the setting for one run, e.g. `WAXON_ART=kitty waxon`. Experimental: please report terminals where it misbehaves.
 

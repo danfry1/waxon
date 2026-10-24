@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/danfry1/waxon/media"
 	"github.com/danfry1/waxon/source"
 	spotifyapi "github.com/zmb3/spotify/v2"
 	"golang.org/x/oauth2"
@@ -76,7 +77,11 @@ type (
 	}
 	cmdFlashMsg     struct{ text string }
 	volumeCommitMsg struct{ gen int }
-	trackUpdateMsg  struct {
+	// volumeSetMsg: Spotify accepted the level sent at press gen.
+	volumeSetMsg struct{ vol, gen int }
+	// volumePulseMsg steps the pulse shown once a level is accepted.
+	volumePulseMsg struct{ gen int }
+	trackUpdateMsg struct {
 		track      *source.Track
 		volume     int
 		shuffleOn  bool
@@ -308,9 +313,14 @@ type Model struct {
 	resumePlaylistID string
 	tracklistVersion string
 
-	playerErr  error            // why waxon's own player stopped, if it did
-	setup      *Setup           // open in ModeSetup (setting up the player in place)
-	pagination *paginationState // non-nil while a playlist is being lazily loaded
+	playerErr error // why waxon's own player stopped, if it did
+	// System media controls (media.go): what was last published, and the
+	// current track's cover for them.
+	mediaLast   mediaPublished
+	mediaArt    image.Image
+	mediaArtFor string           // the artwork URL mediaArt is for
+	setup       *Setup           // open in ModeSetup (setting up the player in place)
+	pagination  *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt        string      // large rendered art for now playing view
 	npArtURL     string      // URL of the art currently rendered for NP
@@ -359,6 +369,7 @@ type Model struct {
 	volumeLast      int  // the level waxon last set, shown while the device reports it within rounding
 	volumeLastSet   bool
 	volumeSentAt    time.Time // last volume sent, to rate-limit a held + key
+	volumeLook      volumeLook
 	// modeHoldUntil does the same for shuffle and repeat after S / r.
 	modeHoldUntil time.Time
 	// refreshPending counts post-control re-polls still scheduled, so a burst
@@ -430,6 +441,9 @@ type Options struct {
 	// returns its device name.
 	PlayerSetup *SetupDeps
 	StartPlayer func() string
+	// Media publishes what's playing to the system's media controls (media
+	// keys, Now Playing); presses come back as MediaMsg. nil: none.
+	Media media.Controller
 }
 
 // WithOptions returns a copy of m with opts applied.
@@ -480,6 +494,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return res, cmd
 	}
+	nm.publishMedia(time.Now())
 	if artMode == ArtKitty {
 		if nm.quitting {
 			kittyClear() // still on the alternate screen, where the images are
@@ -657,8 +672,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case artworkLoadedMsg:
 		if m.track != nil && msg.url == m.track.ArtworkURL {
 			m.albumart.SetImage(msg.img)
+			m.mediaArt, m.mediaArtFor = msg.img, msg.url
 		}
 		return m, nil
+
+	case MediaMsg:
+		return m.handleMedia(msg)
 
 	case artErrorMsg:
 		slog.Warn("artwork fetch failed", "url", msg.url, "error", msg.err)
@@ -1166,6 +1185,25 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toast.Show(msg.text, "", ToastInfo)
 		return m, scheduleAutoDismiss()
 
+	case volumeSetMsg:
+		m.toast.Show(fmt.Sprintf("Volume: %d%%", msg.vol), "", ToastInfo)
+		if msg.gen != m.volumeGen {
+			return m, scheduleAutoDismiss() // a newer level is on its way
+		}
+		m.volumeLook = volumeBright
+		return m, tea.Batch(scheduleAutoDismiss(), volumePulseTick(msg.gen))
+
+	case volumePulseMsg:
+		if msg.gen != m.volumeGen || m.volumeLook <= volumePending {
+			return m, nil
+		}
+		m.volumeLook--
+		if m.volumeLook > volumePending {
+			return m, volumePulseTick(msg.gen)
+		}
+		m.volumeLook = volumeSteady
+		return m, nil
+
 	case trackLikedMsg:
 		if m.track != nil && m.track.ID == msg.trackID {
 			m.liked = msg.liked
@@ -1215,6 +1253,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A rejected change (e.g. a device without volume control) should
 		// show Spotify's real state on the next poll, not the optimistic one.
 		m.volumeHoldUntil, m.modeHoldUntil = time.Time{}, time.Time{}
+		m.volumeLook = volumeSteady
 		m.resumeCursor = 0
 		m.consecutiveErrors++
 		m.noteRateLimit(msg.err)
@@ -2477,6 +2516,7 @@ func (m Model) View() string {
 	if m.count > 0 {
 		m.statusbar.pending = strconv.Itoa(m.count)
 	}
+	m.statusbar.volumeLook = m.volumeLook
 	var view string
 	if m.artStatusBar() {
 		artView := m.albumart.View()

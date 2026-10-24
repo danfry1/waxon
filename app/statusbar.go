@@ -14,6 +14,35 @@ type StatusBar struct {
 	width      int
 	visualHint string // selection summary shown in VISUAL mode
 	pending    string // count prefix being typed (vim's showcmd)
+	volumeLook volumeLook
+}
+
+// volumeLook is how the volume is drawn: dimmed from a press until Spotify
+// accepts the level, then a short pulse (bright, then accent) as it lands.
+type volumeLook int
+
+const (
+	volumeSteady volumeLook = iota
+	volumePending
+	volumeAccent
+	volumeBright
+)
+
+// volumePulseStep is how long each step of the pulse shows.
+const volumePulseStep = 180 * time.Millisecond
+
+// volumeText renders "♪ N%" in the current look; steady uses base.
+func (s StatusBar) volumeText(volume int, base lipgloss.Style) string {
+	text := fmt.Sprintf("♪ %d%%", volume)
+	switch s.volumeLook {
+	case volumePending:
+		return lipgloss.NewStyle().Foreground(ColorTextDim).Faint(true).Render(text)
+	case volumeAccent:
+		return lipgloss.NewStyle().Foreground(ColorAccent).Render(text)
+	case volumeBright:
+		return lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render(text)
+	}
+	return base.Render(text)
 }
 
 func NewStatusBar(width int) StatusBar {
@@ -157,13 +186,13 @@ func (s StatusBar) ViewModeLine(mode Mode, cmdInput string, filterInput string, 
 	}
 
 	// Right: help hint + volume + device
-	right := "? help  "
+	vol := s.volumeText(volume, StyleDimText)
+	right := StyleDimText.Render("? help  ") + vol
 	if s.pending != "" {
-		right = StyleModeFilter.Render(s.pending) + "  " + right
+		right = StyleModeFilter.Render(s.pending) + StyleDimText.Render("  ") + right
 	}
-	right += fmt.Sprintf("♪ %d%%", volume)
 	if deviceName != "" {
-		right += "  " + deviceName
+		right += StyleDimText.Render("  " + deviceName)
 	}
 	right += " "
 
@@ -171,7 +200,7 @@ func (s StatusBar) ViewModeLine(mode Mode, cmdInput string, filterInput string, 
 	rightW := lipgloss.Width(right)
 	if leftW+rightW > s.width {
 		// Drop the device name, then the help hint, rather than wrapping.
-		right = fmt.Sprintf("♪ %d%% ", volume)
+		right = vol + " "
 		rightW = lipgloss.Width(right)
 	}
 	gap := s.width - leftW - rightW
@@ -179,7 +208,7 @@ func (s StatusBar) ViewModeLine(mode Mode, cmdInput string, filterInput string, 
 		gap = 0
 	}
 
-	line := left + strings.Repeat(" ", gap) + StyleDimText.Render(right)
+	line := left + strings.Repeat(" ", gap) + right
 	return style.Render(line)
 }
 
@@ -237,7 +266,7 @@ func (s StatusBar) ViewNowPlayingWithArt(track *source.Track, shuffleOn bool, re
 	}
 
 	// Volume + device
-	volLine := StyleDimText.Render(fmt.Sprintf("   ♪ %d%%", volume))
+	volLine := "   " + s.volumeText(volume, StyleDimText)
 	if deviceName != "" {
 		volLine += StyleDimText.Render("  " + deviceName)
 	}

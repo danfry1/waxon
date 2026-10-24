@@ -58,6 +58,40 @@ func TestVolumeClampsAndHoldsAgainstPoll(t *testing.T) {
 	}
 }
 
+// The volume shows dimmed until Spotify accepts it, then pulses back to
+// normal; an acceptance for a level already superseded changes nothing.
+func TestVolumeDimsUntilAcceptedThenPulses(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.volume = 50
+	result, cmd := m.Update(runeKey("+"))
+	m = result.(Model)
+	if m.volumeLook != volumePending {
+		t.Fatalf("look after a press = %v, want pending", m.volumeLook)
+	}
+	ack, ok := cmd().(volumeSetMsg)
+	if !ok {
+		t.Fatalf("expected volumeSetMsg, got %T", ack)
+	}
+	result, _ = m.Update(runeKey("+")) // pressed again before the ack
+	m = result.(Model)
+	result, _ = m.Update(ack)
+	m = result.(Model)
+	if m.volumeLook != volumePending {
+		t.Fatalf("a stale ack ended the wait: look = %v", m.volumeLook)
+	}
+
+	result, _ = m.Update(volumeSetMsg{vol: m.volume, gen: m.volumeGen})
+	m = result.(Model)
+	want := []volumeLook{volumeBright, volumeAccent, volumeSteady}
+	for i, w := range want {
+		if m.volumeLook != w {
+			t.Fatalf("pulse step %d: look = %v, want %v", i, m.volumeLook, w)
+		}
+		result, _ = m.Update(volumePulseMsg{gen: m.volumeGen})
+		m = result.(Model)
+	}
+}
+
 func TestRepeatKeyCycles(t *testing.T) {
 	var modes []source.RepeatMode
 	stub := &StubSource{SetRepeatFn: func(_ context.Context, r source.RepeatMode) error { modes = append(modes, r); return nil }}

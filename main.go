@@ -7,12 +7,14 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync/atomic"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/danfry1/waxon/app"
 	myauth "github.com/danfry1/waxon/auth"
 	"github.com/danfry1/waxon/cli"
 	"github.com/danfry1/waxon/config"
+	"github.com/danfry1/waxon/media"
 	"github.com/danfry1/waxon/player"
 	myspotify "github.com/danfry1/waxon/spotify"
 )
@@ -125,8 +127,8 @@ func main() {
 	// Set up from the device picker: start the player now, as a launch with
 	// it turned on would have.
 	opts.StartPlayer = func() string {
-		cfg, _ := config.Load()
-		r, _ := newPlayerRunner(cfg)
+		latest, _ := config.Load() // the player was turned on since launch
+		r, _ := newPlayerRunner(latest)
 		if r == nil {
 			return ""
 		}
@@ -135,15 +137,42 @@ func main() {
 		r.launch(context.Background(), src, p, false)
 		return r.name
 	}
-	m := app.NewModel(src).WithOptions(opts)
-	p = tea.NewProgram(m, programOptions()...)
-	runner.start(context.Background(), src, p)
-	_, err := p.Run()
-	runner.stop()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+	run := func() int {
+		// Media keys and the system's Now Playing (media package); presses
+		// reach the program like key presses.
+		var prog atomic.Pointer[tea.Program]
+		if cfg.MediaKeys == nil || *cfg.MediaKeys {
+			ctl, err := media.Start(func(e media.Event) {
+				if running := prog.Load(); running != nil {
+					running.Send(app.MediaMsg(e))
+				}
+			})
+			switch {
+			case err == nil:
+				opts.Media = ctl
+				defer ctl.Close()
+			case !errors.Is(err, media.ErrUnsupported):
+				slog.Warn("media keys unavailable", "error", err)
+			}
+		}
+		m := app.NewModel(src).WithOptions(opts)
+		p = tea.NewProgram(m, programOptions()...)
+		prog.Store(p)
+		runner.start(context.Background(), src, p)
+		_, err := p.Run()
+		runner.stop()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
 	}
+	if cfg.MediaKeys != nil && !*cfg.MediaKeys {
+		os.Exit(run())
+	}
+	// On macOS the media controls need the main thread's event loop, so the
+	// TUI runs beside it.
+	os.Exit(media.RunMain(run))
 }
 
 // graphicsOut is the Program's output when kitty art is on (see
