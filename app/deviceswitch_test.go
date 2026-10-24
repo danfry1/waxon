@@ -266,20 +266,18 @@ func TestToggleIgnoresThePreviousDevice(t *testing.T) {
 	m.deviceName, m.prevDevice = playerDev.Name, phoneDev.Name
 	run(t, m, m.switchDevice(toggleHere))
 	if len(*moved) != 1 || (*moved)[0] != appDev.ID {
-		t.Errorf("gd moved to %v, want the Spotify app", *moved)
+		t.Errorf("M moved to %v, want the Spotify app", *moved)
 	}
 }
 
-func TestGDKeyToggles(t *testing.T) {
+func TestModeKeyToggles(t *testing.T) {
 	stub, moved := switchStub(playerDev, appDev)
 	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
 	m.deviceName = playerDev.Name
-	res, _ := m.Update(runeKey("g"))
-	m = res.(Model)
-	res, cmd := m.Update(runeKey("d"))
+	res, cmd := m.Update(runeKey("M"))
 	run(t, res.(Model), cmd)
 	if len(*moved) != 1 || (*moved)[0] != appDev.ID {
-		t.Errorf("gd moved to %v, want the Spotify app", *moved)
+		t.Errorf("M moved to %v, want the Spotify app", *moved)
 	}
 }
 

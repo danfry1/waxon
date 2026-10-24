@@ -12,7 +12,7 @@ import (
 	"github.com/danfry1/waxon/source"
 )
 
-// Switching devices without the picker: gd toggles this computer between
+// Switching devices without the picker: M toggles this computer between
 // waxon's player and the Spotify app, ":device -" goes back to the previous
 // device, ":device <name>" picks one by name. Like the picker's "open the
 // Spotify app" row, they can start this computer's Spotify app when it
@@ -20,7 +20,7 @@ import (
 // comes online.
 
 // Queries for switchDevice besides a name: back to the previous device, and
-// gd's toggle between waxon's player and this computer's Spotify app.
+// M's toggle between waxon's player and this computer's Spotify app.
 const (
 	previousDevice = "-"
 	toggleHere     = "\x00here"
@@ -42,7 +42,7 @@ type (
 	// playbackMovedMsg: playback is now on device.
 	playbackMovedMsg struct{ device string }
 	// deviceTargetMsg carries the devices for a switch by name (query), to
-	// the previous device (previousDevice) or gd's toggle (toggleHere).
+	// the previous device (previousDevice) or M's toggle (toggleHere).
 	deviceTargetMsg struct {
 		devices []source.Device
 		query   string
@@ -187,7 +187,7 @@ func (m *Model) noteDevice(dev source.Device) {
 }
 
 // switchDevice looks up the devices for a switch by name, to the previous
-// device (previousDevice) or for gd's toggle (toggleHere).
+// device (previousDevice) or for M's toggle (toggleHere).
 func (m Model) switchDevice(query string) tea.Cmd {
 	src, ctx := m.source, m.ctx
 	return func() tea.Msg {
@@ -242,7 +242,7 @@ func (m Model) toggleHere(devices []source.Device) (Model, tea.Cmd) {
 }
 
 // swapDevice moves playback to the device played on before this one. With
-// none, it toggles as gd does.
+// none, it toggles as M does.
 func (m Model) swapDevice(devices []source.Device) (Model, tea.Cmd) {
 	want := m.prevDevice
 	if want == "" || want == m.deviceName {
@@ -287,14 +287,14 @@ func (m Model) moveTo(dev source.Device) (Model, tea.Cmd) {
 }
 
 // modeLabel says what playing on device means for this computer: waxon
-// playing by itself, or controlling the Spotify app (gd's two modes), or
+// playing by itself, or controlling the Spotify app (M's two modes), or
 // just which device it is.
 func (m Model) modeLabel(device string) (title, detail string) {
 	switch {
 	case device != "" && device == m.opts.PlayerName:
-		return "Playing in waxon", "gd hands it to the Spotify app"
+		return "Playing in waxon", m.keys.Mode.Help().Key + " hands it to the Spotify app"
 	case m.isThisComputersApp(source.Device{Name: device, Type: m.deviceTypes[device]}):
-		return "Controlling the Spotify app", device + " · gd plays in waxon again"
+		return "Controlling the Spotify app", device + " · " + m.keys.Mode.Help().Key + " plays in waxon again"
 	}
 	return "Playing on " + device, ""
 }

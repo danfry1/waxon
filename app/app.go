@@ -1164,7 +1164,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case playbackMovedMsg:
 		// Polls take a moment to catch up; until they do, this is where
-		// playback is (so a second gd goes back, not here again).
+		// playback is (so a second M goes back, not here again).
 		if msg.device != m.deviceName {
 			m.prevDevice, m.deviceName = m.deviceName, msg.device
 		}
@@ -1857,8 +1857,6 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.openCollection(collectionArtistsID)
 		case GActionPodcasts:
 			return m, m.openCollection(collectionPodcastsID)
-		case GActionSwapDevice:
-			return m, m.switchDevice(toggleHere)
 		default:
 			return m, nil
 		}
@@ -1998,6 +1996,8 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.gtracker.Reset()
 		return m.openActions()
 
+	case key.Matches(msg, m.keys.Mode):
+		return m, m.switchDevice(toggleHere)
 	case key.Matches(msg, m.keys.Devices):
 		m.gtracker.Reset()
 		return m, m.fetchDevices()
