@@ -60,6 +60,10 @@ func main() {
 			}
 			fmt.Println("Signed out of Spotify. Quit any running waxon too, then run 'waxon auth' to connect again.")
 			return
+		case "doctor":
+			code := runDoctorCommand()
+			cleanup()
+			os.Exit(code) //nolint:gocritic // cleanup called above
 		case "player":
 			code := runPlayer(os.Args[2:])
 			cleanup()
@@ -398,6 +402,7 @@ Usage:
                  Over SSH, paste the address the browser ends up on when asked
   waxon logout   Forget the saved Spotify login (keeps your config)
   waxon player   Play through waxon itself via librespot (login | off)
+  waxon doctor   Check the login, Spotify app, devices, player and more
   waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
   waxon themes   List colour themes (set with "theme" in config.json or :theme)
