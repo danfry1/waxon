@@ -137,6 +137,10 @@ type Playlist struct {
 	// the playlist or it is collaborative. Liked Songs is never Editable here
 	// (use Save/RemoveTrack).
 	Editable bool
+	// Snapshot is Spotify's version of the playlist's contents (its
+	// snapshot_id), which changes whenever tracks are added, removed or
+	// moved. "" when unknown (Liked Songs has none).
+	Snapshot string
 }
 
 type Device struct {

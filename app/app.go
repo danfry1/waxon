@@ -97,6 +97,9 @@ type (
 		playlistID string
 		offset     int // offset the page was requested at
 		total      int // playlist size as reported with this page
+		// pagination is the list the page was requested for; a refreshed
+		// first page starts a new one, and pages of the old are dropped.
+		pagination *paginationState
 	}
 )
 
@@ -116,10 +119,28 @@ type (
 		imageURL   string
 		playlistID string // non-empty when fetched from API (for caching)
 		total      int    // total tracks in playlist (0 if unknown/fully loaded)
+
+		// Page cache (pagecache.go). playlist is the library playlist this
+		// page belongs to and version its contents' version. fromDisk pages
+		// came from the cache, current ones matching the live version;
+		// revalidate marks the live page fetched to replace a cached one.
+		playlist   source.Playlist
+		version    string
+		fromDisk   bool
+		current    bool
+		revalidate bool
 	}
 	// playlistRestrictedMsg means Spotify won't list this playlist's tracks
 	// for this app (source.ErrPlaylistRestricted). It can still be played.
-	playlistRestrictedMsg struct{ playlist source.Playlist }
+	playlistRestrictedMsg struct {
+		playlist   source.Playlist
+		revalidate bool // found while refreshing a cached copy
+	}
+	// revalidateFailedMsg is a failed refresh of a cached playlist page.
+	revalidateFailedMsg struct {
+		playlist source.Playlist
+		err      error
+	}
 	// playlistUnplayableMsg means Spotify refused to play a playlist context
 	// even though a device is active (it doesn't expose that playlist to
 	// this app at all).
@@ -274,15 +295,18 @@ type Model struct {
 	// (source.ErrPlaylistRestricted), so reopening one doesn't refetch.
 	restrictedPlaylists map[string]bool
 
-	// Startup snapshot (snapshot.go). libraryLive is set once the live
-	// library has loaded; snapTracks/snapTotal are the newest known first
-	// page of the first playlist; snapshotShown means the track list opened
-	// on the snapshot's page.
-	libraryLive    bool
-	snapshotShown  bool
-	snapshotReload bool // the live reload of the snapshot's page is in flight
-	snapTracks     []source.Track
-	snapTotal      int
+	// Startup snapshot (snapshot.go) and page cache (pagecache.go).
+	// libraryLive is set once the live library has loaded; snapshotShown
+	// means the startup view came from the snapshot. lastPlaylistID is the
+	// playlist last opened (saved for the next launch), resumeCursor the
+	// cursor to restore when it opens, and tracklistVersion the version of
+	// the playlist page on screen.
+	libraryLive      bool
+	snapshotShown    bool
+	lastPlaylistID   string
+	resumeCursor     int
+	resumePlaylistID string
+	tracklistVersion string
 
 	playerErr  error            // why waxon's own player stopped, if it did
 	setup      *Setup           // open in ModeSetup (setting up the player in place)
@@ -655,14 +679,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sidebar.SetPlaylists(msg.playlists)
 		}
 		cmds := []tea.Cmd{m.fetchSidebarIcons(msg.playlists), m.saveSnapshot()}
-		// Open the first playlist, unless the user has already moved on from
-		// the snapshot's copy of it.
-		if msg.initial && len(msg.playlists) > 0 &&
-			(!m.snapshotShown || m.tracklist.contextURI == msg.playlists[0].URI) {
-			m.snapshotReload = m.snapshotShown
-			cmds = append(cmds, m.fetchPlaylistTracks(msg.playlists[0]))
+		if msg.initial && len(msg.playlists) > 0 {
+			switch shown := m.playlistByURI(m.tracklist.contextURI); {
+			case !m.snapshotShown:
+				cmds = append(cmds, m.fetchPlaylistTracks(msg.playlists[0]))
+			case shown != nil && (pageVersion(*shown) == "" || pageVersion(*shown) != m.tracklistVersion):
+				// The startup view, or wherever the user has gone since, came
+				// from the cache and has changed (or can't tell): refresh it.
+				cmds = append(cmds, m.livePlaylistPage(*shown, true))
+			}
 		}
 		return m, tea.Batch(cmds...)
+
+	case pageMissMsg:
+		return m, m.livePlaylistPage(msg.playlist, false)
 
 	case sidebarIconLoadedMsg:
 		m.sidebar.SetPlaylistIcons(map[string]string{msg.id: msg.icon})
@@ -682,22 +712,44 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tracksLoadedMsg:
-		m.noteLikedTracks(msg.playlistID, msg.tracks)
-		if msg.playlistID != "" {
+		if !msg.fromDisk {
+			m.noteLikedTracks(msg.playlistID, msg.tracks)
+		}
+		var saveCmd tea.Cmd
+		if msg.playlistID != "" && (!msg.fromDisk || msg.current) {
 			m.trackCache[msg.playlistID] = cachedPlaylist{
 				tracks:    msg.tracks,
 				total:     msg.total,
 				fetchedAt: time.Now(),
+				version:   msg.version,
 			}
 			m.evictTrackCache()
 		}
-		var saveCmd tea.Cmd
-		if len(m.playlists) > 0 && msg.playlistID == m.playlists[0].ID {
-			m.snapTracks, m.snapTotal = msg.tracks, msg.total
-			saveCmd = m.saveSnapshot()
+		if !msg.fromDisk && msg.playlist.ID != "" {
+			saveCmd = m.savePage(msg)
 		}
-		if m.supersededReload(msg) {
-			return m, saveCmd
+		// A live page replacing a cached one the user has since left (or is
+		// leaving: another view is loading) only updates the caches. One that
+		// matches what's shown keeps the view as it is — scrolled-in pages,
+		// cursor, selection — and just marks it current.
+		if msg.revalidate {
+			if !m.showingLoaded(msg.contextURI) {
+				return m, saveCmd
+			}
+			if samePage(m.tracklist.tracks, msg.tracks) {
+				m.tracklistVersion = msg.version
+				return m, tea.Batch(saveCmd, m.applyPendingJump())
+			}
+		}
+		if msg.playlist.ID != "" {
+			if m.lastPlaylistID != msg.playlist.ID {
+				m.lastPlaylistID = msg.playlist.ID
+				saveCmd = tea.Batch(saveCmd, m.saveSnapshot())
+			}
+			m.tracklistVersion = msg.version
+		}
+		if msg.fromDisk && !msg.current {
+			saveCmd = tea.Batch(saveCmd, m.livePlaylistPage(msg.playlist, true))
 		}
 		m.tracklist.SetTracks(msg.tracks, msg.title, msg.contextURI)
 		// Set pagination state for lazy loading
@@ -719,7 +771,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.track != nil {
 			m.tracklist.SetNowPlaying(m.track.ID)
 		}
-		jumpCmd := tea.Batch(saveCmd, m.applyPendingJump())
+		if m.resumeCursor > 0 && msg.playlist.ID == m.resumePlaylistID {
+			// Where the last session left off (within the first page).
+			m.tracklist.GotoRow(m.resumeCursor)
+		}
+		m.resumeCursor = 0
+		// A stale copy can't settle a pending jump (the track may only be on
+		// the live page); the refreshed page will.
+		jumpCmd := saveCmd
+		if !msg.fromDisk || msg.current {
+			jumpCmd = tea.Batch(jumpCmd, m.applyPendingJump())
+		}
 		// A filter that survived a refresh resumes loading the rest.
 		if m.tracklist.Filtering() {
 			jumpCmd = tea.Batch(jumpCmd, m.maybeLoadMore())
@@ -729,8 +791,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, jumpCmd
 
+	case revalidateFailedMsg:
+		m.noteRateLimit(msg.err) // a 429 still pauses polling
+		slog.Warn("refreshing cached playlist", "playlist", msg.playlist.ID, "error", msg.err)
+		return m, nil
+
 	case playlistRestrictedMsg:
 		m.restrictedPlaylists[msg.playlist.ID] = true
+		m.resumeCursor = 0
+		forget := m.forgetPage(msg.playlist.ID)
+		if msg.revalidate && !m.showingLoaded(msg.playlist.URI) {
+			return m, forget // the user has moved on; remember it for later
+		}
 		m.pagination = nil
 		// There are no tracks to jump to; don't leave a jump armed.
 		m.pendingJumpTrackID = ""
@@ -745,9 +817,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.tracklist.SetArt("")
 		if msg.playlist.ImageURL != "" {
-			return m, m.fetchPlaylistArt(msg.playlist.ImageURL)
+			return m, tea.Batch(forget, m.fetchPlaylistArt(msg.playlist.ImageURL))
 		}
-		return m, nil
+		return m, forget
 
 	case playlistUnplayableMsg:
 		m.toast.Show("Spotify won't play this playlist from waxon", "Press o to open it in the Spotify app", ToastError)
@@ -758,7 +830,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The offset check drops a page that was requested before the view
 		// was reloaded, which would otherwise be appended twice.
 		if m.pagination != nil && m.pagination.playlistID == msg.playlistID &&
-			msg.offset == m.pagination.loaded {
+			msg.offset == m.pagination.loaded &&
+			(msg.pagination == nil || msg.pagination == m.pagination) {
 			m.tracklist.AppendTracks(msg.tracks)
 			m.pagination.loaded += len(msg.tracks)
 			m.pagination.loadingMore = false
@@ -776,6 +849,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				tracks:    m.tracklist.tracks,
 				total:     m.pagination.total,
 				fetchedAt: time.Now(),
+				version:   m.tracklistVersion,
 			}
 			m.evictTrackCache()
 			// Update header
@@ -879,9 +953,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case playlistChangedMsg:
 		// The cached track list for that playlist is stale now.
-		delete(m.trackCache, msg.playlistID)
-		cmds := make([]tea.Cmd, 0, 2)
-		cmds = append(cmds, scheduleAutoDismiss())
+		cmds := make([]tea.Cmd, 0, 3)
+		cmds = append(cmds, scheduleAutoDismiss(), m.forgetPage(msg.playlistID))
 		n := max(1, msg.count)
 		switch {
 		case msg.failed > 0:
@@ -931,7 +1004,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if id := m.pendingViewRefresh; id != "" {
 			m.pendingViewRefresh = ""
 			if m.tracklist.ContextURI() == "spotify:playlist:"+id {
-				delete(m.trackCache, id)
+				cmds = append(cmds, m.forgetPage(id))
 				for _, pl := range m.playlists {
 					if pl.ID == id {
 						cmds = append(cmds, m.fetchPlaylistTracks(pl))
@@ -1051,7 +1124,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.runCommand(Command{Type: CmdVolume, IntArg: m.volume})
 
 	case likedBatchMsg:
-		delete(m.trackCache, likedPlaylistID)
+		forget := m.forgetPage(likedPlaylistID)
 		for _, id := range msg.ids {
 			m.likedCache[id] = true
 			if m.track != nil && m.track.ID == id {
@@ -1063,7 +1136,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.toast.Show("Added to Liked Songs", fmt.Sprintf("%d %s", len(msg.ids), pluralize(len(msg.ids), "track", "tracks")), ToastSuccess)
 		}
-		return m, scheduleAutoDismiss()
+		return m, tea.Batch(scheduleAutoDismiss(), forget)
 
 	case cmdFlashMsg:
 		m.toast.Show(msg.text, "", ToastInfo)
@@ -1075,13 +1148,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.likedCache[msg.trackID] = msg.liked
 		// Invalidate cached Liked Songs so navigating there shows fresh data
-		delete(m.trackCache, likedPlaylistID)
+		forget := m.forgetPage(likedPlaylistID)
 		if msg.liked {
 			m.toast.Show("Saved to Liked Songs", "", ToastSuccess)
 		} else {
 			m.toast.Show("Removed from Liked Songs", "", ToastInfo)
 		}
-		return m, scheduleAutoDismiss()
+		return m, tea.Batch(scheduleAutoDismiss(), forget)
 
 	case likeStatusErrorMsg:
 		// A refusal for an episode says nothing about tracks; don't let it
@@ -1118,6 +1191,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A rejected change (e.g. a device without volume control) should
 		// show Spotify's real state on the next poll, not the optimistic one.
 		m.volumeHoldUntil, m.modeHoldUntil = time.Time{}, time.Time{}
+		m.resumeCursor = 0
 		m.consecutiveErrors++
 		m.noteRateLimit(msg.err)
 		if m.pagination != nil {
@@ -1653,6 +1727,7 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, m.openNowPlaying(npViewLast)
 
 	case key.Matches(msg, m.keys.Quit):
+		m.saveSnapshotOnQuit()
 		m.cancel()
 		m.quitting = true
 		return m, tea.Quit

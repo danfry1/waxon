@@ -126,12 +126,6 @@ func complete(dir string) bool {
 	return err == nil && len(data) > 0 && json.Valid(data)
 }
 
-// playArgs are the flags for running the device: baseArgs, at the highest
-// quality Spotify streams to Premium accounts (librespot defaults to 160).
-func playArgs(dir, name string) []string {
-	return append(baseArgs(dir, name), "--bitrate", "320")
-}
-
 // Login runs librespot's browser sign-in and returns once its credentials
 // are cached in dir, replacing any login there only when it succeeds. With
 // paste set (SSH sessions), librespot asks for the address the browser lands
@@ -241,7 +235,7 @@ func Start(bin, dir, name string, logw io.Writer, onExit func(error)) (*Sidecar,
 		return nil, ErrNoLogin
 	}
 	s := &Sidecar{done: make(chan struct{})}
-	s.cmd = exec.Command(bin, playArgs(dir, name)...) //nolint:gosec // the user's own librespot
+	s.cmd = exec.Command(bin, baseArgs(dir, name)...) //nolint:gosec // the user's own librespot
 	s.cmd.Stdout = logw
 	s.cmd.Stderr = &lastLineWriter{w: logw, s: s}
 	if err := s.cmd.Start(); err != nil {
