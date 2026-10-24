@@ -37,6 +37,11 @@ Sleep 3s
 # -- Now playing overlay — Currents swirl full screen --
 Type "N"
 Sleep 3s
+# -- Synced lyrics, then back to the cover for next time --
+Type "l"
+Sleep 3.5s
+Type "l"
+Sleep 500ms
 Escape
 Sleep 1s
 
