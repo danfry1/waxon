@@ -660,13 +660,26 @@ func (m *Model) playbackSettingKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
+// snapVolume moves cur by delta to the next multiple of |delta| (59 +5 →
+// 60, not 64), so the level stays on round steps whatever it started at.
+func snapVolume(cur, delta int) int {
+	step := absInt(delta)
+	if step == 0 {
+		return cur
+	}
+	if delta > 0 {
+		return clampInt((cur/step+1)*step, 0, 100)
+	}
+	return clampInt(((cur+step-1)/step-1)*step, 0, 100)
+}
+
 // nudgeVolume moves the shown volume immediately and sends it at most once
 // per volumeDebounce: at once if nothing was sent that recently, otherwise
 // when the interval is up. Holding + then follows the key without firing a
 // request per key repeat, and the last level is always sent.
 func (m *Model) nudgeVolume(delta int) tea.Cmd {
 	now := time.Now()
-	m.volume = clampInt(m.volume+delta, 0, 100)
+	m.volume = snapVolume(m.volume, delta)
 	m.volumeGen++ // drops any commit still pending
 	if now.Sub(m.volumeSentAt) >= volumeDebounce {
 		return m.runCommand(Command{Type: CmdVolume, IntArg: m.volume})
@@ -707,6 +720,7 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 	case CmdVolume:
 		m.volume = cmd.IntArg
 		m.volumeHoldUntil, m.volumeSent = time.Now().Add(volumeSentHold), true
+		m.volumeLast, m.volumeLastSet = cmd.IntArg, true
 		m.volumeSentAt = time.Now()
 		vol := cmd.IntArg
 		return deviceAware(func() tea.Msg {

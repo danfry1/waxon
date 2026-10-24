@@ -218,6 +218,11 @@ var ErrForbidden = errors.New("not permitted for this Spotify app")
 // playlists) can still be played as a whole, just not listed.
 var ErrPlaylistRestricted = errors.New("spotify doesn't share this playlist's tracks with this app")
 
+// ErrPlaybackRestricted is returned when Spotify refuses a playback command
+// on the active device ("Restriction violated"). A device that was only just
+// activated answers this until it's ready, so a retry shortly after works.
+var ErrPlaybackRestricted = errors.New("spotify refused that playback command")
+
 // ErrPremiumRequired is returned by playback commands when the account is
 // not Spotify Premium; the Web API only permits playback control for Premium.
 var ErrPremiumRequired = errors.New("premium account required for playback control")

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -296,5 +297,34 @@ func TestPlayerExitedShowsToast(t *testing.T) {
 	result, _ := m.Update(PlayerExitedMsg{Err: errors.New("librespot stopped: Bad credentials")})
 	if got := result.(Model).toast.View(120); !strings.Contains(got, "player stopped") || !strings.Contains(got, "Bad credentials") {
 		t.Errorf("toast = %q", got)
+	}
+}
+
+// waxon's own player, just activated, answers "Restriction violated" until
+// it's ready; the command is retried rather than shown as an error.
+func TestActivateAndRetryWaitsOutRestriction(t *testing.T) {
+	transfers := 0
+	stub := &StubSource{TransferPlaybackFn: func(context.Context, string) error { transfers++; return nil }}
+	m := newTestModel(stub)
+	tries := 0
+	retry := func() tea.Msg {
+		tries++
+		if tries < 3 {
+			return trackErrorMsg{fmt.Errorf("%w: Restriction violated", source.ErrPlaybackRestricted)}
+		}
+		return controlDoneMsg{}
+	}
+	msg := m.activateAndRetry("d1", retry)()
+	if _, ok := msg.(controlDoneMsg); !ok || tries != 3 || transfers != 1 {
+		t.Errorf("got %T after %d tries, %d transfers; want success on the 3rd try, one transfer", msg, tries, transfers)
+	}
+}
+
+func TestActivateAndRetryGivesUpOnOtherErrors(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	tries := 0
+	retry := func() tea.Msg { tries++; return trackErrorMsg{source.ErrPremiumRequired} }
+	if _, ok := m.activateAndRetry("d1", retry)().(trackErrorMsg); !ok || tries != 1 {
+		t.Errorf("a non-transient failure should not be retried; tries=%d", tries)
 	}
 }

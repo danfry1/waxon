@@ -22,6 +22,7 @@ func TestWrapPlayerError(t *testing.T) {
 		{"404 any message", spotifyapi.Error{Status: 404, Message: "Device not found"}, source.ErrNoActiveDevice},
 		{"403 premium", spotifyapi.Error{Status: 403, Message: "Player command failed: Premium required"}, source.ErrPremiumRequired},
 		{"403 other", spotifyapi.Error{Status: 403, Message: "Forbidden"}, nil},
+		{"403 restriction", spotifyapi.Error{Status: 403, Message: "Player command failed: Restriction violated"}, source.ErrPlaybackRestricted},
 		{"wrapped 404", fmt.Errorf("play: %w", spotifyapi.Error{Status: 404, Message: "x"}), source.ErrNoActiveDevice},
 	}
 	for _, tc := range cases {

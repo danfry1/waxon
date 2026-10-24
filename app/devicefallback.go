@@ -64,17 +64,38 @@ func (m Model) activateAndRetry(deviceID string, retry tea.Cmd) tea.Cmd {
 		if err := src.TransferPlayback(ctx, deviceID); err != nil {
 			return trackErrorMsg{err}
 		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(activationSettleDelay):
-		}
 		if retry == nil {
 			return controlDoneMsg{}
 		}
-		return retry()
+		// A device that was only just activated (waxon's own player, a
+		// woken phone) can refuse the command until it's ready; try again a
+		// little later, a couple of times.
+		var msg tea.Msg
+		for _, wait := range activationRetryWaits {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(wait):
+			}
+			msg = retry()
+			if !deviceNotReady(msg) {
+				return msg
+			}
+		}
+		return msg
 	}
 }
+
+// deviceNotReady reports whether msg is a failure a just-activated device
+// gives while it's still getting ready.
+func deviceNotReady(msg tea.Msg) bool {
+	e, ok := msg.(trackErrorMsg)
+	return ok && (errors.Is(e.err, source.ErrPlaybackRestricted) || errors.Is(e.err, source.ErrNoActiveDevice))
+}
+
+// activationRetryWaits are the pauses before each try of the command that
+// needed a device, after activating one.
+var activationRetryWaits = []time.Duration{activationSettleDelay, 700 * time.Millisecond, 1500 * time.Millisecond}
 
 // handleDeviceChoices decides how to recover from a no-active-device failure:
 //   - no devices: explain how to get one (nothing we can do remotely)
