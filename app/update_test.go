@@ -950,8 +950,8 @@ func TestNewPlaylistActions(t *testing.T) {
 	if popup.uri != "spotify:playlist:abc" {
 		t.Errorf("uri = %q", popup.uri)
 	}
-	if len(popup.items) != 3 {
-		t.Errorf("items count = %d, want 3", len(popup.items))
+	if len(popup.items) != 4 || popup.items[1].Type != ActionShufflePlaylist {
+		t.Errorf("items = %+v, want Play, Shuffle Play, Load Tracks, Open", popup.items)
 	}
 	if popup.items[0].Type != ActionPlayPlaylist {
 		t.Errorf("first item type = %d, want ActionPlayPlaylist", popup.items[0].Type)
@@ -993,15 +993,16 @@ func TestActionsMoveDownUp(t *testing.T) {
 func TestActionsSelected(t *testing.T) {
 	popup := NewTrackActions("Song", "Artist", "uri", "", "", "", false, 80, 40)
 
+	// What has no single key comes first.
 	sel := popup.Selected()
-	if sel.Type != ActionPlay {
-		t.Errorf("Selected().Type = %d, want ActionPlay", sel.Type)
+	if sel.Type != ActionGoAlbum {
+		t.Errorf("Selected().Type = %d, want ActionGoAlbum", sel.Type)
 	}
 
 	popup.MoveDown()
 	sel = popup.Selected()
-	if sel.Type != ActionQueue {
-		t.Errorf("Selected().Type = %d, want ActionQueue", sel.Type)
+	if sel.Type != ActionGoArtist {
+		t.Errorf("Selected().Type = %d, want ActionGoArtist", sel.Type)
 	}
 
 	// Out of bounds returns zero value

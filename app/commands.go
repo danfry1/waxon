@@ -625,6 +625,21 @@ func transferRetrying(ctx context.Context, src source.RichSource, deviceID strin
 	return err
 }
 
+// shufflePlay turns shuffle on and plays contextURI, so it starts on a
+// random track rather than the first.
+func (m Model) shufflePlay(contextURI string) tea.Cmd {
+	src, ctx := m.source, m.ctx
+	return deviceAware(func() tea.Msg {
+		if err := src.SetShuffle(ctx, true); err != nil {
+			return trackErrorMsg{err}
+		}
+		if err := src.PlayTrack(ctx, contextURI, ""); err != nil {
+			return trackErrorMsg{err}
+		}
+		return controlDoneMsg{}
+	})
+}
+
 func (m Model) playPlaylistFromStart(contextURI string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
@@ -980,6 +995,12 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 	case ActionPlayPlaylist:
 		if subj.uri != "" {
 			return m, m.playPlaylistFromStart(subj.uri)
+		}
+	case ActionShufflePlaylist:
+		if subj.uri != "" {
+			m.shuffleOn = true
+			m.modeHoldUntil = time.Now().Add(volumeHold)
+			return m, m.shufflePlay(subj.uri)
 		}
 	case ActionOpenPlaylistSpotify:
 		if subj.uri != "" {

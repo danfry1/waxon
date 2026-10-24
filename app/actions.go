@@ -22,7 +22,17 @@ const (
 	ActionLoadTracks
 	ActionAddToPlaylist
 	ActionRemoveFromPlaylist
+	ActionShufflePlaylist
 )
+
+// actionLetters are the menu's letter shortcuts: the same letters as in the
+// main view, so o then a queues just as a does.
+var actionLetters = map[string]ActionType{
+	"a": ActionQueue,
+	"f": ActionLike,
+	"+": ActionAddToPlaylist,
+	"d": ActionRemoveFromPlaylist,
+}
 
 // ActionItem is a single entry in the actions popup.
 type ActionItem struct {
@@ -74,18 +84,20 @@ func NewTrackActionsIn(trackName, artistName, uri, contextURI, artistID, albumID
 		title = fmt.Sprintf("%s — %s", trackName, artistName)
 	}
 
+	// What there's no single key for comes first: going to the album or
+	// artist (ga / gA outside the menu), adding to a playlist.
 	items := []ActionItem{
-		{Type: ActionPlay, Label: "Play", Icon: "▶"},
-		{Type: ActionQueue, Label: "Add to Queue", Icon: "♫"},
-		likeActionItem(liked),
+		{Type: ActionGoAlbum, Label: "Go to Album", Icon: "→"},
+		{Type: ActionGoArtist, Label: "Go to Artist", Icon: "→"},
 		{Type: ActionAddToPlaylist, Label: "Add to Playlist…", Icon: "+"},
 	}
 	if in.Editable && in.PlaylistID != "" {
 		items = append(items, ActionItem{Type: ActionRemoveFromPlaylist, Label: "Remove from " + in.PlaylistName, Icon: "−"})
 	}
 	items = append(items,
-		ActionItem{Type: ActionGoArtist, Label: "Go to Artist", Icon: "→"},
-		ActionItem{Type: ActionGoAlbum, Label: "Go to Album", Icon: "→"},
+		ActionItem{Type: ActionQueue, Label: "Add to Queue", Icon: "♫"},
+		likeActionItem(liked),
+		ActionItem{Type: ActionPlay, Label: "Play", Icon: "▶"},
 		ActionItem{Type: ActionOpenSpotify, Label: "Open in Spotify", Icon: "◎"},
 		ActionItem{Type: ActionCopyURI, Label: "Copy Track URI", Icon: "⎘"},
 	)
@@ -129,6 +141,7 @@ func NewPlaylistActions(playlistName, uri string, width, height int) ActionsPopu
 	return ActionsPopup{
 		items: []ActionItem{
 			{Type: ActionPlayPlaylist, Label: "Play Playlist", Icon: "▶"},
+			{Type: ActionShufflePlaylist, Label: "Shuffle Play", Icon: "⤮"},
 			{Type: ActionLoadTracks, Label: "Load Tracks", Icon: "♫"},
 			{Type: ActionOpenPlaylistSpotify, Label: "Open in Spotify", Icon: "◎"},
 		},
@@ -243,7 +256,12 @@ func (a ActionsPopup) View() string {
 			prefix = "> "
 			style = StyleActiveItem
 		}
-		line := fmt.Sprintf("%s%s  %s", prefix, item.Icon, item.Label)
+		// Each row's number picks it (shown while there are nine or fewer).
+		num := " "
+		if len(a.items) <= 9 {
+			num = fmt.Sprint(i + 1)
+		}
+		line := fmt.Sprintf("%s%s  %s  %s", prefix, num, item.Icon, item.Label)
 		content += style.Render(line) + "\n"
 	}
 
@@ -252,4 +270,27 @@ func (a ActionsPopup) View() string {
 	overlay := border.Render(content)
 	return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, overlay,
 		overlayBackdrop())
+}
+
+// Pick selects the row a shortcut names: its number (1-9) or a letter
+// shared with the main view (actionLetters). It reports whether one did.
+func (a *ActionsPopup) Pick(key string) bool {
+	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+		if i := int(key[0] - '1'); i < len(a.items) {
+			a.cursor = i
+			return true
+		}
+		return false
+	}
+	t, ok := actionLetters[key]
+	if !ok {
+		return false
+	}
+	for i, it := range a.items {
+		if it.Type == t {
+			a.cursor = i
+			return true
+		}
+	}
+	return false
 }

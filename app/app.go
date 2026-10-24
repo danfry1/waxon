@@ -1691,6 +1691,9 @@ func (m Model) handleKeyActions(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.actions == nil {
 		return m, nil
 	}
+	if msg.Type == tea.KeyRunes && m.actions.Pick(msg.String()) {
+		msg = tea.KeyMsg{Type: tea.KeyEnter} // a shortcut runs its row at once
+	}
 	switch msg.Type {
 	case tea.KeyEscape:
 		m.actions = nil
