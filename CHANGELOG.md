@@ -27,18 +27,21 @@ Each release's section is also used verbatim as the GitHub Release notes.
   [librespot](https://github.com/librespot-org/librespot) installed, run
   `waxon player login` once; waxon then starts its own Spotify Connect device
   in the background, plays through it when nothing else is active, and stops
-  it on quit. `waxon player off` turns it off. It streams at 320 kbps, the
-  highest quality Spotify offers Premium. The player's login is kept
+  it on quit. `waxon player off` turns it off. The player's login is kept
   in `~/.config/waxon/librespot/`, readable only by you.
 
 ### Changed
 
 - Now Playing reopens the way you left it: on the lyrics, the vinyl or the
   cover. `:lyrics` and `:vinyl` open it straight on those.
-- waxon starts faster: the library and the first page of Liked Songs are
-  drawn from a local copy saved on the previous run, then refreshed from
-  Spotify in the background. The copy lives in waxon's cache directory and is
-  removed by `waxon logout` and `waxon auth`.
+- Playlists open instantly. waxon keeps the first page of each playlist
+  you open in its cache directory, along with Spotify's version of it, and
+  shows a playlist straight from there when it hasn't changed — no request
+  at all. A playlist that changed shows its cached copy at once and refreshes
+  in the background.
+- waxon starts where you left off: your library, the playlist you had open
+  and your place in it appear before Spotify has answered, then update with
+  anything that changed. `waxon logout` and `waxon auth` clear the cache.
 - If the player is turned on but can't start (librespot missing or signed
   out), waxon says so in a notice with the fix instead of printing a warning
   before the UI opens.

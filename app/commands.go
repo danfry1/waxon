@@ -63,32 +63,49 @@ func (m Model) loadPlaylists(initial bool) tea.Cmd {
 	}
 }
 
+// fetchPlaylistTracks opens pl's first page: from memory or the page cache
+// when they have it (revalidating a copy that may be out of date), else live.
 func (m Model) fetchPlaylistTracks(pl source.Playlist) tea.Cmd {
-	// Return cached tracks if fresh
-	if cached, ok := m.trackCache[pl.ID]; ok && time.Since(cached.fetchedAt) < trackCacheTTL {
-		return func() tea.Msg {
-			return tracksLoadedMsg{
-				tracks:     cached.tracks,
-				title:      pl.Name,
-				contextURI: pl.URI,
-				imageURL:   pl.ImageURL,
-				playlistID: pl.ID,
-				total:      cached.total,
-			}
-		}
+	if m.restrictedPlaylists[pl.ID] {
+		return func() tea.Msg { return playlistRestrictedMsg{playlist: pl} }
 	}
+	if cached, ok := m.trackCache[pl.ID]; ok && time.Since(cached.fetchedAt) < trackCacheTTL {
+		msg := tracksLoadedMsg{
+			tracks:     cached.tracks,
+			title:      pl.Name,
+			contextURI: pl.URI,
+			imageURL:   pl.ImageURL,
+			playlistID: pl.ID,
+			total:      cached.total,
+			playlist:   pl,
+			version:    cached.version,
+			fromDisk:   true,
+			current:    cached.version == pageVersion(pl),
+		}
+		return func() tea.Msg { return msg }
+	}
+	if m.pageDir() != "" {
+		return m.loadPlaylistPage(pl)
+	}
+	return m.livePlaylistPage(pl, false)
+}
+
+// livePlaylistPage fetches pl's first page from Spotify. revalidate marks
+// it as replacing a cached copy, which it mustn't do once the user has left.
+func (m Model) livePlaylistPage(pl source.Playlist, revalidate bool) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
-	restricted := m.restrictedPlaylists[pl.ID]
 	return func() tea.Msg {
-		if restricted {
-			return playlistRestrictedMsg{playlist: pl}
-		}
 		tracks, total, err := src.PlaylistTracksPage(ctx, pl.ID, 0, playlistPageSize)
 		if errors.Is(err, source.ErrPlaylistRestricted) {
-			return playlistRestrictedMsg{playlist: pl}
+			return playlistRestrictedMsg{playlist: pl, revalidate: revalidate}
 		}
 		if err != nil {
+			if revalidate {
+				// The cached copy is on screen and working; a failed refresh
+				// of it is no reason for an error toast.
+				return revalidateFailedMsg{playlist: pl, err: err}
+			}
 			return trackErrorMsg{err}
 		}
 		return tracksLoadedMsg{
@@ -98,6 +115,9 @@ func (m Model) fetchPlaylistTracks(pl source.Playlist) tea.Cmd {
 			imageURL:   pl.ImageURL,
 			playlistID: pl.ID,
 			total:      total,
+			playlist:   pl,
+			version:    pageVersion(pl),
+			revalidate: revalidate,
 		}
 	}
 }
@@ -129,7 +149,7 @@ func (m Model) fetchMoreTracks() tea.Cmd {
 		if err != nil {
 			return trackErrorMsg{err}
 		}
-		return moreTracksLoadedMsg{tracks: tracks, playlistID: id, offset: offset, total: total}
+		return moreTracksLoadedMsg{tracks: tracks, playlistID: id, offset: offset, total: total, pagination: p}
 	}
 }
 
@@ -714,6 +734,7 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 	ctx := m.ctx
 	switch cmd.Type {
 	case CmdQuit:
+		m.saveSnapshotOnQuit()
 		m.cancel()
 		m.quitting = true
 		return tea.Quit

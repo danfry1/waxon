@@ -18,6 +18,7 @@ type cachedPlaylist struct {
 	tracks    []source.Track
 	total     int
 	fetchedAt time.Time
+	version   string // the playlist's version when fetched (pagecache.go)
 }
 
 // evictTrackCache removes the oldest cache entries to stay under maxTrackCacheEntries.
