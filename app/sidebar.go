@@ -27,6 +27,9 @@ func (s sidebarItem) Title() string {
 	if s.icon != "" {
 		return s.icon + " " + s.playlist.Name
 	}
+	if g, ok := libraryRowGlyphs[s.playlist.ID]; ok {
+		return g + " " + s.playlist.Name
+	}
 	return "♫ " + s.playlist.Name
 }
 
@@ -98,9 +101,17 @@ func NewSidebar(width, height int) Sidebar {
 }
 
 func (s *Sidebar) SetPlaylists(playlists []source.Playlist) {
-	items := make([]list.Item, len(playlists))
+	// Liked Songs first, then the collection rows, then the playlists. The
+	// library always starts with Liked Songs (source.Playlists puts it
+	// there); a list that doesn't isn't the library, and gets no rows.
+	items := make([]list.Item, 0, len(playlists)+len(libraryRows))
 	for i, pl := range playlists {
-		items[i] = sidebarItem{playlist: pl}
+		items = append(items, sidebarItem{playlist: pl})
+		if i == 0 && pl.ID == likedPlaylistID {
+			for _, row := range libraryRows {
+				items = append(items, sidebarItem{playlist: row})
+			}
+		}
 	}
 	s.allItems = items
 	s.refreshVisible()

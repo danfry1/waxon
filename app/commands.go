@@ -883,6 +883,9 @@ func (m Model) openActions() (Model, tea.Cmd) {
 		m.toast.Show("No playlist selected", "", ToastError)
 		return m, scheduleAutoDismiss()
 	}
+	if isCollection(pl.ID) {
+		return m.openSidebarRow(*pl) // nothing to do to it but open it
+	}
 	popup := NewPlaylistActions(pl.Name, pl.URI, m.width, m.height)
 	m.actions = &popup
 	m.actionsReturn = ModeNormal

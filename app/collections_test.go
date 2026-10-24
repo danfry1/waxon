@@ -9,17 +9,73 @@ import (
 	"github.com/danfry1/waxon/source"
 )
 
-func TestCollectionsStayOutOfSidebar(t *testing.T) {
+// The Library lists Liked Songs, then the collections, then the playlists,
+// as in Spotify's apps.
+func TestLibraryRowsInSidebar(t *testing.T) {
 	m := newTestModel(&StubSource{})
 	res, _ := m.Update(playlistsLoadedMsg{playlists: []source.Playlist{{ID: likedPlaylistID, Name: "Liked"}, {ID: "p1", Name: "Mine"}}})
 	m = res.(Model)
-	if n := len(m.sidebar.list.Items()); n != 2 {
-		t.Errorf("sidebar has %d items, want just the 2 playlists", n)
+	var ids []string
+	for _, it := range m.sidebar.list.Items() {
+		ids = append(ids, it.(sidebarItem).playlist.ID)
+	}
+	want := []string{likedPlaylistID, collectionRecentID, collectionAlbumsID, collectionArtistsID, collectionPodcastsID, "p1"}
+	if fmt.Sprint(ids) != fmt.Sprint(want) {
+		t.Errorf("sidebar = %v, want %v", ids, want)
 	}
 }
 
-func TestCollectionCommandsAndMotions(t *testing.T) {
-	for _, keys := range [][]string{{"g", "a"}, {":", "a", "l", "b", "u", "m", "s", "enter"}} {
+// Enter on a collection row opens it in the track list.
+func TestEnterOnLibraryRowOpensIt(t *testing.T) {
+	m := newTestModel(&StubSource{SavedAlbumsFn: func(context.Context) ([]source.SavedAlbum, error) {
+		return []source.SavedAlbum{{ID: "al1", Name: "Blue"}}, nil
+	}})
+	res, _ := m.Update(playlistsLoadedMsg{playlists: []source.Playlist{{ID: likedPlaylistID, Name: "Liked"}}})
+	m = res.(Model)
+	m.focusPane = PaneSidebar
+	m.sidebar.Move(2) // Liked, Recently Played, Albums
+	res, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+	if cmd == nil || m.focusPane != PaneTrackList {
+		t.Fatalf("Enter on Albums: cmd %v, focus %v", cmd != nil, m.focusPane)
+	}
+	res, _ = m.Update(cmd())
+	if got := res.(Model).tracklist.title; got != "Saved Albums" {
+		t.Errorf("title = %q, want Saved Albums", got)
+	}
+}
+
+// ga / gA go from a track to its album / artist.
+func TestGoToAlbumAndArtistOfTrack(t *testing.T) {
+	var album, artist string
+	stub := &StubSource{
+		GetAlbumFn: func(_ context.Context, id string) (*source.AlbumPage, error) {
+			album = id
+			return &source.AlbumPage{Name: "LP"}, nil
+		},
+		GetArtistFn: func(_ context.Context, id string) (*source.ArtistPage, error) {
+			artist = id
+			return &source.ArtistPage{Name: "Band"}, nil
+		},
+	}
+	m := newTestModel(stub)
+	m.tracklist.SetTracks([]source.Track{{ID: "t", Name: "Song", AlbumID: "al", ArtistID: "ar"}}, "L", "")
+	m.focusPane = PaneTrackList
+	for _, k := range []string{"a", "A"} {
+		res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+		res, cmd := res.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		if cmd == nil {
+			t.Fatalf("g%s: no fetch", k)
+		}
+		cmd()
+	}
+	if album != "al" || artist != "ar" {
+		t.Errorf("album %q, artist %q; want al, ar", album, artist)
+	}
+}
+
+func TestCollectionCommands(t *testing.T) {
+	for _, keys := range [][]string{{":", "a", "l", "b", "u", "m", "s", "enter"}} {
 		m := newTestModel(&StubSource{SavedAlbumsFn: func(context.Context) ([]source.SavedAlbum, error) {
 			return []source.SavedAlbum{{ID: "al1", Name: "Blue"}}, nil
 		}})

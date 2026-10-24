@@ -174,12 +174,14 @@ func TestShuffleKeyInNowPlaying(t *testing.T) {
 	}
 }
 
-func TestGRStillOpensRecent(t *testing.T) {
+// Recently Played is a Library row now; g then r doesn't fall through to r
+// (repeat) either.
+func TestGRDoesNothing(t *testing.T) {
 	m := newTestModel(&StubSource{})
 	result, _ := m.Update(runeKey("g"))
-	result, _ = result.(Model).Update(runeKey("r"))
-	if got := result.(Model).tracklist.title; got != "Recently Played" {
-		t.Errorf("gr should still open recently played; title=%q", got)
+	result, cmd := result.(Model).Update(runeKey("r"))
+	if cmd != nil || result.(Model).repeatMode != m.repeatMode {
+		t.Error("gr should do nothing")
 	}
 }
 

@@ -1160,7 +1160,7 @@ func TestHelpListsEveryBoundKey(t *testing.T) {
 	}
 	for _, b := range []key.Binding{
 		km.Up, km.Down, km.Bottom, km.HalfUp, km.HalfDown, km.FocusLeft, km.FocusRight,
-		km.CyclePane, km.Section1, km.Section2, km.Back, km.Enter, km.PlayPause, km.Next,
+		km.CyclePane, km.Back, km.LikePlaying, km.ActionsPlaying, km.Mute, km.Mode, km.Enter, km.PlayPause, km.Next,
 		km.Prev, km.SeekFwd, km.SeekBack, km.AddQueue, km.Like, km.Actions, km.Devices,
 		km.Filter, km.Search, km.Command, km.Help, km.NowPlaying, km.Quit,
 	} {
@@ -1656,25 +1656,23 @@ func TestHandleKeyNormalFocusSwitch(t *testing.T) {
 	}
 }
 
+// gl / gq go to the Library / Queue (1 and 2 are counts now).
 func TestHandleKeyNormalSectionSwitch(t *testing.T) {
-	stub := &StubSource{}
-
-	// 1 switches to Library
-	m := newTestModel(stub)
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")}
-	result, _ := m.Update(msg)
-	model := result.(Model)
-	if model.focusPane != PaneSidebar {
-		t.Errorf("1 key: focusPane = %v, want PaneSidebar", model.focusPane)
+	for _, k := range []string{"l", "q"} {
+		m := newTestModel(&StubSource{})
+		m.focusPane = PaneTrackList
+		res, _ := m.Update(runeKey("g"))
+		res, _ = res.(Model).Update(runeKey(k))
+		if res.(Model).focusPane != PaneSidebar {
+			t.Errorf("g%s: focus = %v, want the sidebar", k, res.(Model).focusPane)
+		}
 	}
-
-	// 2 switches to Queue
-	m = newTestModel(stub)
-	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")}
-	result, _ = m.Update(msg)
-	model = result.(Model)
-	if model.focusPane != PaneSidebar {
-		t.Errorf("2 key: focusPane = %v, want PaneSidebar", model.focusPane)
+	// A digit in the sidebar starts a count instead.
+	m := newTestModel(&StubSource{})
+	m.focusPane = PaneSidebar
+	res, _ := m.Update(runeKey("2"))
+	if res.(Model).count != 2 {
+		t.Errorf("2 in the sidebar: count = %d, want 2", res.(Model).count)
 	}
 }
 

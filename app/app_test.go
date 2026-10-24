@@ -45,9 +45,14 @@ func TestGTrackerFeed(t *testing.T) {
 			want: []GAction{GActionNone, GActionCurrent},
 		},
 		{
-			name: "gr produces GActionRecent",
-			keys: []string{"g", "r"},
-			want: []GAction{GActionNone, GActionRecent},
+			name: "ga produces GActionGoAlbum",
+			keys: []string{"g", "a"},
+			want: []GAction{GActionNone, GActionGoAlbum},
+		},
+		{
+			name: "gA produces GActionGoArtist",
+			keys: []string{"g", "A"},
+			want: []GAction{GActionNone, GActionGoArtist},
 		},
 		{
 			name: "unknown second key resets",

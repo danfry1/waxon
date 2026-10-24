@@ -11,10 +11,35 @@ import (
 // IDs of the library collections that aren't playlists. Each opens in the
 // track list as navigable rows (albums, artists or shows).
 const (
+	collectionRecentID   = "collection:recent"
 	collectionAlbumsID   = "collection:albums"
 	collectionArtistsID  = "collection:artists"
 	collectionPodcastsID = "collection:podcasts"
 )
+
+// libraryRows are the collections listed in the sidebar's Library, after
+// Liked Songs and before the playlists, as in Spotify's own apps.
+var libraryRows = []source.Playlist{
+	{ID: collectionRecentID, Name: "Recently Played"},
+	{ID: collectionAlbumsID, Name: "Albums"},
+	{ID: collectionArtistsID, Name: "Artists"},
+	{ID: collectionPodcastsID, Name: "Podcasts"},
+}
+
+// libraryRowGlyphs mark the collection rows in the sidebar.
+var libraryRowGlyphs = map[string]string{
+	collectionRecentID:   "↺",
+	collectionAlbumsID:   "◉",
+	collectionArtistsID:  "☺",
+	collectionPodcastsID: "◎",
+}
+
+// isCollection reports whether id is one of the library collections rather
+// than a playlist.
+func isCollection(id string) bool {
+	_, ok := libraryRowGlyphs[id]
+	return ok
+}
 
 // showKeyPrefix keys a show's episode list in the track cache and pagination
 // state, alongside playlist IDs: "show:<id>". fetchMoreTracks routes on it.
@@ -30,10 +55,16 @@ var collectionTitles = map[string]string{
 	collectionPodcastsID: "Podcasts",
 }
 
-// openCollection shows saved albums, followed artists or podcasts in the
-// track list. They're reached by ga / gA / gp and :albums / :artists /
-// :podcasts rather than sitting in the sidebar, which stays playlists.
+// openCollection shows recently played, saved albums, followed artists or
+// podcasts in the track list: from their Library rows, or :recent /
+// :albums / :artists / :podcasts.
 func (m *Model) openCollection(id string) tea.Cmd {
+	if id == collectionRecentID {
+		m.pushNav()
+		m.focusPane = PaneTrackList
+		m.tracklist.SetLoading("Recently Played")
+		return m.fetchRecentlyPlayed()
+	}
 	title := collectionTitles[id]
 	m.pushNav()
 	m.focusPane = PaneTrackList

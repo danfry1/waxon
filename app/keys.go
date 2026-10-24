@@ -41,6 +41,11 @@ type KeyMap struct {
 	AddQueue key.Binding
 	Like     key.Binding
 	Actions  key.Binding
+	// LikePlaying and ActionsPlaying act on the playing track from anywhere
+	// (Shift: the playing track; lowercase: the selection).
+	LikePlaying    key.Binding
+	ActionsPlaying key.Binding
+	Mute           key.Binding
 	Devices  key.Binding
 	Mode     key.Binding // play in waxon ⇄ control the Spotify app
 
@@ -57,8 +62,6 @@ type KeyMap struct {
 	Escape     key.Binding
 
 	// Sections
-	Section1 key.Binding
-	Section2 key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -89,6 +92,10 @@ func DefaultKeyMap() KeyMap {
 		AddQueue: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add to queue")),
 		Like:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "favourite")),
 		Actions:  key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "actions")),
+
+		LikePlaying:    key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "like the playing track")),
+		ActionsPlaying: key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "actions for the playing track")),
+		Mute:           key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
 		Devices:  key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "devices")),
 		Mode:     key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "play in waxon ⇄ control the Spotify app")),
 
@@ -102,8 +109,6 @@ func DefaultKeyMap() KeyMap {
 		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 		Escape:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close/cancel")),
 
-		Section1: key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "library")),
-		Section2: key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "queue")),
 	}
 }
 
@@ -114,7 +119,7 @@ func (k KeyMap) ShortHelp() []key.Binding {
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Top, k.Bottom, k.HalfUp, k.HalfDown},
-		{k.FocusLeft, k.FocusRight, k.CyclePane, k.Section1, k.Section2, k.Back},
+		{k.FocusLeft, k.FocusRight, k.CyclePane, k.Back},
 		{k.Enter, k.PlayPause, k.Next, k.Prev, k.SeekFwd, k.SeekBack},
 		{k.AddQueue, k.Like, k.Actions, k.Devices, k.Filter, k.Search, k.Command, k.Help, k.NowPlaying, k.Quit},
 	}
@@ -129,10 +134,8 @@ const (
 	GActionLibrary          // gl — focus library
 	GActionQueue            // gq — focus queue
 	GActionCurrent          // gc — jump to currently playing track
-	GActionRecent           // gr — load recently played
-	GActionAlbums           // ga — saved albums
-	GActionArtists          // gA — followed artists
-	GActionPodcasts         // gp — podcasts
+	GActionGoAlbum          // ga — album of the selected (or playing) track
+	GActionGoArtist         // gA — its artist
 )
 
 // gMotion is a two-key g-prefix motion: the second key, the action it
@@ -150,10 +153,8 @@ var gMotions = []gMotion{
 	{"l", GActionLibrary, "library"},
 	{"q", GActionQueue, "queue"},
 	{"c", GActionCurrent, "jump to playing"},
-	{"r", GActionRecent, "recently played"},
-	{"a", GActionAlbums, "saved albums"},
-	{"A", GActionArtists, "followed artists"},
-	{"p", GActionPodcasts, "podcasts"},
+	{"a", GActionGoAlbum, "album of the track"},
+	{"A", GActionGoArtist, "artist of the track"},
 }
 
 // GTracker tracks g-prefix two-key motions (see gMotions).
@@ -204,8 +205,8 @@ func (m Model) countDigit(msg tea.KeyMsg) (int, bool) {
 		return 0, false
 	}
 	k := m.keys
-	for name, b := range k.keyBindingFields() {
-		if name != "section1" && name != "section2" && key.Matches(msg, *b) {
+	for _, b := range k.keyBindingFields() {
+		if key.Matches(msg, *b) {
 			return 0, false
 		}
 	}
@@ -224,9 +225,9 @@ func (k *KeyMap) keyBindingFields() map[string]*key.Binding {
 		"seek_fwd": &k.SeekFwd, "seek_back": &k.SeekBack,
 		"vol_up": &k.VolUp, "vol_down": &k.VolDown, "shuffle": &k.Shuffle, "repeat": &k.Repeat,
 		"visual": &k.Visual, "add_queue": &k.AddQueue, "like": &k.Like, "actions": &k.Actions, "devices": &k.Devices, "mode": &k.Mode,
+		"like_playing": &k.LikePlaying, "actions_playing": &k.ActionsPlaying, "mute": &k.Mute,
 		"back": &k.Back, "filter": &k.Filter, "search": &k.Search, "command": &k.Command,
 		"help": &k.Help, "now_playing": &k.NowPlaying, "quit": &k.Quit,
-		"section1": &k.Section1, "section2": &k.Section2,
 	}
 }
 
@@ -259,7 +260,11 @@ func KeyMapFromOverrides(overrides map[string]string) (KeyMap, error) {
 	for _, action := range actions {
 		b, ok := fields[action]
 		if !ok {
-			problems = append(problems, fmt.Sprintf("unknown action %q", action))
+			if now, gone := retiredActions[action]; gone {
+				problems = append(problems, fmt.Sprintf("%q is gone: %s", action, now))
+			} else {
+				problems = append(problems, fmt.Sprintf("unknown action %q", action))
+			}
 			continue
 		}
 		var keys []string
@@ -285,6 +290,13 @@ func KeyMapFromOverrides(overrides map[string]string) (KeyMap, error) {
 		return k, errors.New(strings.Join(problems, "; "))
 	}
 	return k, nil
+}
+
+// retiredActions are action names that no longer exist, with what does
+// the job now, so an old config says what to change instead of failing.
+var retiredActions = map[string]string{
+	"section1": "gl goes to the Library",
+	"section2": "gq goes to the Queue",
 }
 
 // keyClashes lists keys that an overridden action shares with another

@@ -348,6 +348,10 @@ type Model struct {
 	mediaArtFor string           // the artwork URL mediaArt is for
 	setup       *Setup           // open in ModeSetup (setting up the player in place)
 	helpScroll  int              // first row of the help overlay shown
+	// overlayFromNP: the open overlay was opened from Now Playing, which it
+	// returns to.
+	overlayFromNP bool
+	muteRestore   int // the volume before m muted it
 	pagination  *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt        string      // large rendered art for now playing view
@@ -1502,7 +1506,7 @@ func (m Model) quit() (Model, tea.Cmd) {
 
 func (m Model) handleKeyHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if msg.Type == tea.KeyEscape || key.Matches(msg, m.keys.Help) || msg.String() == "q" {
-		m.mode = ModeNormal
+		m.leaveOverlay()
 		m.helpScroll = 0
 		return m, nil
 	}
@@ -1576,12 +1580,28 @@ func (m *Model) openNowPlaying(view npView) tea.Cmd {
 }
 
 func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.gtracker.Pending() {
+		// ga / gA / gc work here too, on the playing track.
+		switch m.gtracker.Feed(msg.String()) {
+		case GActionGoAlbum:
+			return m.goToAlbumOrArtist(ActionGoAlbum)
+		case GActionGoArtist:
+			return m.goToAlbumOrArtist(ActionGoArtist)
+		case GActionCurrent:
+			m.mode = ModeNormal
+			return m.jumpToCurrentTrack()
+		}
+		return m, nil
+	}
 	switch {
 	case key.Matches(msg, m.keys.NowPlaying), msg.Type == tea.KeyEscape, msg.String() == "q":
 		// Lyrics/vinyl stay chosen: N reopens Now Playing as it was left.
 		m.mode = ModeNormal
 		return m, nil
-	case msg.String() == "V":
+	case msg.String() == "g":
+		m.gtracker.Feed("g")
+		return m, nil
+	case msg.String() == "v", msg.String() == "V":
 		m.vinylMode = !m.vinylMode
 		if m.vinylMode {
 			m.vinylAngle = 0
@@ -1597,42 +1617,25 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.ensureLyrics()
 		}
 		return m, nil
-	case key.Matches(msg, m.keys.PlayPause):
-		if m.track != nil && m.track.Playing {
-			return m, m.controlCmd(m.source.Pause)
-		}
-		return m, m.controlCmd(m.source.Play)
-	case key.Matches(msg, m.keys.Next):
-		return m, m.controlCmd(m.source.Next)
-	case key.Matches(msg, m.keys.Prev):
-		return m, m.controlCmd(m.source.Previous)
-	case key.Matches(msg, m.keys.SeekFwd):
-		if m.track != nil {
-			return m, m.seekRelative(5 * time.Second)
-		}
-	case key.Matches(msg, m.keys.SeekBack):
-		if m.track != nil {
-			return m, m.seekRelative(-5 * time.Second)
-		}
-	case key.Matches(msg, m.keys.VolUp, m.keys.VolDown, m.keys.Shuffle, m.keys.Repeat):
-		return m, m.playbackSettingKey(msg)
+	// Here the selection is the playing track, so f, a and o act on it.
 	case key.Matches(msg, m.keys.Like):
 		if m.track != nil {
 			return m, m.toggleLike(m.track.ID, m.liked)
 		}
+		return m, nil
 	case key.Matches(msg, m.keys.AddQueue):
 		if m.track != nil {
 			return m, m.queueTrack(m.track.ID, m.track.Name)
 		}
+		return m, nil
 	case key.Matches(msg, m.keys.Actions):
 		if m.track != nil {
-			popup := NewTrackActions(m.track.Name, m.track.Artist, m.track.URI,
-				m.playbackContextURI, m.track.ArtistID, m.track.AlbumID, m.liked, m.width, m.height)
-			m.actions = &popup
-			m.actionsReturn = ModeNowPlaying
-			m.mode = ModeActions
+			return m.openPlayingActions(), nil
 		}
 		return m, nil
+	}
+	if nm, cmd, ok := m.handleGlobalKey(msg, 0); ok {
+		return nm, cmd
 	}
 	return m, nil
 }
@@ -1652,27 +1655,27 @@ func (m Model) handleKeySearch(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	if msg.Type == tea.KeyEscape {
 		m.search = nil
-		m.mode = ModeNormal
+		m.leaveOverlay()
 		return m, nil
 	}
 	if msg.Type == tea.KeyEnter {
 		if track := m.search.SelectedTrack(); track != nil {
 			m.search = nil
-			m.mode = ModeNormal
+			m.leaveOverlay()
 			// Play it inside its album so playback carries on afterwards,
 			// as it does when the track is picked from the album page.
 			return m, m.playTrack(track.URI, searchPlayContext(*track))
 		}
 		if artist := m.search.SelectedArtist(); artist != nil {
 			m.search = nil
-			m.mode = ModeNormal
+			m.leaveOverlay()
 			m.pushNav()
 			m.tracklist.SetLoading(artist.Name)
 			return m, m.fetchArtistPage(artist.ID)
 		}
 		if album := m.search.SelectedAlbum(); album != nil {
 			m.search = nil
-			m.mode = ModeNormal
+			m.leaveOverlay()
 			m.pushNav()
 			m.tracklist.SetLoading(album.Name)
 			return m, m.fetchAlbumPage(album.ID)
@@ -1732,14 +1735,14 @@ func (m Model) handleKeyDevices(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case tea.KeyEscape:
 		m.devices = nil
 		m.pendingRetry = nil
-		m.mode = ModeNormal
+		m.leaveOverlay()
 		return m, nil
 	case tea.KeyEnter:
 		dev := m.devices.Selected()
 		retry := m.pendingRetry
 		m.devices = nil
 		m.pendingRetry = nil
-		m.mode = ModeNormal
+		m.leaveOverlay()
 		if dev == nil {
 			return m, nil
 		}
@@ -1765,7 +1768,7 @@ func (m Model) handleKeyDevices(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "q":
 		m.devices = nil
 		m.pendingRetry = nil
-		m.mode = ModeNormal
+		m.leaveOverlay()
 	}
 	return m, nil
 }
@@ -1803,12 +1806,12 @@ func (m Model) handleKeyCommand(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
 		m.cmdInput = ""
-		m.mode = ModeNormal
+		m.leaveOverlay()
 		return m, nil
 	case tea.KeyEnter:
 		input := m.cmdInput
 		m.cmdInput = ""
-		m.mode = ModeNormal
+		m.leaveOverlay()
 		return m, m.executeCommand(input)
 	case tea.KeyBackspace:
 		if len(m.cmdInput) > 0 {
@@ -1897,28 +1900,19 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.fetchQueue()
 		case GActionCurrent:
 			return m.jumpToCurrentTrack()
-		case GActionRecent:
-			m.pushNav()
-			m.tracklist.SetLoading("Recently Played")
-			return m, m.fetchRecentlyPlayed()
-		case GActionAlbums:
-			return m, m.openCollection(collectionAlbumsID)
-		case GActionArtists:
-			return m, m.openCollection(collectionArtistsID)
-		case GActionPodcasts:
-			return m, m.openCollection(collectionPodcastsID)
+		case GActionGoAlbum:
+			return m.goToAlbumOrArtist(ActionGoAlbum)
+		case GActionGoArtist:
+			return m.goToAlbumOrArtist(ActionGoArtist)
 		default:
 			return m, nil
 		}
 	}
 
-	// A count (5j, 12G) is typed with digits while the track list has focus.
-	// There the digits are counts rather than the 1/2 section keys.
-	if m.focusPane == PaneTrackList {
-		if d, ok := m.countDigit(msg); ok {
-			m.count = min(m.count*10+d, maxCount)
-			return m, nil
-		}
+	// A count (5j, 12G, 6]) is typed with digits, in either pane.
+	if d, ok := m.countDigit(msg); ok {
+		m.count = min(m.count*10+d, maxCount)
+		return m, nil
 	}
 	count := m.count
 	m.count = 0
@@ -1941,6 +1935,23 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, m.maybeLoadMore()
 	}
 
+	if msg.Type == tea.KeyEscape {
+		// Esc backs out of whatever is half done: a count (already dropped
+		// above), a g prefix, a filter left applied.
+		m.gtracker.Reset()
+		switch {
+		case m.focusPane == PaneSidebar && m.sidebar.filterText != "":
+			m.sidebar.ClearFilter()
+		case m.focusPane == PaneTrackList && m.tracklist.FilterText() != "":
+			m.tracklist.ClearFilter()
+		}
+		return m, nil
+	}
+	if nm, cmd, ok := m.handleGlobalKey(msg, count); ok {
+		nm.gtracker.Reset()
+		return nm, cmd
+	}
+
 	switch {
 	case key.Matches(msg, m.keys.NowPlaying):
 		m.gtracker.Reset()
@@ -1949,10 +1960,6 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Quit):
 		return m.quit()
 
-	case key.Matches(msg, m.keys.Help):
-		m.gtracker.Reset()
-		m.mode = ModeHelp
-		return m, nil
 
 	case key.Matches(msg, m.keys.Filter):
 		m.gtracker.Reset()
@@ -1964,42 +1971,6 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.tracklist.ClearFilter()
 		}
 		return m, nil
-
-	case key.Matches(msg, m.keys.Search):
-		m.gtracker.Reset()
-		s := NewSearch(m.width, m.height)
-		m.search = &s
-		m.mode = ModeSearch
-		return m, nil
-
-	case key.Matches(msg, m.keys.Command):
-		m.gtracker.Reset()
-		m.mode = ModeCommand
-		m.cmdInput = ""
-		return m, nil
-
-	case key.Matches(msg, m.keys.PlayPause):
-		if m.track != nil && m.track.Playing {
-			return m, m.controlCmd(m.source.Pause)
-		}
-		return m, m.controlCmd(m.source.Play)
-
-	case key.Matches(msg, m.keys.Next):
-		return m, m.controlCmd(m.source.Next)
-
-	case key.Matches(msg, m.keys.Prev):
-		return m, m.controlCmd(m.source.Previous)
-
-	case key.Matches(msg, m.keys.SeekFwd):
-		if m.track != nil {
-			return m, m.seekRelative(5 * time.Second)
-		}
-	case key.Matches(msg, m.keys.SeekBack):
-		if m.track != nil {
-			return m, m.seekRelative(-5 * time.Second)
-		}
-	case key.Matches(msg, m.keys.VolUp, m.keys.VolDown, m.keys.Shuffle, m.keys.Repeat):
-		return m, m.playbackSettingKey(msg)
 
 	case key.Matches(msg, m.keys.Back):
 		if !m.popNav() {
@@ -2032,22 +2003,13 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 			return m, m.likeToggleCmd(track.ID)
 		}
-		// From sidebar, like the currently playing track
-		if m.track != nil {
-			return m, m.toggleLike(m.track.ID, m.liked)
-		}
-		m.toast.Show("No track playing", "", ToastError)
+		// f is the selection; the playing track is F.
+		m.toast.Show("Pick a track to like", m.keys.LikePlaying.Help().Key+" likes the playing track", ToastInfo)
 		return m, scheduleAutoDismiss()
 
 	case key.Matches(msg, m.keys.Actions):
 		m.gtracker.Reset()
 		return m.openActions()
-
-	case key.Matches(msg, m.keys.Mode):
-		return m, m.switchDevice(toggleHere)
-	case key.Matches(msg, m.keys.Devices):
-		m.gtracker.Reset()
-		return m, m.fetchDevices()
 
 	case key.Matches(msg, m.keys.FocusLeft):
 		m.focusPane = PaneSidebar
@@ -2064,16 +2026,6 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.focusPane = PaneSidebar
 		}
 		return m, nil
-
-	case key.Matches(msg, m.keys.Section1):
-		m.focusPane = PaneSidebar
-		m.sidebar.SetSection(SectionLibrary)
-		return m, nil
-
-	case key.Matches(msg, m.keys.Section2):
-		m.focusPane = PaneSidebar
-		m.sidebar.SetSection(SectionQueue)
-		return m, m.fetchQueue()
 
 	case key.Matches(msg, m.keys.Up), key.Matches(msg, m.keys.Down),
 		key.Matches(msg, m.keys.HalfUp), key.Matches(msg, m.keys.HalfDown):
@@ -2200,14 +2152,8 @@ func (m Model) handleSidebarClick(y int) (Model, tea.Cmd) {
 	now := time.Now()
 	if m.lastClickPane == PaneSidebar && now.Sub(m.lastClickTime) < doubleClickThreshold {
 		m.lastClickTime = time.Time{}
-		pl := m.sidebar.SelectedPlaylist()
-		if pl != nil {
-			if m.sidebar.Section() == SectionQueue {
-				return m, m.playTrack(queuedURI(*pl), "")
-			}
-			m.pushNav()
-			m.tracklist.SetLoadingFor(pl.Name, pl.URI)
-			return m, m.fetchPlaylistTracks(*pl)
+		if pl := m.sidebar.SelectedPlaylist(); pl != nil {
+			return m.openSidebarRow(*pl)
 		}
 	}
 	m.lastClickTime = now
@@ -2301,18 +2247,20 @@ func (m Model) closeOverlay() (Model, tea.Cmd) {
 	switch m.mode {
 	case ModeSearch:
 		m.search = nil
-		m.mode = ModeNormal
+		m.leaveOverlay()
 	case ModeActions:
 		m.actions = nil
 		m.mode = m.actionsReturn
 	case ModeDevices:
 		m.devices = nil
 		m.pendingRetry = nil
-		m.mode = ModeNormal
+		m.leaveOverlay()
 	case ModePlaylistPick:
 		m.playlistPick = nil
 		m.mode = m.pickReturn
-	case ModeHelp, ModeNowPlaying:
+	case ModeHelp:
+		m.leaveOverlay()
+	case ModeNowPlaying:
 		m.mode = ModeNormal
 	}
 	return m, nil
@@ -2327,17 +2275,47 @@ func queuedURI(pl source.Playlist) string {
 	return "spotify:track:" + pl.ID
 }
 
+// openSidebarRow opens the sidebar row pl: a playlist or collection opens
+// in the track list (and takes focus, so the next Enter plays from it); a
+// queue entry plays.
+func (m Model) openSidebarRow(pl source.Playlist) (Model, tea.Cmd) {
+	if m.sidebar.Section() == SectionQueue {
+		return m, m.playTrack(queuedURI(pl), "")
+	}
+	if isCollection(pl.ID) {
+		return m, m.openCollection(pl.ID)
+	}
+	m.pushNav()
+	m.tracklist.SetLoadingFor(pl.Name, pl.URI)
+	m.focusPane = PaneTrackList
+	return m, m.fetchPlaylistTracks(pl)
+}
+
+// goToAlbumOrArtist (ga / gA) opens the album or artist of the selected
+// track, or of the playing one when no track is selected (the sidebar has
+// focus, or Now Playing is open).
+func (m Model) goToAlbumOrArtist(action ActionType) (Model, tea.Cmd) {
+	var t *source.Track
+	if m.focusPane == PaneTrackList && m.mode != ModeNowPlaying {
+		if sel := m.tracklist.SelectedTrack(); sel != nil && !sel.IsSeparator && !sel.IsAlbumRow {
+			t = sel
+		}
+	}
+	if t == nil {
+		t = m.track
+	}
+	if t == nil {
+		m.toast.Show("No track selected", "", ToastError)
+		return m, scheduleAutoDismiss()
+	}
+	m.mode = ModeNormal
+	return m.executeAction(ActionItem{Type: action}, actionSubject{albumID: t.AlbumID, artistID: t.ArtistID})
+}
+
 func (m Model) handleEnter() (Model, tea.Cmd) {
 	if m.focusPane == PaneSidebar {
-		pl := m.sidebar.SelectedPlaylist()
-		if pl != nil {
-			if m.sidebar.Section() == SectionQueue {
-				return m, m.playTrack(queuedURI(*pl), "")
-			}
-			m.pushNav()
-			m.tracklist.SetLoadingFor(pl.Name, pl.URI)
-			m.focusPane = PaneTrackList // so the next Enter plays from it
-			return m, m.fetchPlaylistTracks(*pl)
+		if pl := m.sidebar.SelectedPlaylist(); pl != nil {
+			return m.openSidebarRow(*pl)
 		}
 	} else {
 		track := m.tracklist.SelectedTrack()
