@@ -8,6 +8,12 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+
+- `waxon doctor` warns when waxon's logins sit in a git repository (a
+  dotfiles repo, say) or a folder a sync service uploads (Dropbox, iCloud
+  Drive, OneDrive, Google Drive), where they could leave the machine.
+
 ### Changed
 
 - On Windows, waxon keeps its config and logins in `%AppData%\waxon`, the
