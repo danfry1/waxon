@@ -158,7 +158,7 @@ Full-screen album art rendered with Unicode half-blocks over a gradient drawn fr
 
 ### Media Keys
 
-The keyboard's ⏯ ⏭ ⏮ keys control waxon, and the system's Now Playing (Control Center on macOS; GNOME, KDE and `playerctl` through MPRIS on Linux) shows the track, its cover and progress, with working buttons and scrubbing. They control whatever waxon is playing on: its own player, your phone or a speaker. If another music app is open it may take the keys first.
+The keyboard's ⏯ ⏭ ⏮ keys control waxon, and the system's Now Playing (Control Center on macOS; GNOME, KDE and `playerctl` through MPRIS on Linux) shows the track, its cover and progress, with working buttons and scrubbing. They control whatever waxon is playing on: its own player, your phone or a speaker. If another music app is open it may take the keys first. Over SSH they're left alone: the keys belong to whoever is at the machine.
 
 ### Synced Lyrics
 

@@ -755,13 +755,17 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 	case CmdVolume:
 		m.startVolumeChange()
 		m.volume = cmd.IntArg
+		m.volumeGen++ // replies to earlier levels are now stale
 		m.volumeHoldUntil, m.volumeSent = time.Now().Add(volumeSentHold), true
 		m.volumeLast, m.volumeLastSet = cmd.IntArg, true
 		m.volumeSentAt = time.Now()
 		vol, gen := cmd.IntArg, m.volumeGen
 		return deviceAware(func() tea.Msg {
 			if err := src.SetVolume(ctx, vol); err != nil {
-				return trackErrorMsg{err}
+				if errors.Is(err, source.ErrNoActiveDevice) {
+					return trackErrorMsg{err} // deviceAware recovers this
+				}
+				return volumeFailedMsg{gen, err}
 			}
 			return volumeSetMsg{vol, gen}
 		})

@@ -17,6 +17,8 @@ import (
 
 // State is what's playing, for the system's Now Playing display.
 type State struct {
+	// ID identifies the track (a Spotify id, or URI for a local file).
+	ID                   string
 	Title, Artist, Album string
 	Duration, Position   time.Duration
 	Playing              bool

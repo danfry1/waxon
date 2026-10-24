@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,30 @@ func TestVolumeMeterShowsPendingThenGlows(t *testing.T) {
 	}
 	if m.volumeGlow != 0 {
 		t.Errorf("glow left after the fade = %d", m.volumeGlow)
+	}
+}
+
+// Two quick :vol commands: replies and failures for the first don't end
+// the wait for the second.
+func TestVolumeCommandsSupersedeEachOther(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.volume = 50
+	first := m.runCommand(Command{Type: CmdVolume, IntArg: 30})
+	firstGen := m.volumeGen
+	m.runCommand(Command{Type: CmdVolume, IntArg: 70})
+	if ack, ok := first().(volumeSetMsg); !ok || ack.gen != firstGen {
+		t.Fatalf("first reply = %#v", ack)
+	}
+	for _, msg := range []tea.Msg{volumeSetMsg{30, firstGen}, volumeFailedMsg{firstGen, errors.New("refused")}} {
+		res, _ := m.Update(msg)
+		m = res.(Model)
+		if !m.volumeInFlight {
+			t.Fatalf("%T for the first level ended the wait for the second", msg)
+		}
+	}
+	res, _ := m.Update(volumeFailedMsg{m.volumeGen, errors.New("refused")})
+	if res.(Model).volumeInFlight {
+		t.Error("a failure for the newest level should end the wait")
 	}
 }
 

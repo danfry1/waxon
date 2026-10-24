@@ -4,9 +4,12 @@ package media
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -15,16 +18,18 @@ import (
 
 // Linux: waxon registers as an MPRIS player on the session bus
 // (org.mpris.MediaPlayer2.waxon), which desktops, media keys and playerctl
-// all talk to. Without a session bus (a server, SSH) Start returns
-// ErrUnsupported.
+// all talk to. Without a running session bus (a server, SSH) Start returns
+// ErrUnsupported; it never launches one.
 
 const (
 	mprisPath   = "/org/mpris/MediaPlayer2"
 	mprisRoot   = "org.mpris.MediaPlayer2"
 	mprisPlayer = "org.mpris.MediaPlayer2.Player"
-	// mprisTrack is the one track id waxon uses: MPRIS wants an object path
-	// per track, but it only ever has the playing one.
-	mprisTrack = dbus.ObjectPath("/org/waxon/track/current")
+	// mprisNoTrack is MPRIS's "no track" id.
+	mprisNoTrack = dbus.ObjectPath("/org/mpris/MediaPlayer2/TrackList/NoTrack")
+	// mprisTick is how often the Position property is brought up to date
+	// while playing (it's local: no bus traffic unless a client reads it).
+	mprisTick = time.Second
 )
 
 func runMain(fn func() int) int { return fn() }
@@ -32,8 +37,29 @@ func runMain(fn func() int) int { return fn() }
 type mprisController struct {
 	conn  *dbus.Conn
 	props *prop.Properties
-	mu    sync.Mutex
-	pos   time.Duration
+	done  chan struct{}
+	once  sync.Once
+
+	mu      sync.Mutex
+	pos     time.Duration // at at
+	at      time.Time
+	playing bool
+	track   dbus.ObjectPath
+	dead    bool // the bus went away; stop talking to it
+}
+
+// position is where the track is now, extrapolated from the last update.
+func (c *mprisController) position() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.positionLocked(time.Now())
+}
+
+func (c *mprisController) positionLocked(now time.Time) time.Duration {
+	if c.playing {
+		return c.pos + now.Sub(c.at)
+	}
+	return c.pos
 }
 
 // mprisPlayerMethods implements org.mpris.MediaPlayer2.Player's methods.
@@ -52,15 +78,20 @@ func (p mprisPlayerMethods) Previous() *dbus.Error  { p.onEvent(Event{Command: P
 // SeekBy is MPRIS's Seek (exported under that name: Go reserves Seek for
 // io.Seeker): it moves by offset microseconds from the current position.
 func (p mprisPlayerMethods) SeekBy(offset int64) *dbus.Error {
-	p.c.mu.Lock()
-	to := p.c.pos + time.Duration(offset)*time.Microsecond
-	p.c.mu.Unlock()
+	to := p.c.position() + time.Duration(offset)*time.Microsecond
 	p.onEvent(Event{Command: Seek, Position: max(0, to)})
 	return nil
 }
 
-// SetPosition moves to position microseconds into the track.
-func (p mprisPlayerMethods) SetPosition(_ dbus.ObjectPath, position int64) *dbus.Error {
+// SetPosition moves to position microseconds into track, if that's still
+// the one playing (as the spec asks).
+func (p mprisPlayerMethods) SetPosition(track dbus.ObjectPath, position int64) *dbus.Error {
+	p.c.mu.Lock()
+	current := p.c.track
+	p.c.mu.Unlock()
+	if track != current || position < 0 {
+		return nil
+	}
 	p.onEvent(Event{Command: Seek, Position: time.Duration(position) * time.Microsecond})
 	return nil
 }
@@ -74,12 +105,30 @@ type mprisRootMethods struct{}
 func (mprisRootMethods) Raise() *dbus.Error { return nil }
 func (mprisRootMethods) Quit() *dbus.Error  { return nil }
 
+// connect joins the running session bus, never starting one (godbus would
+// otherwise run dbus-launch, leaving a daemon behind).
+func connect() (*dbus.Conn, error) {
+	conn, err := dbus.SessionBusPrivateNoAutoStartup()
+	if err != nil {
+		return nil, err
+	}
+	if err := conn.Auth(nil); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := conn.Hello(); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
 func start(onEvent func(Event)) (Controller, error) {
-	conn, err := dbus.ConnectSessionBus()
+	conn, err := connect()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnsupported, err)
 	}
-	c := &mprisController{conn: conn}
+	c := &mprisController{conn: conn, done: make(chan struct{}), track: mprisNoTrack}
 	player := mprisPlayerMethods{c: c, onEvent: onEvent}
 	if err := conn.ExportWithMap(player, mprisNames, mprisPath, mprisPlayer); err != nil {
 		conn.Close()
@@ -142,12 +191,59 @@ func start(onEvent func(Event)) (Controller, error) {
 		conn.Close()
 		return nil, fmt.Errorf("%w: couldn't take an MPRIS name", ErrUnsupported)
 	}
+	go c.tick()
 	return c, nil
 }
 
-func (c *mprisController) Update(s State) {
+// tick keeps the Position property current while playing, for clients
+// that read it.
+func (c *mprisController) tick() {
+	t := time.NewTicker(mprisTick)
+	defer t.Stop()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-t.C:
+			c.mu.Lock()
+			playing, pos := c.playing, c.positionLocked(time.Now())
+			c.mu.Unlock()
+			if playing {
+				c.set("Position", pos.Microseconds())
+			}
+		}
+	}
+}
+
+// set sets a Player property, emitting the change where it's flagged to.
+// godbus panics if the emit fails (the bus went away); that ends media
+// controls, not waxon.
+func (c *mprisController) set(name string, v any) {
 	c.mu.Lock()
-	c.pos = s.Position
+	dead := c.dead
+	c.mu.Unlock()
+	if dead {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			c.mu.Lock()
+			c.dead = true
+			c.mu.Unlock()
+			slog.Warn("media controls stopped: lost the session bus", "error", r)
+		}
+	}()
+	c.props.SetMust(mprisPlayer, name, v)
+}
+
+func (c *mprisController) Update(s State) {
+	now := time.Now()
+	track := mprisTrackID(s)
+	c.mu.Lock()
+	// A position that isn't where playback would have got to by itself is a
+	// seek, which clients that extrapolate need telling about.
+	jumped := c.track == track && absDuration(s.Position-c.positionLocked(now)) > time.Second
+	c.pos, c.at, c.playing, c.track = s.Position, now, s.Playing && !s.Empty, track
 	c.mu.Unlock()
 	status := "Paused"
 	switch {
@@ -156,9 +252,45 @@ func (c *mprisController) Update(s State) {
 	case s.Playing:
 		status = "Playing"
 	}
-	c.props.SetMust(mprisPlayer, "Position", s.Position.Microseconds())
-	c.props.SetMust(mprisPlayer, "Metadata", mprisMetadata(s))
-	c.props.SetMust(mprisPlayer, "PlaybackStatus", status)
+	c.set("Position", s.Position.Microseconds())
+	c.set("Metadata", mprisMetadata(s))
+	c.set("PlaybackStatus", status)
+	if jumped {
+		c.emitSeeked(s.Position)
+	}
+}
+
+func (c *mprisController) emitSeeked(pos time.Duration) {
+	c.mu.Lock()
+	dead := c.dead
+	c.mu.Unlock()
+	if !dead {
+		_ = c.conn.Emit(mprisPath, mprisPlayer+".Seeked", pos.Microseconds())
+	}
+}
+
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
+}
+
+// mprisTrackID is the MPRIS track id for s: an object path made from its
+// id, unique per track as the spec asks.
+func mprisTrackID(s State) dbus.ObjectPath {
+	if s.Empty || s.ID == "" {
+		return mprisNoTrack
+	}
+	var b strings.Builder
+	for _, r := range s.ID {
+		if r < 128 && (unicode.IsLetter(r) || unicode.IsDigit(r)) {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_') // object path elements are [A-Za-z0-9_]
+		}
+	}
+	return dbus.ObjectPath("/org/waxon/track/" + b.String())
 }
 
 // mprisMetadata is s as MPRIS track metadata.
@@ -167,7 +299,7 @@ func mprisMetadata(s State) map[string]dbus.Variant {
 		return map[string]dbus.Variant{}
 	}
 	md := map[string]dbus.Variant{
-		"mpris:trackid": dbus.MakeVariant(mprisTrack),
+		"mpris:trackid": dbus.MakeVariant(mprisTrackID(s)),
 		"mpris:length":  dbus.MakeVariant(s.Duration.Microseconds()),
 		"xesam:title":   dbus.MakeVariant(s.Title),
 		"xesam:album":   dbus.MakeVariant(s.Album),
@@ -179,7 +311,12 @@ func mprisMetadata(s State) map[string]dbus.Variant {
 	return md
 }
 
-func (c *mprisController) Close() { _ = c.conn.Close() }
+func (c *mprisController) Close() {
+	c.once.Do(func() {
+		close(c.done)
+		_ = c.conn.Close()
+	})
+}
 
 // mprisNames maps Go method names to MPRIS's where they differ.
 var mprisNames = map[string]string{"SeekBy": "Seek"}

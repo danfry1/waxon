@@ -137,11 +137,12 @@ func main() {
 		r.launch(context.Background(), src, p, false)
 		return r.name
 	}
+	mediaKeys := (cfg.MediaKeys == nil || *cfg.MediaKeys) && !overSSH()
 	run := func() int {
 		// Media keys and the system's Now Playing (media package); presses
 		// reach the program like key presses.
 		var prog atomic.Pointer[tea.Program]
-		if cfg.MediaKeys == nil || *cfg.MediaKeys {
+		if mediaKeys {
 			ctl, err := media.Start(func(e media.Event) {
 				if running := prog.Load(); running != nil {
 					running.Send(app.MediaMsg(e))
@@ -167,7 +168,7 @@ func main() {
 		}
 		return 0
 	}
-	if cfg.MediaKeys != nil && !*cfg.MediaKeys {
+	if !mediaKeys {
 		os.Exit(run())
 	}
 	// On macOS the media controls need the main thread's event loop, so the
@@ -448,4 +449,10 @@ Environment:
   SPOTIFY_CLIENT_ID  Override the saved Client ID
   WAXON_LOG          Path to debug log file (e.g. /tmp/waxon.log)
   WAXON_ART          Album art: blocks (default), kitty, or auto`)
+}
+
+// overSSH reports whether waxon is running in an SSH session, where the
+// machine's media keys and Now Playing belong to whoever is at it.
+func overSSH() bool {
+	return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != ""
 }

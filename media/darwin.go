@@ -34,6 +34,13 @@ var (
 	loadOnce sync.Once
 	loadErr  error
 	mpLib    uintptr
+	// Autorelease pools for calls made off the main thread's run loop,
+	// which has its own.
+	poolPush func() uintptr
+	poolPop  func(uintptr)
+	// hasArtwork: MPMediaItemArtwork's initWithImage: (declared for iOS)
+	// exists on this macOS.
+	hasArtwork bool
 
 	// Calls queued for the main thread, run by the WaxonMain helper class.
 	mainMu    sync.Mutex
@@ -45,7 +52,14 @@ var (
 
 func load() error {
 	loadOnce.Do(func() {
-		if _, err := purego.Dlopen("/System/Library/Frameworks/AppKit.framework/AppKit", purego.RTLD_GLOBAL); err != nil {
+		libobjc, err := purego.Dlopen("/usr/lib/libobjc.A.dylib", purego.RTLD_GLOBAL)
+		if err != nil {
+			loadErr = err
+			return
+		}
+		purego.RegisterLibFunc(&poolPush, libobjc, "objc_autoreleasePoolPush")
+		purego.RegisterLibFunc(&poolPop, libobjc, "objc_autoreleasePoolPop")
+		if _, err = purego.Dlopen("/System/Library/Frameworks/AppKit.framework/AppKit", purego.RTLD_GLOBAL); err != nil {
 			loadErr = err
 			return
 		}
@@ -72,6 +86,8 @@ func load() error {
 			return
 		}
 		mainObj = objc.ID(cls).Send(objc.RegisterName("new"))
+		hasArtwork = objc.Send[bool](objc.ID(objc.GetClass("MPMediaItemArtwork")),
+			objc.RegisterName("instancesRespondToSelector:"), objc.RegisterName("initWithImage:"))
 	})
 	return loadErr
 }
@@ -81,15 +97,29 @@ func onMain(f func(), wait bool) {
 	mainMu.Lock()
 	mainQueue = append(mainQueue, f)
 	mainMu.Unlock()
-	mainObj.Send(selPerf, selRun, objc.ID(0), wait)
+	withPool(func() { mainObj.Send(selPerf, selRun, objc.ID(0), wait) })
+}
+
+// withPool runs f inside an autorelease pool on one OS thread, so objects
+// Objective-C autoreleases during it are freed when it ends (a goroutine's
+// thread has no pool of its own).
+func withPool(f func()) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	pool := poolPush()
+	defer poolPop(pool)
+	f()
 }
 
 func runMain(fn func() int) int {
 	if err := load(); err != nil {
 		return fn() // no AppKit: run without media controls
 	}
-	app := objc.ID(objc.GetClass("NSApplication")).Send(objc.RegisterName("sharedApplication"))
-	app.Send(objc.RegisterName("setActivationPolicy:"), 1) // accessory: no Dock icon or menu bar
+	var app objc.ID
+	withPool(func() {
+		app = objc.ID(objc.GetClass("NSApplication")).Send(objc.RegisterName("sharedApplication"))
+		app.Send(objc.RegisterName("setActivationPolicy:"), 1) // accessory: no Dock icon or menu bar
+	})
 	go func() {
 		// The event loop below never returns; the program ends here.
 		os.Exit(fn())
@@ -198,7 +228,9 @@ func (c *darwinController) apply() {
 	put("MPMediaItemPropertyArtwork", art)
 	info.Send(objc.RegisterName("setNowPlayingInfo:"), dict)
 	if replaced != 0 {
-		replaced.Send(objc.RegisterName("release")) // the old dictionary let go of it above
+		// The new dictionary took the old one's place; ours is the last
+		// reference to the old cover.
+		replaced.Send(objc.RegisterName("release"))
 	}
 	state := statePaused
 	if s.Playing {
@@ -220,7 +252,7 @@ func (c *darwinController) Close() {
 
 // artwork wraps img as an MPMediaItemArtwork (0 when there's none).
 func artwork(img image.Image) objc.ID {
-	if img == nil {
+	if img == nil || !hasArtwork {
 		return 0
 	}
 	var buf bytes.Buffer

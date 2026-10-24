@@ -79,6 +79,11 @@ type (
 	volumeCommitMsg struct{ gen int }
 	// volumeSetMsg: Spotify accepted the level sent at press gen.
 	volumeSetMsg struct{ vol, gen int }
+	// volumeFailedMsg: the level sent at press gen was refused.
+	volumeFailedMsg struct {
+		gen int
+		err error
+	}
 	// volumeGlowMsg steps the fade of glow id.
 	volumeGlowMsg  struct{ id int }
 	trackUpdateMsg struct {
@@ -1208,6 +1213,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toast.ShowVolume()
 		return m, tea.Batch(scheduleAutoDismiss(), volumeGlowTick(m.volumeGlowID))
 
+	case volumeFailedMsg:
+		if msg.gen == m.volumeGen {
+			m.volumeInFlight = false
+			if m.toast.meter {
+				m.toast.Hide() // an error toast follows
+			}
+		}
+		return m.Update(trackErrorMsg{msg.err})
+
 	case volumeGlowMsg:
 		if msg.id != m.volumeGlowID || m.volumeGlow == 0 {
 			return m, nil
@@ -1267,10 +1281,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A rejected change (e.g. a device without volume control) should
 		// show Spotify's real state on the next poll, not the optimistic one.
 		m.volumeHoldUntil, m.modeHoldUntil = time.Time{}, time.Time{}
-		m.volumeInFlight = false
-		if m.toast.meter {
-			m.toast.Hide() // the level never landed; an error toast may follow
-		}
 		m.resumeCursor = 0
 		m.consecutiveErrors++
 		m.noteRateLimit(msg.err)

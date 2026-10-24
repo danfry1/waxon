@@ -118,6 +118,25 @@ func TestNowPlayingPublishedOnlyWhenItChanges(t *testing.T) {
 	}
 }
 
+// Local files have no Spotify id: they're still told apart and cleared.
+func TestNowPlayingHandlesLocalFiles(t *testing.T) {
+	fake := &fakeMedia{}
+	m := newTestModel(&StubSource{}).WithOptions(Options{Media: fake})
+	now := time.Now()
+	m.track = &source.Track{URI: "spotify:local:A:B:One:180", Name: "One", Duration: 3 * time.Minute, Playing: true}
+	m.publishMedia(now)
+	m.track = &source.Track{URI: "spotify:local:A:B:Two:180", Name: "Two", Duration: 3 * time.Minute, Playing: true}
+	m.publishMedia(now)
+	if fake.count() != 2 || fake.last().Title != "Two" {
+		t.Fatalf("the second local file wasn't published: %d updates", fake.count())
+	}
+	m.track = nil
+	m.publishMedia(now)
+	if fake.count() != 3 || !fake.last().Empty {
+		t.Error("a local file stopping should clear the system's display")
+	}
+}
+
 func TestNowPlayingSendsCoverWhenItLoads(t *testing.T) {
 	fake := &fakeMedia{}
 	m := newTestModel(&StubSource{}).WithOptions(Options{Media: fake})

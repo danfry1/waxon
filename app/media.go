@@ -40,8 +40,8 @@ func (m Model) handleMedia(msg MediaMsg) (Model, tea.Cmd) {
 
 // mediaPublished is what was last sent to the system's Now Playing.
 type mediaPublished struct {
-	sent     bool
-	trackID  string
+	hasTrack bool
+	trackKey string
 	playing  bool
 	artURL   string
 	duration time.Duration
@@ -62,19 +62,20 @@ func (m *Model) publishMedia(now time.Time) {
 	}
 	last := m.mediaLast
 	if m.track == nil {
-		if last.sent && last.trackID != "" {
+		if last.hasTrack {
 			m.opts.Media.Update(media.State{Empty: true})
-			m.mediaLast = mediaPublished{sent: true, at: now}
+			m.mediaLast = mediaPublished{at: now}
 		}
 		return
 	}
 	t := m.track
+	key := mediaTrackKey(t)
 	expected := last.pos
 	if last.playing {
 		expected += now.Sub(last.at)
 	}
 	drift := t.Position - expected
-	changed := !last.sent || last.trackID != t.ID || last.playing != t.Playing ||
+	changed := !last.hasTrack || last.trackKey != key || last.playing != t.Playing ||
 		last.duration != t.Duration || last.artURL != m.mediaArtURL(t) ||
 		drift > mediaDrift || drift < -mediaDrift
 	if !changed {
@@ -85,6 +86,7 @@ func (m *Model) publishMedia(now time.Time) {
 		art = m.mediaArt
 	}
 	m.opts.Media.Update(media.State{
+		ID:         key,
 		Title:      t.Name,
 		Artist:     t.Artist,
 		Album:      t.Album,
@@ -95,9 +97,21 @@ func (m *Model) publishMedia(now time.Time) {
 		Artwork:    art,
 	})
 	m.mediaLast = mediaPublished{
-		sent: true, trackID: t.ID, playing: t.Playing, artURL: m.mediaArtURL(t),
+		hasTrack: true, trackKey: key, playing: t.Playing, artURL: m.mediaArtURL(t),
 		duration: t.Duration, pos: t.Position, at: now,
 	}
+}
+
+// mediaTrackKey identifies t for the system's display: local files have
+// no Spotify id, so their URI (or failing that, name and artist) stands in.
+func mediaTrackKey(t *source.Track) string {
+	switch {
+	case t.ID != "":
+		return t.ID
+	case t.URI != "":
+		return t.URI
+	}
+	return t.Name + "\x00" + t.Artist
 }
 
 // mediaArtURL is t's artwork URL once its image has loaded ("" until then,
