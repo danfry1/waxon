@@ -36,9 +36,9 @@ brew install danfry1/tap/waxon
 > macOS never quarantines the binary.
 >
 > **Installed the cask (1.7.0 – 1.10.0)?** waxon is a formula again, built from
-> source instead of shipping an unsigned binary. `brew update` (run by
-> `brew upgrade`) installs the formula for you; then remove the old cask with
-> `brew uninstall --cask --force waxon`. To do it by hand:
+> source instead of shipping an unsigned binary. If you trusted the tap, the
+> next `brew update` installs the formula for you; then remove the old cask with
+> `brew uninstall --cask --force waxon`. Otherwise, or if that didn't happen:
 > `brew uninstall --cask --force waxon && brew install danfry1/tap/waxon`.
 
 **Nix** (flakes):
