@@ -101,7 +101,8 @@ jobs:
           mkdir assets
           cd assets
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY"
-          # Only attest files whose bytes match the checksums goreleaser wrote at build time.
+          # Only attest files that match the checksum files published with the release
+          # (catches a corrupted or partly replaced asset).
           sha256sum -c checksums.txt
           rm -f -- *.sha256 checksums.txt SHA256SUMS
           sha256sum -- $(ls | grep -vx SHA256SUMS) > "$RUNNER_TEMP/subjects.txt"
