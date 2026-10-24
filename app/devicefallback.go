@@ -81,6 +81,22 @@ func (m Model) activateAndRetry(deviceID string, retry tea.Cmd) tea.Cmd {
 //   - one device: activate it and replay the command transparently
 //   - several: open the device picker with the command pending
 func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
+	// waxon's own player is what the user set up to play on.
+	if name := m.opts.PlayerName; name != "" {
+		for _, dev := range msg.devices {
+			if dev.Name == name {
+				return m, m.activateAndRetry(dev.ID, msg.retry)
+			}
+		}
+		if len(msg.devices) == 0 {
+			detail := "It can take a few seconds to appear; try again"
+			if m.playerErr != nil {
+				detail = m.playerErr.Error()
+			}
+			m.toast.Show("waxon's player isn't ready", detail, ToastError)
+			return m, scheduleAutoDismiss()
+		}
+	}
 	switch len(msg.devices) {
 	case 0:
 		m.toast.Show("No Spotify device found",
@@ -106,6 +122,20 @@ func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
 		m.mode = ModeDevices
 		return m, nil
 	}
+}
+
+// PlayerExitedMsg reports that waxon's own player (librespot) stopped
+// unexpectedly.
+type PlayerExitedMsg struct{ Err error }
+
+func (m Model) handlePlayerExited(msg PlayerExitedMsg) (Model, tea.Cmd) {
+	m.playerErr = msg.Err
+	detail := "Run 'waxon player login' if this keeps happening"
+	if msg.Err != nil {
+		detail = msg.Err.Error()
+	}
+	m.toast.Show("waxon's player stopped", detail, ToastError)
+	return m, scheduleAutoDismiss()
 }
 
 // friendlyPlaybackError rewrites known playback failures into actionable toast

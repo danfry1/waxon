@@ -13,6 +13,7 @@ import (
 	myauth "github.com/danfry1/waxon/auth"
 	"github.com/danfry1/waxon/cli"
 	"github.com/danfry1/waxon/config"
+	"github.com/danfry1/waxon/player"
 	myspotify "github.com/danfry1/waxon/spotify"
 )
 
@@ -40,6 +41,11 @@ func main() {
 			if err := app.RemoveSnapshot(app.DefaultSnapshotPath()); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: could not remove the library cache: %v\n", err)
 			}
+			if err := player.Logout(player.Dir()); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not remove the player's login: %v\n", err)
+			} else if cfg, _ := config.Load(); cfg.Player == player.Backend {
+				_ = config.Save(config.Config{Player: "off"}) // 'waxon player login' turns it back on
+			}
 			if err := myauth.DeleteToken(myauth.DefaultTokenPath()); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				cleanup()
@@ -47,6 +53,10 @@ func main() {
 			}
 			fmt.Println("Signed out of Spotify. Quit any running waxon too, then run 'waxon auth' to connect again.")
 			return
+		case "player":
+			code := runPlayer(os.Args[2:])
+			cleanup()
+			os.Exit(code) //nolint:gocritic // cleanup called above
 		case "debug":
 			runDebug()
 			return
@@ -89,9 +99,17 @@ func main() {
 
 	opts := applyUserConfig()
 	opts.SharedClientID = effectiveClientID() == myauth.DefaultClientID
+	cfg, _ := config.Load()
+	runner := newPlayerRunner(cfg)
+	if runner != nil {
+		opts.PlayerName = runner.name
+	}
 	m := app.NewModel(src).WithOptions(opts)
 	p := tea.NewProgram(m, programOptions()...)
-	if _, err := p.Run(); err != nil {
+	runner.start(context.Background(), src, p)
+	_, err := p.Run()
+	runner.stop()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
@@ -354,6 +372,7 @@ Usage:
   waxon auth     Connect your Spotify account (guided; --own | --shared | --client-id ID)
                  Over SSH, paste the address the browser ends up on when asked
   waxon logout   Forget the saved Spotify login (keeps your config)
+  waxon player   Play through waxon itself via librespot (login | off)
   waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
   waxon themes   List colour themes (set with "theme" in config.json or :theme)

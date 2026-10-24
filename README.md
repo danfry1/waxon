@@ -94,6 +94,20 @@ client is running (desktop app, phone, speaker). If nothing is active when you
 press play, waxon picks the only available device for you — or asks which one
 to use when there are several.
 
+**No Spotify app open?** waxon can be the player too. Install
+[librespot](https://github.com/librespot-org/librespot) (`brew install librespot`,
+`cargo install librespot`, or your distro's package), then once:
+
+```bash
+waxon player login    # sign librespot in (opens a browser; paste mode over SSH)
+```
+
+From then on waxon starts its own Spotify Connect device, `waxon (<host>)`,
+in the background and plays through it whenever nothing else is playing.
+librespot needs its own Spotify login: Spotify only lets its own apps stream
+audio, so waxon's login can't be reused. `waxon player off` turns it off, and
+`waxon logout` forgets both logins.
+
 <p align="center">
   <img src="demo/recordings/no-device.gif" alt="picking a device when none is active" width="800">
 </p>
@@ -302,6 +316,8 @@ waxon reads `~/.config/waxon/config.json` (`$XDG_CONFIG_HOME` respected; `waxon 
 </p>
 
 **Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings.
+
+**Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
 
 **Art** — `"art": "kitty"` draws the status-bar and Now Playing covers as real images using the kitty graphics protocol (kitty, Ghostty); `"auto"` does that only when the terminal is detected as supporting it (not inside tmux), and `"blocks"` (the default) keeps the Unicode half-block art. `WAXON_ART` overrides the setting for one run, e.g. `WAXON_ART=kitty waxon`. Experimental: please report terminals where it misbehaves.
 

@@ -28,6 +28,11 @@ type Config struct {
 	// for kitty and Ghostty), or "auto" (kitty when the terminal is known to
 	// support it).
 	Art string `json:"art,omitempty"`
+	// Player runs a local Spotify Connect device through librespot, so waxon
+	// plays without another Spotify client: "librespot" or "" / "off".
+	Player string `json:"player,omitempty"`
+	// PlayerPath is the librespot binary (default: librespot on PATH).
+	PlayerPath string `json:"player_path,omitempty"`
 }
 
 // Dir returns the waxon config directory, following XDG conventions:
@@ -116,6 +121,12 @@ func merge(existing, updates Config) Config {
 	}
 	if updates.Art != "" {
 		result.Art = updates.Art
+	}
+	if updates.Player != "" {
+		result.Player = updates.Player
+	}
+	if updates.PlayerPath != "" {
+		result.PlayerPath = updates.PlayerPath
 	}
 	return result
 }

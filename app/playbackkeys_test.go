@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/danfry1/waxon/source"
@@ -25,8 +26,10 @@ func TestVolumeKeysDebounce(t *testing.T) {
 	if m.volume != 65 {
 		t.Fatalf("volume = %d, want 65 shown immediately", m.volume)
 	}
-	// Only the commit for the last press goes out.
-	for _, c := range cmds {
+	// The first press goes out at once; of the rest, only the commit for the
+	// last press does.
+	runCmdTree(cmds[0])
+	for _, c := range cmds[1:] {
 		msg, ok := c().(volumeCommitMsg)
 		if !ok {
 			t.Fatalf("expected volumeCommitMsg, got %T", msg)
@@ -35,8 +38,8 @@ func TestVolumeKeysDebounce(t *testing.T) {
 		m = result.(Model)
 		runCmdTree(cmd)
 	}
-	if len(sent) != 1 || sent[0] != 65 {
-		t.Errorf("SetVolume calls = %v, want [65]", sent)
+	if len(sent) != 2 || sent[0] != 55 || sent[1] != 65 {
+		t.Errorf("SetVolume calls = %v, want [55 65]", sent)
 	}
 }
 
@@ -88,5 +91,55 @@ func TestGRStillOpensRecent(t *testing.T) {
 	result, _ = result.(Model).Update(runeKey("r"))
 	if got := result.(Model).tracklist.title; got != "Recently Played" {
 		t.Errorf("gr should still open recently played; title=%q", got)
+	}
+}
+
+// librespot reports a volume change seconds late: polls keep returning the
+// old level after the usual hold, and must not snap the shown level back.
+func TestSentVolumeHeldUntilSpotifyEchoesIt(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.volume = 40
+	poll := func(m Model, vol int) Model {
+		res, _ := m.Update(trackUpdateMsg{volume: vol})
+		return res.(Model)
+	}
+	m.runCommand(Command{Type: CmdVolume, IntArg: 45})
+	if time.Until(m.volumeHoldUntil) <= volumeHold {
+		t.Fatal("a sent volume should be held past the usual hold")
+	}
+	m = poll(m, 40)
+	if m.volume != 45 {
+		t.Fatalf("a stale poll changed the sent volume to %d", m.volume)
+	}
+	m = poll(m, 44) // the device's rounding of 45
+	if m.volume != 45 || !m.volumeHoldUntil.IsZero() {
+		t.Fatalf("echo should release the hold and keep 45; volume=%d", m.volume)
+	}
+	m = poll(m, 70) // changed from another app afterwards
+	if m.volume != 70 {
+		t.Errorf("after the echo, polls should apply again; volume=%d", m.volume)
+	}
+}
+
+// Holding + keeps sending while held, once per debounce interval.
+func TestHeldVolumeKeySendsPerInterval(t *testing.T) {
+	var sent []int
+	stub := &StubSource{SetVolumeFn: func(_ context.Context, v int) error { sent = append(sent, v); return nil }}
+	m := newTestModel(stub)
+	m.volume = 50
+	press := func() tea.Cmd {
+		result, cmd := m.Update(runeKey("+"))
+		m = result.(Model)
+		return cmd
+	}
+	runCmdTree(press())                                  // 55: sent at once
+	pending := press()                                   // 60: within the interval, deferred
+	m.volumeSentAt = m.volumeSentAt.Add(-volumeDebounce) // the interval passes while held
+	runCmdTree(press())                                  // 65: sent at once, superseding the deferred 60
+	result, cmd := m.Update(pending().(volumeCommitMsg))
+	m = result.(Model)
+	runCmdTree(cmd)
+	if len(sent) != 2 || sent[0] != 55 || sent[1] != 65 {
+		t.Errorf("SetVolume calls = %v, want [55 65]", sent)
 	}
 }

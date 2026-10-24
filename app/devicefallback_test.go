@@ -252,3 +252,49 @@ func TestDevicesLoadedEmptyExplains(t *testing.T) {
 		t.Errorf("toast = %q", view)
 	}
 }
+
+func TestDeviceChoicesPrefersWaxonPlayer(t *testing.T) {
+	var transferred string
+	stub := &StubSource{TransferPlaybackFn: func(_ context.Context, id string) error {
+		transferred = id
+		return nil
+	}}
+	m := newTestModel(stub).WithOptions(Options{PlayerName: "waxon (box)"})
+	result, cmd := m.Update(deviceChoicesMsg{
+		devices: []source.Device{{ID: "d1", Name: "Phone"}, {ID: "d2", Name: "waxon (box)"}},
+		retry:   func() tea.Msg { return controlDoneMsg{} },
+	})
+	if model := result.(Model); model.mode != ModeNormal {
+		t.Errorf("with waxon's player listed, no picker should open (mode=%v)", model.mode)
+	}
+	if cmd == nil {
+		t.Fatal("expected an activation command")
+	}
+	cmd()
+	if transferred != "d2" {
+		t.Errorf("transferred to %q, want waxon's player d2", transferred)
+	}
+}
+
+func TestDeviceChoicesPlayerNotReady(t *testing.T) {
+	m := newTestModel(&StubSource{}).WithOptions(Options{PlayerName: "waxon (box)"})
+	result, _ := m.Update(deviceChoicesMsg{retry: func() tea.Msg { return nil }})
+	if got := result.(Model).toast.View(120); !strings.Contains(got, "player isn't ready") {
+		t.Errorf("toast = %q, want the player-not-ready hint", got)
+	}
+
+	// Once it has died, say why instead.
+	result, _ = m.Update(PlayerExitedMsg{Err: errors.New("librespot stopped: Bad credentials")})
+	result, _ = result.(Model).Update(deviceChoicesMsg{retry: func() tea.Msg { return nil }})
+	if got := result.(Model).toast.View(120); !strings.Contains(got, "Bad credentials") {
+		t.Errorf("toast = %q, want librespot's error", got)
+	}
+}
+
+func TestPlayerExitedShowsToast(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	result, _ := m.Update(PlayerExitedMsg{Err: errors.New("librespot stopped: Bad credentials")})
+	if got := result.(Model).toast.View(120); !strings.Contains(got, "player stopped") || !strings.Contains(got, "Bad credentials") {
+		t.Errorf("toast = %q", got)
+	}
+}
