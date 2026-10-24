@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -321,5 +322,77 @@ func TestSaveOverEmptyishConfig(t *testing.T) {
 		if strings.Contains(body, "nord") && got.Theme != "nord" {
 			t.Errorf("%q: the theme was lost", body)
 		}
+	}
+}
+
+// fakeFS is a set of existing paths, for the Windows directory logic.
+type fakeFS map[string]bool
+
+func (f fakeFS) exists(p string) bool { return f[p] }
+
+func windowsEnv(xdg string) (func(string) string, func() (string, error), func() (string, error)) {
+	getenv := func(k string) string {
+		if k == "XDG_CONFIG_HOME" {
+			return xdg
+		}
+		return ""
+	}
+	home := func() (string, error) { return filepath.Join("C:", "Users", "dan"), nil }
+	appData := func() (string, error) { return filepath.Join("C:", "Users", "dan", "AppData", "Roaming"), nil }
+	return getenv, home, appData
+}
+
+func TestWindowsConfigDir(t *testing.T) {
+	getenv, home, appData := windowsEnv("")
+	legacy := filepath.Join("C:", "Users", "dan", ".config", "waxon")
+	current := filepath.Join("C:", "Users", "dan", "AppData", "Roaming", "waxon")
+	for _, tc := range []struct {
+		name string
+		fs   fakeFS
+		want string
+	}{
+		{"fresh install", fakeFS{}, current},
+		{"moved", fakeFS{current: true}, current},
+		{"not moved yet", fakeFS{legacy: true}, legacy},
+		{"both: the new one wins", fakeFS{legacy: true, current: true}, current},
+	} {
+		if got := dirFor("windows", getenv, home, appData, tc.fs.exists); got != tc.want {
+			t.Errorf("%s: dir = %s, want %s", tc.name, got, tc.want)
+		}
+	}
+	if got := dirFor("darwin", getenv, home, appData, fakeFS{}.exists); got != legacy {
+		t.Errorf("macOS keeps ~/.config/waxon, got %s", got)
+	}
+	xdgGetenv, _, _ := windowsEnv(filepath.Join("D:", "cfg"))
+	if got := dirFor("windows", xdgGetenv, home, appData, fakeFS{}.exists); got != filepath.Join("D:", "cfg", "waxon") {
+		t.Errorf("$XDG_CONFIG_HOME should win, got %s", got)
+	}
+}
+
+func TestWindowsConfigMigration(t *testing.T) {
+	getenv, home, _ := windowsEnv("")
+	legacy := filepath.Join("C:", "Users", "dan", ".config", "waxon")
+	var moved [2]string
+	rename := func(from, to string) error { moved = [2]string{from, to}; return nil }
+	appDir := t.TempDir()
+	appData := func() (string, error) { return appDir, nil }
+
+	if err := migrateDir("windows", getenv, home, appData, fakeFS{legacy: true}.exists, rename); err != nil {
+		t.Fatal(err)
+	}
+	if moved != [2]string{legacy, filepath.Join(appDir, "waxon")} {
+		t.Errorf("moved %v", moved)
+	}
+
+	moved = [2]string{}
+	_ = migrateDir("windows", getenv, home, appData, fakeFS{legacy: true, filepath.Join(appDir, "waxon"): true}.exists, rename)
+	_ = migrateDir("darwin", getenv, home, appData, fakeFS{legacy: true}.exists, rename)
+	if moved != [2]string{} {
+		t.Errorf("must not move when already moved, or off Windows; moved %v", moved)
+	}
+
+	failing := func(string, string) error { return errors.New("access denied") }
+	if err := migrateDir("windows", getenv, home, appData, fakeFS{legacy: true}.exists, failing); err == nil || !strings.Contains(err.Error(), "access denied") {
+		t.Errorf("a failed move should be reported, got %v", err)
 	}
 }

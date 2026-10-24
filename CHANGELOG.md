@@ -16,6 +16,13 @@ Each release's section is also used verbatim as the GitHub Release notes.
   plays. It turns smoothly at 33⅓ rpm (it used to step twice a second at
   about 1 rpm), and only while it's on screen and playing.
 
+### Changed
+
+- On Windows, waxon keeps its config and logins in `%AppData%\waxon`, the
+  standard place, instead of `%USERPROFILE%\.config\waxon`. An existing
+  folder is moved there the first time the new version runs; if it can't
+  be moved, waxon carries on using it.
+
 ### Fixed
 
 - Now Playing no longer shows the terminal's own background in a box

@@ -121,7 +121,8 @@ it asks which one when there are several.
 > asks for the same broad permissions that app does. You approve on Spotify's
 > own sign-in page; your password never reaches waxon or librespot. The
 > resulting login token is saved only on your machine, in
-> `~/.config/waxon/librespot/` (readable by you alone), and is sent nowhere
+> waxon's config directory (`~/.config/waxon/librespot/`, or `%AppData%\waxon\librespot\`
+> on Windows), readable by you alone, and is sent nowhere
 > but Spotify. Being unofficial, librespot could stop working if Spotify
 > changes something; the player is opt-in for that reason.
 
@@ -318,7 +319,7 @@ Enter command mode by pressing `:`, then type a command.
 
 ## Configuration
 
-waxon reads `~/.config/waxon/config.json` (`$XDG_CONFIG_HOME` respected; `waxon config` prints the path). Everything is optional:
+waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on Windows, `$XDG_CONFIG_HOME/waxon` when that's set; `waxon config` prints the path. Everything is optional:
 
 ```json
 {
@@ -420,7 +421,7 @@ waxon works out of the box with no configuration — it ships with a shared clie
    SPOTIFY_CLIENT_ID=your_client_id waxon auth
    ```
 
-The client ID is saved to `~/.config/waxon/config.json` automatically, so you only need to set the environment variable once during setup.
+The client ID is saved to waxon's `config.json` (see `waxon config`) automatically, so you only need to set the environment variable once during setup.
 
 > **Note:** new developer apps are in Spotify's *development mode*, which only allows the current API endpoints. waxon uses those (with legacy fallbacks for older apps), so playback, search, queue, liking and playlist editing all work. Spotify blocks two things for development-mode apps with no replacement: an artist's *top tracks* (artist pages show the discography instead), and the track list of playlists you don't own or collaborate on, including Spotify's own editorial playlists (waxon says so; Enter still plays the playlist, and `o` can open it in Spotify).
 
