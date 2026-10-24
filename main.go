@@ -437,12 +437,11 @@ Usage:
   waxon logout   Forget the saved Spotify and player logins (keeps the rest of your config)
   waxon player   waxon's own player via librespot: status, or login | off
   waxon doctor   Check the login, Spotify app, devices, player and more
-  waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
   waxon themes   List colour themes (set with "theme" in config.json or :theme)
   waxon config   Print the config file path
   waxon help     Show this help
-
+` + demoUsage + `
 ` + cli.Usage() + `
 
 Environment:

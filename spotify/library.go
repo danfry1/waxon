@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danfry1/waxon/source"
@@ -480,45 +481,58 @@ func (p *PlayerSource) Search(ctx context.Context, query string) (*source.Search
 
 // GetArtist fetches artist details and top tracks from the Spotify API.
 func (p *PlayerSource) GetArtist(ctx context.Context, artistID string) (*source.ArtistPage, error) {
-	// Fetch artist details
+	// The three requests don't depend on each other, so they run at once:
+	// the page takes as long as the slowest, not the sum.
+	var (
+		wg        sync.WaitGroup
+		topTracks struct {
+			Tracks []apiTrack `json:"tracks"`
+		}
+		topErr, albumsErr error
+		albums            []source.ArtistAlbum
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		topErr = p.apiGet(ctx, "/artists/"+artistID+"/top-tracks?market=from_token", &topTracks)
+	}()
+	go func() {
+		defer wg.Done()
+		albums, albumsErr = p.artistAlbums(ctx, artistID)
+	}()
+
 	var artist struct {
 		ID     string     `json:"id"`
 		Name   string     `json:"name"`
 		Genres []string   `json:"genres"`
 		Images []apiImage `json:"images"`
 	}
-	if err := p.apiGet(ctx, "/artists/"+artistID, &artist); err != nil {
+	err := p.apiGet(ctx, "/artists/"+artistID, &artist)
+	wg.Wait()
+	if err != nil {
 		return nil, fmt.Errorf("get artist: %w", err)
 	}
 
-	// Fetch top tracks via the real endpoint (works with Extended Quota client ID)
-	var topTracks struct {
-		Tracks []apiTrack `json:"tracks"`
-	}
-	if err := p.apiGet(ctx, "/artists/"+artistID+"/top-tracks?market=from_token", &topTracks); err != nil {
+	if topErr != nil {
 		// Development-mode apps are refused this endpoint (403). The artist
 		// page is still useful with just the discography, so degrade rather
 		// than fail; anything else is a real error.
 		var apiErr *APIError
-		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
-			return nil, fmt.Errorf("get artist top tracks: %w", err)
+		if !errors.As(topErr, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+			return nil, fmt.Errorf("get artist top tracks: %w", topErr)
 		}
 		slog.Warn("artist top tracks not permitted for this app; showing discography only", "artist", artistID)
 	}
-
 	tracks := make([]source.Track, 0, len(topTracks.Tracks))
 	for _, t := range topTracks.Tracks {
 		tracks = append(tracks, apiTrackToSource(t))
 	}
-
-	imageURL := pickImageURL(artist.Images, thumbArtMinPx)
-
-	albums, albumsErr := p.artistAlbums(ctx, artistID)
 	if albumsErr != nil {
 		// The artist page is still useful without the discography; log rather
 		// than fail the whole view, but don't swallow it silently.
 		slog.Warn("artist discography fetch failed", "artist", artistID, "error", albumsErr)
 	}
+	imageURL := pickImageURL(artist.Images, thumbArtMinPx)
 
 	return &source.ArtistPage{
 		Name:     artist.Name,

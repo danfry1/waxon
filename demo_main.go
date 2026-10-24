@@ -13,6 +13,9 @@ import (
 	"github.com/danfry1/waxon/demo"
 )
 
+// demoUsage is the help line for `waxon demo` (only in demo builds).
+const demoUsage = "  waxon demo     Launch in demo mode, on built-in sample data\n"
+
 // runDemo launches the TUI against the demo source. "waxon demo <cmd> ..."
 // runs a CLI subcommand against the same demo data instead (for recordings
 // and manual testing without a Spotify account).

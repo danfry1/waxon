@@ -25,16 +25,27 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Changed
 
+- Homebrew installs waxon from a formula that builds it from source again,
+  instead of a cask that shipped an unsigned binary and cleared macOS's
+  quarantine flag on it. If you installed the cask and trusted the tap, the
+  next `brew update` installs the formula for you; then remove the cask with
+  `brew uninstall --cask --force waxon`. Otherwise run
+  `brew uninstall --cask --force waxon && brew install danfry1/tap/waxon`.
 - On Windows, waxon keeps its config and logins in `%AppData%\waxon`, the
   standard place, instead of `%USERPROFILE%\.config\waxon`. An existing
   folder is moved there the first time the new version runs; if it can't
   be moved, waxon carries on using it.
+- Artist pages load faster: the artist, their top tracks and their
+  discography are fetched at the same time instead of one after another.
 
 ### Fixed
 
 - Now Playing no longer shows the terminal's own background in a box
   around the cover and the text; everything sits on the gradient.
 - A toast's dismiss timer no longer hides a newer toast early.
+- An artist or album page that fails to load goes back to the view it was
+  opened from, with a message, instead of loading forever. A view that is
+  loading no longer shows the previous one's track count and genres.
 
 ## [1.10.0] - 2026-10-24
 
