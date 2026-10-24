@@ -300,8 +300,13 @@ func TestRevalidationDoesNotReplaceViewStillLoading(t *testing.T) {
 }
 
 func TestUnchangedRefreshKeepsScrollAndLoadedPages(t *testing.T) {
-	m, _, _ := cacheModel(t, []source.Track{{ID: "a"}, {ID: "b"}})
-	writeTestPage(t, m, likedPlaylistID, "", "a", "b")
+	m, _, _ := cacheModel(t, nil)
+	m.source.(*StubSource).PlaylistTracksPageFn = func(context.Context, string, int, int) ([]source.Track, int, error) {
+		return []source.Track{{ID: "a"}, {ID: "b"}}, 4, nil // first page of 4
+	}
+	if err := writePage(m.pageDir(), likedPlaylistID, diskPage{Tracks: []source.Track{{ID: "a"}, {ID: "b"}}, Total: 4}); err != nil {
+		t.Fatal(err)
+	}
 	res, next := m.Update(m.fetchPlaylistTracks(cacheTestPlaylists()[0])())
 	m = res.(Model)
 	m.tracklist.AppendTracks([]source.Track{{ID: "c"}, {ID: "d"}}) // scrolled in more
@@ -320,5 +325,50 @@ func TestStaleMorePagesDroppedAfterRefresh(t *testing.T) {
 	res, _ := m.Update(moreTracksLoadedMsg{tracks: []source.Track{{ID: "x"}}, playlistID: "mine", offset: 1, total: 10, pagination: old})
 	if m = res.(Model); len(m.tracklist.tracks) != 1 {
 		t.Errorf("a page fetched for the old list was appended: %v", shownIDs(m))
+	}
+}
+
+// Open A (slow, live) then B (instant, cached): A's late answer must not
+// replace B.
+func TestSlowPlaylistDoesNotReplaceOneOpenedAfter(t *testing.T) {
+	m, _, _ := cacheModel(t, []source.Track{{ID: "from-A"}})
+	a := source.Playlist{ID: "a", URI: "spotify:playlist:a", Name: "A"}
+	b := cacheTestPlaylists()[1]
+	writeTestPage(t, m, b.ID, "s:v1", "from-B")
+	m.tracklist.SetLoadingFor(a.Name, a.URI)
+	slowA := m.livePlaylistPage(a, false)
+	m.tracklist.SetLoadingFor(b.Name, b.URI)
+	m = pumpModel(m, m.fetchPlaylistTracks(b))
+	m = pumpModel(m, slowA)
+	if got := shownIDs(m); len(got) != 1 || got[0] != "from-B" {
+		t.Errorf("view = %v; A's late answer replaced B", got)
+	}
+	if m.lastPlaylistID != b.ID {
+		t.Errorf("lastPlaylistID = %q, want B", m.lastPlaylistID)
+	}
+}
+
+func TestRefreshAfterEditSkipsCachedPage(t *testing.T) {
+	m, fetches, _ := cacheModel(t, []source.Track{{ID: "after-edit"}})
+	pl := cacheTestPlaylists()[1]
+	m.playlists = cacheTestPlaylists()
+	writeTestPage(t, m, pl.ID, "s:v1", "before-edit")
+	m.tracklist.SetTracks([]source.Track{{ID: "before-edit"}}, pl.Name, pl.URI)
+	m.pendingViewRefresh = pl.ID
+	res, cmd := m.Update(refreshPlaylistsMsg{})
+	m = pumpModel(res.(Model), cmd)
+	if fetches.Load() == 0 || shownIDs(m)[0] != "after-edit" {
+		t.Errorf("fetches=%d view=%v; the post-edit refresh must go to Spotify", fetches.Load(), shownIDs(m))
+	}
+}
+
+// A refreshed first page that matches but reports a different size (tracks
+// removed from the end) isn't "unchanged".
+func TestRefreshWithDifferentTotalReplaces(t *testing.T) {
+	m, _, _ := cacheModel(t, []source.Track{{ID: "a"}}) // live: just "a"
+	writeTestPage(t, m, likedPlaylistID, "", "a", "b")  // cached: a, b
+	m = pumpModel(m, m.fetchPlaylistTracks(cacheTestPlaylists()[0]))
+	if got := shownIDs(m); len(got) != 1 {
+		t.Errorf("view = %v; the removed last track is still shown", got)
 	}
 }

@@ -712,6 +712,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tracksLoadedMsg:
+		// A cached page is judged against the playlist as the library knows
+		// it now, which may have refreshed since the read was issued.
+		if msg.fromDisk && msg.version != "" {
+			if pl := m.playlistByID(msg.playlistID); pl != nil {
+				msg.playlist, msg.current = *pl, msg.version == pageVersion(*pl)
+			}
+		}
 		if !msg.fromDisk {
 			m.noteLikedTracks(msg.playlistID, msg.tracks)
 		}
@@ -728,6 +735,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !msg.fromDisk && msg.playlist.ID != "" {
 			saveCmd = m.savePage(msg)
 		}
+		// A page for a playlist the user has since left (a slow answer
+		// overtaken by a faster one) only updates the caches.
+		if !msg.revalidate && msg.playlist.ID != "" && !m.tracklist.Wants(msg.contextURI) {
+			return m, saveCmd
+		}
 		// A live page replacing a cached one the user has since left (or is
 		// leaving: another view is loading) only updates the caches. One that
 		// matches what's shown keeps the view as it is — scrolled-in pages,
@@ -736,7 +748,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.showingLoaded(msg.contextURI) {
 				return m, saveCmd
 			}
-			if samePage(m.tracklist.tracks, msg.tracks) {
+			if samePage(m.tracklist.tracks, msg.tracks) && msg.total == m.shownTotal() {
 				m.tracklistVersion = msg.version
 				return m, tea.Batch(saveCmd, m.applyPendingJump())
 			}
@@ -794,13 +806,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case revalidateFailedMsg:
 		m.noteRateLimit(msg.err) // a 429 still pauses polling
 		slog.Warn("refreshing cached playlist", "playlist", msg.playlist.ID, "error", msg.err)
+		// A jump waiting on this refresh settles on the copy shown instead,
+		// rather than staying armed for some later, unrelated view.
+		if m.showingLoaded(msg.playlist.URI) {
+			return m, m.applyPendingJump()
+		}
 		return m, nil
 
 	case playlistRestrictedMsg:
 		m.restrictedPlaylists[msg.playlist.ID] = true
 		m.resumeCursor = 0
 		forget := m.forgetPage(msg.playlist.ID)
-		if msg.revalidate && !m.showingLoaded(msg.playlist.URI) {
+		if (msg.revalidate && !m.showingLoaded(msg.playlist.URI)) || (!msg.revalidate && !m.tracklist.Wants(msg.playlist.URI)) {
 			return m, forget // the user has moved on; remember it for later
 		}
 		m.pagination = nil
@@ -1007,7 +1024,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.forgetPage(id))
 				for _, pl := range m.playlists {
 					if pl.ID == id {
-						cmds = append(cmds, m.fetchPlaylistTracks(pl))
+						// Straight to Spotify: the cached page is the pre-edit
+						// one, and it's being deleted concurrently.
+						m.tracklist.Expect(pl.URI)
+						cmds = append(cmds, m.livePlaylistPage(pl, false))
 						break
 					}
 				}
@@ -1977,7 +1997,7 @@ func (m Model) handleSidebarClick(y int) (Model, tea.Cmd) {
 				return m, m.playTrack(queuedURI(*pl), "")
 			}
 			m.pushNav()
-			m.tracklist.SetLoading(pl.Name)
+			m.tracklist.SetLoadingFor(pl.Name, pl.URI)
 			return m, m.fetchPlaylistTracks(*pl)
 		}
 	}
@@ -2106,7 +2126,7 @@ func (m Model) handleEnter() (Model, tea.Cmd) {
 				return m, m.playTrack(queuedURI(*pl), "")
 			}
 			m.pushNav()
-			m.tracklist.SetLoading(pl.Name)
+			m.tracklist.SetLoadingFor(pl.Name, pl.URI)
 			return m, m.fetchPlaylistTracks(*pl)
 		}
 	} else {

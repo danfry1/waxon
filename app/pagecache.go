@@ -179,15 +179,12 @@ func (m Model) savePage(msg tracksLoadedMsg) tea.Cmd {
 }
 
 // forgetPage drops a playlist's cached pages after waxon changed it, so
-// the edit can't be shown undone.
+// the edit can't be shown undone. The file goes at once (a tiny unlink),
+// so a read issued right after can't find the pre-edit page.
 func (m *Model) forgetPage(playlistID string) tea.Cmd {
 	delete(m.trackCache, playlistID)
-	dir := m.pageDir()
-	if dir == "" {
-		return nil
-	}
-	return func() tea.Msg {
+	if dir := m.pageDir(); dir != "" {
 		_ = os.Remove(pagePath(dir, playlistID))
-		return nil
 	}
+	return nil
 }

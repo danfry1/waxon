@@ -945,6 +945,7 @@ func (m Model) executeAction(action ActionItem, subj actionSubject) (Model, tea.
 	case ActionLoadTracks:
 		pl := m.sidebar.SelectedPlaylist()
 		if pl != nil {
+			m.tracklist.Expect(pl.URI)
 			return m, m.fetchPlaylistTracks(*pl)
 		}
 	}
@@ -999,7 +1000,7 @@ func (m Model) jumpToCurrentTrack() (Model, tea.Cmd) {
 	}
 	m.pushNav()
 	m.pendingJumpTrackID = m.track.ID
-	m.tracklist.SetLoading(m.track.Name)
+	m.tracklist.SetLoadingFor(m.track.Name, m.playbackContextURI)
 	return m, cmd
 }
 
