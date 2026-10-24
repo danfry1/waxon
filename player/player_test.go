@@ -117,7 +117,7 @@ func TestStartAndStop(t *testing.T) {
 	for !strings.Contains(log.String(), "--disable-discovery") && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if got := log.String(); !strings.Contains(got, "--name waxon (box)") || strings.Contains(got, "--cache ") {
+	if got := log.String(); !strings.Contains(got, "--name waxon (box)") || strings.Contains(got, "--cache ") || !strings.Contains(got, "--bitrate 320") {
 		t.Errorf("unexpected librespot args: %q", got)
 	}
 	s.Stop()
