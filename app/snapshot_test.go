@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 
@@ -36,8 +37,10 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	if len(got.Playlists) != 2 || len(got.Tracks) != 2 || got.Total != 300 {
 		t.Errorf("round trip lost data: %+v", got)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("snapshot should be 0600, got %v (%v)", info.Mode().Perm(), err)
+	if runtime.GOOS != "windows" { // no Unix permission bits
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("snapshot should be 0600, got %v (%v)", info.Mode().Perm(), err)
+		}
 	}
 
 	if err := RemoveSnapshot(path); err != nil {
