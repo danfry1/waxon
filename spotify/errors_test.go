@@ -24,6 +24,8 @@ func TestWrapPlayerError(t *testing.T) {
 		{"403 other", spotifyapi.Error{Status: 403, Message: "Forbidden"}, nil},
 		{"403 restriction", spotifyapi.Error{Status: 403, Message: "Player command failed: Restriction violated"}, source.ErrPlaybackRestricted},
 		{"wrapped 404", fmt.Errorf("play: %w", spotifyapi.Error{Status: 404, Message: "x"}), source.ErrNoActiveDevice},
+		{"500 device not ready", spotifyapi.Error{Status: 500, Message: "Server error."}, source.ErrDeviceUnavailable},
+		{"502 device not ready", spotifyapi.Error{Status: 502, Message: "Bad gateway."}, source.ErrDeviceUnavailable},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

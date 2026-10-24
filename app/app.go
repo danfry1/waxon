@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/danfry1/waxon/media"
 	"github.com/danfry1/waxon/source"
 	spotifyapi "github.com/zmb3/spotify/v2"
 	"golang.org/x/oauth2"
@@ -49,6 +50,9 @@ const (
 	// volumeSentHold caps how long a sent level is kept while Spotify still
 	// reports the old one: librespot reports volume changes seconds late.
 	volumeSentHold = 8 * time.Second
+	// deviceHold is how long a move of playback is held against polls that
+	// still report the old device.
+	deviceHold = 8 * time.Second
 	// maxPollInterval caps error backoff so recovery is never more than a
 	// minute away once Spotify is reachable again.
 	maxPollInterval = 60 * time.Second
@@ -76,7 +80,16 @@ type (
 	}
 	cmdFlashMsg     struct{ text string }
 	volumeCommitMsg struct{ gen int }
-	trackUpdateMsg  struct {
+	// volumeSetMsg: Spotify accepted the level sent at press gen.
+	volumeSetMsg struct{ vol, gen int }
+	// volumeFailedMsg: the level sent at press gen was refused.
+	volumeFailedMsg struct {
+		gen int
+		err error
+	}
+	// volumeGlowMsg steps the fade of glow id.
+	volumeGlowMsg  struct{ id int }
+	trackUpdateMsg struct {
 		track      *source.Track
 		volume     int
 		shuffleOn  bool
@@ -197,6 +210,14 @@ type sidebarIconLoadedMsg struct {
 	id   string // playlist ID
 	icon string // rendered icon
 }
+
+// pageLoadFailedMsg reports that an artist or album page (what) didn't
+// load.
+type pageLoadFailedMsg struct {
+	what string
+	err  error
+}
+
 type artistPageLoadedMsg struct {
 	page *source.ArtistPage
 }
@@ -287,10 +308,21 @@ type Model struct {
 	likeUnavailable bool
 	likedCache      map[string]bool // saved state of tracks we've looked up or changed this session
 	deviceName      string
-	toast           Toast
-	actionsReturn   Mode                      // mode to return to when the actions popup closes
-	navStack        []navEntry                // browser-like back navigation history
-	trackCache      map[string]cachedPlaylist // playlist ID → cached tracks
+	prevDevice      string            // the device played on before deviceName
+	deviceTypes     map[string]string // device name → type, as last listed
+	// A move to deviceHeld is held against polls that still report the old
+	// device until deviceHoldUntil (or one reports the new one).
+	deviceHeld      string
+	deviceHoldUntil time.Time
+	movedAt         time.Time // last move of playback waxon made
+	// switchGen numbers device switches, so a Spotify app opened for an
+	// earlier one doesn't take playback when it comes online.
+	switchGen         int
+	spotifyAppOpening bool
+	toast             Toast
+	actionsReturn     Mode                      // mode to return to when the actions popup closes
+	navStack          []navEntry                // browser-like back navigation history
+	trackCache        map[string]cachedPlaylist // playlist ID → cached tracks
 	// restrictedPlaylists holds playlists Spotify won't list for this app
 	// (source.ErrPlaylistRestricted), so reopening one doesn't refetch.
 	restrictedPlaylists map[string]bool
@@ -308,15 +340,22 @@ type Model struct {
 	resumePlaylistID string
 	tracklistVersion string
 
-	playerErr  error            // why waxon's own player stopped, if it did
-	setup      *Setup           // open in ModeSetup (setting up the player in place)
-	pagination *paginationState // non-nil while a playlist is being lazily loaded
+	playerErr error // why waxon's own player stopped, if it did
+	// System media controls (media.go): what was last published, and the
+	// current track's cover for them.
+	mediaLast   mediaPublished
+	mediaArt    image.Image
+	mediaArtFor string           // the artwork URL mediaArt is for
+	setup       *Setup           // open in ModeSetup (setting up the player in place)
+	pagination  *paginationState // non-nil while a playlist is being lazily loaded
 
-	npArt       string      // large rendered art for now playing view
-	npArtURL    string      // URL of the art currently rendered for NP
-	npSourceImg image.Image // source image for vinyl rendering
-	vinylAngle  float64     // current rotation angle in radians
-	vinylMode   bool        // easter egg: vinyl spinning mode
+	npArt        string      // large rendered art for now playing view
+	npArtURL     string      // URL of the art currently rendered for NP
+	npSourceImg  image.Image // source image for vinyl rendering
+	vinylAngle   float64     // current rotation angle in radians
+	vinylMode    bool        // easter egg: vinyl spinning mode
+	vinylTicking bool        // a vinylTickMsg is scheduled
+	vinylLast    time.Time   // when the record was last turned
 
 	// Lyrics (Now Playing overlay, toggled with "l")
 	lyricsView    bool           // true when the NP art region shows lyrics
@@ -357,6 +396,13 @@ type Model struct {
 	volumeLast      int  // the level waxon last set, shown while the device reports it within rounding
 	volumeLastSet   bool
 	volumeSentAt    time.Time // last volume sent, to rate-limit a held + key
+	// The volume display (volumeShow): a change is in flight from a press
+	// until Spotify accepts the newest level; volumeAccepted is the last
+	// level it accepted; volumeGlow counts the glow's fade down.
+	volumeInFlight bool
+	volumeAccepted int
+	volumeGlow     int
+	volumeGlowID   int
 	// modeHoldUntil does the same for shuffle and repeat after S / r.
 	modeHoldUntil time.Time
 	// refreshPending counts post-control re-polls still scheduled, so a burst
@@ -416,6 +462,12 @@ type Options struct {
 	// SnapshotPath is where the startup snapshot of the library is kept
 	// (see snapshot.go). "" disables it.
 	SnapshotPath string
+	// ThisComputer are this machine's names (host name, and on macOS the
+	// computer name), which the Spotify app here names its device after.
+	ThisComputer []string
+	// OpenSpotifyApp starts this computer's Spotify desktop app in the
+	// background; nil when it isn't installed (or can't be started here).
+	OpenSpotifyApp func() error
 	// PlayerName is the Connect device waxon's own player (librespot) runs
 	// as; "" when it's off. Playback with no active device prefers it.
 	PlayerName string
@@ -428,6 +480,9 @@ type Options struct {
 	// returns its device name.
 	PlayerSetup *SetupDeps
 	StartPlayer func() string
+	// Media publishes what's playing to the system's media controls (media
+	// keys, Now Playing); presses come back as MediaMsg. nil: none.
+	Media media.Controller
 }
 
 // WithOptions returns a copy of m with opts applied.
@@ -478,6 +533,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return res, cmd
 	}
+	nm.publishMedia(time.Now())
 	if artMode == ArtKitty {
 		if nm.quitting {
 			kittyClear() // still on the alternate screen, where the images are
@@ -613,7 +669,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 		if msg.track != nil {
 			m.tracklist.SetNowPlaying(msg.track.ID)
-			m.deviceName = msg.track.DeviceName
+			switch d := msg.track.DeviceName; {
+			case m.deviceHeld != "" && d == m.deviceHeld:
+				m.deviceHeld = "" // Spotify has caught up with the move
+			case m.deviceHeld != "" && time.Now().Before(m.deviceHoldUntil):
+				// A poll from before the move: keep the device moved to.
+			default:
+				m.deviceHeld = ""
+				if d != m.deviceName && m.deviceName != "" && d != "" {
+					m.prevDevice = m.deviceName
+				}
+				m.deviceName = d
+			}
 			m.lastPollTime = time.Now()
 			m.lastPollPos = msg.track.Position
 			if msg.track.ArtworkURL != "" && msg.track.ArtworkURL != m.albumart.CurrentURL() {
@@ -655,8 +722,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case artworkLoadedMsg:
 		if m.track != nil && msg.url == m.track.ArtworkURL {
 			m.albumart.SetImage(msg.img)
+			m.mediaArt, m.mediaArtFor = msg.img, msg.url
 		}
 		return m, nil
+
+	case MediaMsg:
+		return m.handleMedia(msg)
 
 	case artErrorMsg:
 		slog.Warn("artwork fetch failed", "url", msg.url, "error", msg.err)
@@ -886,6 +957,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tracklist.SetArt(rendered)
 		return m, nil
 
+	case pageLoadFailedMsg:
+		return m.pageLoadFailed(msg)
+
 	case artistPageLoadedMsg:
 		if msg.page != nil {
 			m.pagination = nil
@@ -1074,20 +1148,47 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyPendingJump()
 
 	case noActiveDeviceMsg:
-		return m, m.fetchDevicesForRetry(msg.retry)
+		// A volume change waits on a device now, perhaps forever (the
+		// picker can be cancelled); its retry still lands it if one is chosen.
+		m.volumeInFlight = false
+		if m.toast.meter {
+			m.toast.Hide()
+		}
+		return m, m.fetchDevicesForRetry(msg.retry, msg.refused)
 
 	case deviceChoicesMsg:
 		return m.handleDeviceChoices(msg)
 
+	case deviceTargetMsg:
+		return m.deviceTarget(msg)
+
+	case playbackMovedMsg:
+		// Polls take a moment to catch up; until they do, this is where
+		// playback is (so a second M goes back, not here again).
+		if msg.device != m.deviceName {
+			m.prevDevice, m.deviceName = m.deviceName, msg.device
+		}
+		m.deviceHeld, m.deviceHoldUntil = msg.device, time.Now().Add(deviceHold)
+		m.movedAt = time.Now()
+		title, detail := m.modeLabel(msg.device)
+		m.toast.Show(title, detail, ToastSuccess)
+		return m, scheduleAutoDismiss()
+
+	case spotifyAppMsg:
+		return m.spotifyAppReady(msg)
+
 	case devicesLoadedMsg:
+		for _, d := range msg.devices {
+			m.noteDevice(d)
+		}
 		if len(msg.devices) == 0 {
-			if m.canSetUpPlayer() {
+			if m.canOfferDevices() {
 				return m.openPlayHerePicker()
 			}
 			m.toast.Show("No Spotify device found", m.noDeviceHint(), ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		picker := NewDevicePicker(m.withPlayHere(msg.devices), m.width, m.height)
+		picker := NewDevicePicker(m.withOpenSpotify(m.withPlayHere(msg.devices)), m.width, m.height)
 		m.devices = &picker
 		m.mode = ModeDevices
 		return m, nil
@@ -1164,6 +1265,36 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toast.Show(msg.text, "", ToastInfo)
 		return m, scheduleAutoDismiss()
 
+	case volumeSetMsg:
+		m.volumeAccepted = msg.vol
+		if msg.gen != m.volumeGen {
+			return m, nil // a newer level is on its way
+		}
+		m.volumeInFlight = false
+		m.volumeGlow = volumeFadeSteps
+		m.volumeGlowID++
+		m.toast.ShowVolume()
+		return m, tea.Batch(scheduleAutoDismiss(), volumeGlowTick(m.volumeGlowID))
+
+	case volumeFailedMsg:
+		if msg.gen == m.volumeGen {
+			m.volumeInFlight = false
+			if m.toast.meter {
+				m.toast.Hide() // an error toast follows
+			}
+		}
+		return m.Update(trackErrorMsg{msg.err})
+
+	case volumeGlowMsg:
+		if msg.id != m.volumeGlowID || m.volumeGlow == 0 {
+			return m, nil
+		}
+		m.volumeGlow--
+		if m.volumeGlow > 0 {
+			return m, volumeGlowTick(msg.id)
+		}
+		return m, nil
+
 	case trackLikedMsg:
 		if m.track != nil && m.track.ID == msg.trackID {
 			m.liked = msg.liked
@@ -1210,6 +1341,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case trackErrorMsg:
+		slog.Warn("command failed", "error", msg.err)
 		// A rejected change (e.g. a device without volume control) should
 		// show Spotify's real state on the next poll, not the optimistic one.
 		m.volumeHoldUntil, m.modeHoldUntil = time.Time{}, time.Time{}
@@ -1269,7 +1401,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case clearToastMsg:
-		m.toast.Hide()
+		if m.toast.Expired(msg.at) {
+			m.toast.Hide()
+		}
 		return m, nil
 
 	case progressTickMsg:
@@ -1281,19 +1415,29 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.track.Position = m.track.Duration
 			}
 		}
-		// Spin vinyl in now playing mode (held still while unfocused: each
-		// frame is a full re-render of the art)
-		if m.mode == ModeNowPlaying && m.vinylMode && m.track != nil && m.track.Playing && !m.blurred {
-			m.vinylAngle = math.Mod(m.vinylAngle+0.057, 2*math.Pi)
-		}
+		// Vinyl spins on its own, faster tick; start it if playback resumed.
+		vinylCmd := m.startVinylSpin()
 		// Animate loading spinner
 		m.tracklist.TickSpinner()
-		prefetch := m.maybePrefetchNext()
+		prefetch := tea.Batch(m.maybePrefetchNext(), vinylCmd)
 		if !m.needsProgressTick() {
 			m.progressTicking = false
 			return m, prefetch
 		}
 		return m, tea.Batch(prefetch, m.progressTick())
+
+	case vinylTickMsg:
+		if !m.vinylSpinning() {
+			m.vinylTicking = false
+			return m, nil
+		}
+		now := time.Time(msg)
+		if !m.vinylLast.IsZero() {
+			dt := now.Sub(m.vinylLast).Seconds()
+			m.vinylAngle = math.Mod(m.vinylAngle+vinylOmega*math.Min(dt, 0.5), 2*math.Pi)
+		}
+		m.vinylLast = now
+		return m, vinylTick()
 	}
 
 	return m, nil
@@ -1372,7 +1516,7 @@ func (m *Model) openNowPlaying(view npView) tea.Cmd {
 			m.vinylAngle = 0
 		}
 	}
-	cmds := []tea.Cmd{m.ensureLyrics()} // so the hint can say if there are lyrics
+	cmds := []tea.Cmd{m.ensureLyrics(), m.startVinylSpin()} // ensureLyrics: so the hint can say if there are lyrics
 	if m.track != nil && m.track.ArtworkURL != "" && m.npArtURL != m.track.ArtworkURL {
 		cmds = append(cmds, m.fetchNPArt(m.track.ArtworkURL))
 	} else {
@@ -1392,9 +1536,9 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.vinylMode {
 			m.vinylAngle = 0
 			m.lyricsView = false // vinyl and lyrics share the art region
-		} else {
-			m.renderNPArt()
+			return m, m.startVinylSpin()
 		}
+		m.renderNPArt()
 		return m, nil
 	case msg.String() == "l":
 		m.lyricsView = !m.lyricsView
@@ -1552,6 +1696,10 @@ func (m Model) handleKeyDevices(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if dev.ID == playHereDeviceID {
 			return m.openPlayerSetup()
 		}
+		if dev.ID == openSpotifyDeviceID {
+			return m.startSpotifyApp(retry)
+		}
+		m.supersedeSwitch()
 		if retry != nil {
 			// Picker opened to recover a failed command: activate, then replay it.
 			m.toast.Show("Playing on "+dev.Name, "", ToastInfo)
@@ -1848,6 +1996,8 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.gtracker.Reset()
 		return m.openActions()
 
+	case key.Matches(msg, m.keys.Mode):
+		return m, m.switchDevice(toggleHere)
 	case key.Matches(msg, m.keys.Devices):
 		m.gtracker.Reset()
 		return m, m.fetchDevices()
@@ -2465,6 +2615,8 @@ func (m Model) View() string {
 	if m.count > 0 {
 		m.statusbar.pending = strconv.Itoa(m.count)
 	}
+	show := volumeShow{level: m.volume, accepted: m.volumeAccepted, pending: m.volumeInFlight, glow: m.volumeGlow}
+	m.statusbar.volume, m.toast.volume = show, show
 	var view string
 	if m.artStatusBar() {
 		artView := m.albumart.View()

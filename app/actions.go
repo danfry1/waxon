@@ -220,6 +220,7 @@ func (a ActionsPopup) View() string {
 	border := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorAccent).
+		BorderBackground(ColorBg). // or the terminal's own colour shows as a ring
 		Background(ColorBg).
 		Width(overlayW).
 		Height(overlayH).

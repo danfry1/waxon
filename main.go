@@ -7,12 +7,14 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync/atomic"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/danfry1/waxon/app"
 	myauth "github.com/danfry1/waxon/auth"
 	"github.com/danfry1/waxon/cli"
 	"github.com/danfry1/waxon/config"
+	"github.com/danfry1/waxon/media"
 	"github.com/danfry1/waxon/player"
 	myspotify "github.com/danfry1/waxon/spotify"
 )
@@ -119,14 +121,16 @@ func main() {
 		opts.PlayerName = runner.name
 	}
 	opts.PlayerProblem = problem
+	opts.OpenSpotifyApp = spotifyAppLauncher()
+	opts.ThisComputer = thisComputerNames()
 	var p *tea.Program
 	deps := setupDeps("", "")
 	opts.PlayerSetup = &deps
 	// Set up from the device picker: start the player now, as a launch with
 	// it turned on would have.
 	opts.StartPlayer = func() string {
-		cfg, _ := config.Load()
-		r, _ := newPlayerRunner(cfg)
+		latest, _ := config.Load() // the player was turned on since launch
+		r, _ := newPlayerRunner(latest)
 		if r == nil {
 			return ""
 		}
@@ -135,15 +139,43 @@ func main() {
 		r.launch(context.Background(), src, p, false)
 		return r.name
 	}
-	m := app.NewModel(src).WithOptions(opts)
-	p = tea.NewProgram(m, programOptions()...)
-	runner.start(context.Background(), src, p)
-	_, err := p.Run()
-	runner.stop()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+	mediaKeys := (cfg.MediaKeys == nil || *cfg.MediaKeys) && !overSSH()
+	run := func() int {
+		// Media keys and the system's Now Playing (media package); presses
+		// reach the program like key presses.
+		var prog atomic.Pointer[tea.Program]
+		if mediaKeys {
+			ctl, err := media.Start(func(e media.Event) {
+				if running := prog.Load(); running != nil {
+					running.Send(app.MediaMsg(e))
+				}
+			})
+			switch {
+			case err == nil:
+				opts.Media = ctl
+				defer ctl.Close()
+			case !errors.Is(err, media.ErrUnsupported):
+				slog.Warn("media keys unavailable", "error", err)
+			}
+		}
+		m := app.NewModel(src).WithOptions(opts)
+		p = tea.NewProgram(m, programOptions()...)
+		prog.Store(p)
+		runner.start(context.Background(), src, p)
+		_, err := p.Run()
+		runner.stop()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
 	}
+	if !mediaKeys {
+		os.Exit(run())
+	}
+	// On macOS the media controls need the main thread's event loop, so the
+	// TUI runs beside it.
+	os.Exit(media.RunMain(run))
 }
 
 // graphicsOut is the Program's output when kitty art is on (see
@@ -407,16 +439,21 @@ Usage:
   waxon logout   Forget the saved Spotify and player logins (keeps the rest of your config)
   waxon player   waxon's own player via librespot: status, or login | off
   waxon doctor   Check the login, Spotify app, devices, player and more
-  waxon demo     Launch in demo mode (requires -tags demo build)
   waxon version  Print version
   waxon themes   List colour themes (set with "theme" in config.json or :theme)
   waxon config   Print the config file path
   waxon help     Show this help
-
+` + demoUsage + `
 ` + cli.Usage() + `
 
 Environment:
   SPOTIFY_CLIENT_ID  Override the saved Client ID
   WAXON_LOG          Path to debug log file (e.g. /tmp/waxon.log)
   WAXON_ART          Album art: blocks (default), kitty, or auto`)
+}
+
+// overSSH reports whether waxon is running in an SSH session, where the
+// machine's media keys and Now Playing belong to whoever is at it.
+func overSSH() bool {
+	return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != ""
 }

@@ -195,8 +195,8 @@ func TestDevicePickerEnterWithoutPendingTransfersOnly(t *testing.T) {
 		t.Fatal("expected transfer command")
 	}
 	msg := cmd()
-	if _, ok := msg.(cmdFlashMsg); !ok {
-		t.Errorf("got %T, want cmdFlashMsg from plain transfer", msg)
+	if _, ok := msg.(playbackMovedMsg); !ok {
+		t.Errorf("got %T, want playbackMovedMsg from plain transfer", msg)
 	}
 	if transferred != "d1" {
 		t.Errorf("transferred to %q, want d1", transferred)

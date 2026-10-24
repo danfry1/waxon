@@ -32,8 +32,14 @@ brew install danfry1/tap/waxon
 > they're trusted. If you see `Error: Refusing to load formula ... from
 > untrusted tap`, run the `brew trust danfry1/tap` line above (once) and retry.
 >
-> **Upgrading from ≤ 1.6.0?** waxon moved from a formula to a cask. Once:
-> `brew uninstall --formula waxon && brew install danfry1/tap/waxon`.
+> The formula builds waxon from source (Homebrew fetches Go for the build), so
+> macOS never quarantines the binary.
+>
+> **Installed the cask (1.7.0 – 1.10.0)?** waxon is a formula again, built from
+> source instead of shipping an unsigned binary. If you trusted the tap, the
+> next `brew update` installs the formula for you; then remove the old cask with
+> `brew uninstall --cask --force waxon`. Otherwise, or if that didn't happen:
+> `brew uninstall --cask --force waxon && brew install danfry1/tap/waxon`.
 
 **Nix** (flakes):
 
@@ -115,6 +121,13 @@ If nothing is playing when you press play, waxon picks a device for you:
 its own player when you've set it up, the only device when there's one, or
 it asks which one when there are several.
 
+`M` switches waxon between its two modes on this computer: **playing by
+itself** and **controlling the Spotify app**, carrying on from the same
+point. If the Spotify app is installed but closed, `M` opens it (and the
+picker offers to **open the Spotify app**): waxon starts it in the
+background and hands playback to it once it's online. `:device -` goes
+back to whichever device you were on before, phones and speakers included.
+
 > **About the player login.** Spotify only lets its own apps stream audio, so
 > librespot — an open-source, unofficial Spotify Connect client (it also powers
 > spotifyd, raspotify and ncspot) — signs in as the Spotify desktop app, and
@@ -150,11 +163,15 @@ Below 80 columns waxon shows one pane at a time — `h`/`l`/`Tab` switch between
 
 ### Now Playing
 
-Full-screen album art rendered with Unicode half-blocks, gradient backgrounds, and a vinyl spinning mode.
+Full-screen album art rendered with Unicode half-blocks over a gradient drawn from the cover. Press `V` for vinyl: the record turns at 33⅓ with the cover on its label, light catching the grooves, and a tonearm that moves across the record as the track plays.
 
 <p align="center">
   <img src="demo/recordings/nowplaying.gif" alt="now playing view" width="800">
 </p>
+
+### Media Keys
+
+The keyboard's ⏯ ⏭ ⏮ keys control waxon, and the system's Now Playing (Control Center on macOS; GNOME, KDE and `playerctl` through MPRIS on Linux) shows the track, its cover and progress, with working buttons and scrubbing. They control whatever waxon is playing on: its own player, your phone or a speaker. If another music app is open it may take the keys first. Over SSH they're left alone: the keys belong to whoever is at the machine.
 
 ### Synced Lyrics
 
@@ -269,6 +286,7 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `/`   | Filter current view |
 | `s`   | Spotify search      |
 | `D`   | Device switcher     |
+| `M`   | Play in waxon ⇄ control the Spotify app |
 | `:`   | Command mode        |
 
 ### Visual mode
@@ -306,6 +324,8 @@ Enter command mode by pressing `:`, then type a command.
 | `:shuffle`              | Toggle shuffle       |
 | `:repeat off\|all\|one` | Set repeat mode      |
 | `:device`               | Open device switcher |
+| `:device -`             | Back to the previous device |
+| `:device <name>`        | Switch to the device whose name contains `<name>` |
 | `:search <query>`       | Search Spotify       |
 | `:recent`               | Recently played      |
 | `:albums`               | Saved albums         |
@@ -335,9 +355,11 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
   <img src="demo/recordings/themes.gif" alt="switching themes with :theme" width="800">
 </p>
 
-**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings.
+**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices mode back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings.
 
 **Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
+
+**Media keys** — on by default on macOS and Linux; `"media_keys": false` turns them and the Now Playing entry off.
 
 **Art** — `"art": "kitty"` draws the status-bar and Now Playing covers as real images using the kitty graphics protocol (kitty, Ghostty); `"auto"` does that only when the terminal is detected as supporting it (not inside tmux), and `"blocks"` (the default) keeps the Unicode half-block art. `WAXON_ART` overrides the setting for one run, e.g. `WAXON_ART=kitty waxon`. Experimental: please report terminals where it misbehaves.
 
@@ -451,6 +473,10 @@ Debug log: `WAXON_LOG=/tmp/waxon.log waxon` (includes rate-limit `Retry-After` v
 | `WAXON_LOG`         | Path to debug log file (e.g. `/tmp/waxon.log`) |
 | `WAXON_ART`         | Override the `art` setting for one run (`blocks`, `kitty`, `auto`) |
 | `WAXON_NO_BROWSER`  | Don't launch a browser during `waxon auth`; just print the URL (SSH) |
+
+## Releasing
+
+Maintainers cut releases by following [RELEASING.md](RELEASING.md).
 
 ## Acknowledgements
 

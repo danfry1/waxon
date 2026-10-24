@@ -15,10 +15,12 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
+    permissions:
+      contents: write # create the GitHub Release and upload assets
     name: Release
     runs-on: ubuntu-latest
     steps:
@@ -46,14 +48,14 @@ jobs:
           fi
           echo "--- release notes ---"; cat "$RUNNER_TEMP/release-notes.md"
 
-      - name: Mint a tap and bucket token from the GitHub App
+      - name: Mint a Scoop bucket token from the GitHub App
         id: tap-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.TAP_BUMP_APP_ID }}
           private-key: ${{ secrets.TAP_BUMP_APP_PRIVATE_KEY }}
           owner: danfry1
-          repositories: homebrew-tap,scoop-bucket
+          repositories: scoop-bucket
 
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
@@ -61,7 +63,6 @@ jobs:
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
           SCOOP_BUCKET_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
 
       - name: Verify the release notes were applied
@@ -75,3 +76,127 @@ jobs:
             echo "release body is empty; setting it from CHANGELOG.md"
             gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
+
+  # Open a pull request on danfry1/homebrew-tap that points waxon.rb at this
+  # tag's source archive. The tap's CI builds and tests bottles on that pull
+  # request; publishing them is a manual `brew pr-pull` run in the tap. The
+  # push and the pull request use a short-lived App token scoped to the tap.
+  homebrew-formula:
+    name: Open Homebrew formula PR
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Mint a tap token from the GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.TAP_BUMP_APP_ID }}
+          private-key: ${{ secrets.TAP_BUMP_APP_PRIVATE_KEY }}
+          owner: danfry1
+          repositories: homebrew-tap
+
+      - name: Check out the tap
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: danfry1/homebrew-tap
+          token: ${{ steps.app-token.outputs.token }}
+          path: tap
+
+      - name: Point the formula at this tag's source archive
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          FORMULA: waxon
+        run: |
+          set -euo pipefail
+          url="https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz"
+          sha=$(curl --fail --silent --show-error --location --retry 3 "$url" | sha256sum | cut -d' ' -f1)
+          file="tap/${FORMULA}.rb"
+          # A new version starts at revision 0, so drop any revision line.
+          # Drop the bottle block: its bottles belong to the old version. Publishing
+          # the tap pull request (brew pr-pull) writes a new block; if the PR is
+          # merged without publishing, the formula builds from source instead of
+          # pointing at bottles that do not exist.
+          sed -i -E \
+            -e "s#^  url \"[^\"]*\"#  url \"${url}\"#" \
+            -e "s#^  sha256 \"[0-9a-f]*\"#  sha256 \"${sha}\"#" \
+            -e '/^  bottle do$/,/^  end$/d' \
+            -e '/^  revision [0-9]+$/d' \
+            "$file"
+          # Removing the block leaves two blank lines; brew style allows one.
+          cat -s "$file" > "$file.new" && mv "$file.new" "$file"
+          grep -qF "url \"${url}\"" "$file"
+          grep -qF "sha256 \"${sha}\"" "$file"
+          ! grep -q '^  bottle do$' "$file"
+          cat "$file"
+
+      - name: Push a branch and open the pull request
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          FORMULA: waxon
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          cd tap
+          if git diff --quiet; then
+            echo "Formula already points at ${TAG}; nothing to do."
+            exit 0
+          fi
+          version="${TAG#v}"
+          branch="${FORMULA}-${version}"
+          bot_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "${FORMULA} ${version}"
+          # A re-run replaces the bot's own branch; main is never force-pushed.
+          git push --force origin "$branch"
+          if [ -n "$(gh pr list --repo danfry1/homebrew-tap --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "Pull request for ${branch} already open; branch updated."
+            exit 0
+          fi
+          head_sha=$(git rev-parse HEAD)
+          pr_url=$(gh pr create --repo danfry1/homebrew-tap --base main --head "$branch" \
+            --title "${FORMULA} ${version}" \
+            --body "Points \`${FORMULA}.rb\` at the ${TAG} source archive, opened by the ${REPO} release workflow. Publish the bottles once CI is green (do not use the merge button).")
+          gh pr comment "$pr_url" --body "Publish: \`gh workflow run publish.yml -R danfry1/homebrew-tap -f pull_request=${pr_url##*/} -f head_sha=${head_sha}\`"
+
+  # Runs after every asset is on the release, in the same run that built them, and
+  # signs build provenance for the published files. Kept separate from the build and
+  # tap/bucket jobs so a problem here cannot fail or block an otherwise good release.
+  # Verify a download with: gh attestation verify <file> --repo "$GITHUB_REPOSITORY"
+  attest:
+    name: Attest build provenance
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # download the release assets
+      id-token: write # sign the attestation (Sigstore)
+      attestations: write # store the attestation
+    steps:
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir assets
+          cd assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY"
+          # Only attest files that match the checksum files published with the release
+          # (catches a corrupted or partly replaced asset).
+          sha256sum -c checksums.txt
+          rm -f -- *.sha256 checksums.txt SHA256SUMS
+          sha256sum -- $(ls | grep -vx SHA256SUMS) > "$RUNNER_TEMP/subjects.txt"
+          test -s "$RUNNER_TEMP/subjects.txt"
+          cat "$RUNNER_TEMP/subjects.txt"
+
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: ${{ runner.temp }}/subjects.txt

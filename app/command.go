@@ -30,6 +30,8 @@ var commandHelp = []helpBinding{
 	{":shuffle", "toggle shuffle"},
 	{":repeat X", "off / all / one"},
 	{":device", "switch device"},
+	{":device -", "back to the previous device"},
+	{":device NAME", "switch to the device named NAME"},
 	{":search Q", "search Spotify"},
 	{":recent", "recently played"},
 	{":albums", "saved albums"},
@@ -94,7 +96,7 @@ func ParseCommand(input string) (Command, error) {
 		return Command{Type: CmdRepeat, StrArg: mode}, nil
 
 	case "device", "devices":
-		return Command{Type: CmdDevice}, nil
+		return Command{Type: CmdDevice, StrArg: strings.Join(args, " ")}, nil
 
 	case "search":
 		query := strings.Join(args, " ")

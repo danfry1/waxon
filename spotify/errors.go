@@ -37,6 +37,8 @@ func wrapPlayerError(err error) error {
 		return fmt.Errorf("%w: %w", source.ErrInsufficientScope, err)
 	case sErr.Status == http.StatusForbidden && strings.Contains(msg, "restriction"):
 		return fmt.Errorf("%w: %w", source.ErrPlaybackRestricted, err)
+	case sErr.Status >= http.StatusInternalServerError:
+		return fmt.Errorf("%w: %w", source.ErrDeviceUnavailable, err)
 	}
 	return err
 }

@@ -41,6 +41,7 @@ type KeyMap struct {
 	Like     key.Binding
 	Actions  key.Binding
 	Devices  key.Binding
+	Mode     key.Binding // play in waxon ⇄ control the Spotify app
 
 	// Navigation history
 	Back key.Binding
@@ -88,6 +89,7 @@ func DefaultKeyMap() KeyMap {
 		Like:     key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "favourite")),
 		Actions:  key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "actions")),
 		Devices:  key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "devices")),
+		Mode:     key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "play in waxon ⇄ control the Spotify app")),
 
 		Back: key.NewBinding(key.WithKeys("backspace", "b"), key.WithHelp("⌫/b", "back")),
 
@@ -220,7 +222,7 @@ func (k *KeyMap) keyBindingFields() map[string]*key.Binding {
 		"enter": &k.Enter, "play_pause": &k.PlayPause, "next": &k.Next, "prev": &k.Prev,
 		"seek_fwd": &k.SeekFwd, "seek_back": &k.SeekBack,
 		"vol_up": &k.VolUp, "vol_down": &k.VolDown, "shuffle": &k.Shuffle, "repeat": &k.Repeat,
-		"visual": &k.Visual, "add_queue": &k.AddQueue, "like": &k.Like, "actions": &k.Actions, "devices": &k.Devices,
+		"visual": &k.Visual, "add_queue": &k.AddQueue, "like": &k.Like, "actions": &k.Actions, "devices": &k.Devices, "mode": &k.Mode,
 		"back": &k.Back, "filter": &k.Filter, "search": &k.Search, "command": &k.Command,
 		"help": &k.Help, "now_playing": &k.NowPlaying, "quit": &k.Quit,
 		"section1": &k.Section1, "section2": &k.Section2,
