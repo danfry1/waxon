@@ -14,7 +14,6 @@ type SidebarSection int
 
 const (
 	SectionLibrary SidebarSection = iota
-	SectionQueue
 )
 
 // sidebarItem wraps a playlist for the bubbles/list.
@@ -44,21 +43,11 @@ func (s sidebarItem) FilterValue() string {
 	return s.playlist.Name
 }
 
-// queueItem wraps a track for the queue view in the sidebar.
-type queueItem struct {
-	track source.Track
-}
-
-func (q queueItem) Title() string       { return "♫ " + q.track.Name }
-func (q queueItem) Description() string { return q.track.Artist }
-func (q queueItem) FilterValue() string { return q.track.Name }
-
 // Sidebar is the left pane model.
 type Sidebar struct {
 	list       list.Model
 	section    SidebarSection
 	allItems   []list.Item // unfiltered library items (playlists), with icons
-	queueItems []list.Item // unfiltered queue items from the last queue fetch
 	filterText string      // active filter query ("" = none); re-applied when items refresh
 	width      int
 	height     int
@@ -156,32 +145,6 @@ func (s *Sidebar) SetPlaylistIcons(icons map[string]string) {
 	}
 }
 
-func (s *Sidebar) SetQueueTracks(tracks []source.Track) {
-	// Spotify pads the queue with the current track on repeat.
-	// Strip trailing consecutive duplicates, keeping at most one.
-	tracks = stripTrailingDupes(tracks)
-	// Showing queue tracks means we're on the queue section (the title says
-	// so); make the section state agree so filtering/restoring stay coherent.
-	s.section = SectionQueue
-
-	if len(tracks) == 0 {
-		s.queueItems = nil
-		s.list.SetItems(nil)
-		s.list.Title = "QUEUE (empty)"
-		return
-	}
-
-	items := make([]list.Item, len(tracks))
-	for i, t := range tracks {
-		items[i] = queueItem{track: t}
-	}
-	// Don't overwrite allItems — that holds the library playlists for
-	// restoring when switching back from the queue section.
-	s.queueItems = items
-	s.refreshVisible()
-	s.list.Title = "QUEUE"
-}
-
 // stripTrailingDupes removes trailing consecutive duplicates of the last
 // track, keeping at most one. Spotify fills the queue response with the
 // current track on repeat as padding — these won't actually play.
@@ -216,13 +179,6 @@ func (s *Sidebar) SelectedPlaylist() *source.Playlist {
 	if si, ok := item.(sidebarItem); ok {
 		return &si.playlist
 	}
-	if qi, ok := item.(queueItem); ok {
-		return &source.Playlist{
-			ID:   qi.track.ID,
-			URI:  qi.track.URI,
-			Name: qi.track.Name,
-		}
-	}
 	return nil
 }
 
@@ -233,35 +189,21 @@ func (s *Sidebar) Section() SidebarSection {
 func (s *Sidebar) SetSection(sec SidebarSection) {
 	s.section = sec
 	s.filterText = "" // a filter belongs to the section it was typed in
-	if sec == SectionLibrary {
-		s.list.Title = "LIBRARY"
-		// Restore the library items (with icons) that were saved in allItems.
-		if s.allItems != nil {
-			s.list.SetItems(s.allItems)
-		}
-	} else {
-		// Show the last-known queue immediately (the caller refreshes it
-		// asynchronously) rather than leaving library rows under a QUEUE header.
-		s.list.Title = "QUEUE"
-		if len(s.queueItems) == 0 {
-			s.list.Title = "QUEUE (empty)"
-		}
-		s.list.SetItems(s.queueItems)
+	s.list.Title = "LIBRARY"
+	// Restore the library items (with icons) that were saved in allItems.
+	if s.allItems != nil {
+		s.list.SetItems(s.allItems)
 	}
 	s.list.Select(0)
 }
 
-// baseItems returns the unfiltered item set for the current section.
+// baseItems returns the unfiltered item set.
 func (s *Sidebar) baseItems() []list.Item {
-	if s.section == SectionQueue {
-		return s.queueItems
-	}
 	return s.allItems
 }
 
-// SetFilter filters the current section by name: playlists by title in the
-// library, tracks by title, artist or album in the queue. The filter persists across
-// background refreshes of the section's items until cleared.
+// SetFilter filters the playlists by name. The filter persists across
+// background refreshes of the library until cleared.
 func (s *Sidebar) SetFilter(query string) {
 	s.filterText = query
 	s.refreshVisible()
@@ -287,12 +229,6 @@ func (s *Sidebar) refreshVisible() {
 		switch it := item.(type) {
 		case sidebarItem:
 			if strings.Contains(strings.ToLower(it.playlist.Name), q) {
-				filtered = append(filtered, item)
-			}
-		case queueItem:
-			if strings.Contains(strings.ToLower(it.track.Name), q) ||
-				strings.Contains(strings.ToLower(it.track.Artist), q) ||
-				strings.Contains(strings.ToLower(it.track.Album), q) {
 				filtered = append(filtered, item)
 			}
 		}

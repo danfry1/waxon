@@ -286,11 +286,3 @@ func TestEpisodeLikeRefusalKeepsTrackChecks(t *testing.T) {
 	}
 }
 
-func TestQueuedEpisodePlaysByURI(t *testing.T) {
-	if got := queuedURI(source.Playlist{ID: "spotify:episode:e1", URI: "spotify:episode:e1"}); got != "spotify:episode:e1" {
-		t.Errorf("queued episode plays %q", got)
-	}
-	if got := queuedURI(source.Playlist{ID: "t1"}); got != "spotify:track:t1" {
-		t.Errorf("queued track plays %q", got)
-	}
-}

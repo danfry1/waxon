@@ -718,8 +718,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-			// Refresh queue when track changes (queue shifts forward)
-			if msg.track.ID != prevTrackID && m.sidebar.Section() == SectionQueue {
+			// Refresh the queue when the track changes (it shifts forward)
+			if msg.track.ID != prevTrackID && m.showingQueue() {
 				cmds = append(cmds, m.fetchQueue())
 			}
 			// Check liked status when track changes
@@ -1137,10 +1137,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(scheduleAutoDismiss(), m.refreshPlaylists())
 
 	case queueLoadedMsg:
-		// Only update the live list if we're still on the queue section;
-		// otherwise the async response would clobber the library view.
-		if m.sidebar.Section() == SectionQueue {
-			m.sidebar.SetQueueTracks(msg.tracks)
+		// Only into the queue view, opening or open: a reply arriving after
+		// the user moved on mustn't replace what they're looking at.
+		if m.showingQueue() || (m.tracklist.loading && m.tracklist.title == "Queue") {
+			m.showQueue(msg.tracks)
 		}
 		return m, nil
 
@@ -1254,8 +1254,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.toast.Show("Added to queue", msg.trackName, ToastSuccess)
 		}
-		// Refresh queue view if it's currently visible
-		if m.sidebar.Section() == SectionQueue {
+		// Refresh the queue view if it's showing
+		if m.showingQueue() {
 			return m, tea.Batch(scheduleAutoDismiss(), m.fetchQueue())
 		}
 		return m, scheduleAutoDismiss()
@@ -1957,9 +1957,7 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.sidebar.SetSection(SectionLibrary)
 			return m, nil
 		case GActionQueue:
-			m.focusPane = PaneSidebar
-			m.sidebar.SetSection(SectionQueue)
-			return m, m.fetchQueue()
+			return m, m.openQueue()
 		case GActionCurrent:
 			return m.jumpToCurrentTrack()
 		case GActionGoAlbum:
@@ -2329,22 +2327,9 @@ func (m Model) closeOverlay() (Model, tea.Cmd) {
 	return m, nil
 }
 
-// queuedURI is the URI to play a queue entry by: its own when known (an
-// episode's isn't a track URI), else built from its track ID.
-func queuedURI(pl source.Playlist) string {
-	if pl.URI != "" {
-		return pl.URI
-	}
-	return "spotify:track:" + pl.ID
-}
-
 // openSidebarRow opens the sidebar row pl: a playlist or collection opens
-// in the track list (and takes focus, so the next Enter plays from it); a
-// queue entry plays.
+// in the track list, and takes focus so the next Enter plays from it.
 func (m Model) openSidebarRow(pl source.Playlist) (Model, tea.Cmd) {
-	if m.sidebar.Section() == SectionQueue {
-		return m, m.playTrack(queuedURI(pl), "")
-	}
 	if isCollection(pl.ID) {
 		return m, m.openCollection(pl.ID)
 	}
@@ -2386,6 +2371,9 @@ func (m Model) handleEnter() (Model, tea.Cmd) {
 			return m.openSidebarRow(*pl)
 		}
 	} else {
+		if m.showingQueue() {
+			return m.skipToQueued()
+		}
 		track := m.tracklist.SelectedTrack()
 		if track != nil {
 			// Separator rows are not actionable
