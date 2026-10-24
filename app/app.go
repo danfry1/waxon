@@ -312,11 +312,13 @@ type Model struct {
 	setup      *Setup           // open in ModeSetup (setting up the player in place)
 	pagination *paginationState // non-nil while a playlist is being lazily loaded
 
-	npArt       string      // large rendered art for now playing view
-	npArtURL    string      // URL of the art currently rendered for NP
-	npSourceImg image.Image // source image for vinyl rendering
-	vinylAngle  float64     // current rotation angle in radians
-	vinylMode   bool        // easter egg: vinyl spinning mode
+	npArt        string      // large rendered art for now playing view
+	npArtURL     string      // URL of the art currently rendered for NP
+	npSourceImg  image.Image // source image for vinyl rendering
+	vinylAngle   float64     // current rotation angle in radians
+	vinylMode    bool        // easter egg: vinyl spinning mode
+	vinylTicking bool        // a vinylTickMsg is scheduled
+	vinylLast    time.Time   // when the record was last turned
 
 	// Lyrics (Now Playing overlay, toggled with "l")
 	lyricsView    bool           // true when the NP art region shows lyrics
@@ -1281,19 +1283,29 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.track.Position = m.track.Duration
 			}
 		}
-		// Spin vinyl in now playing mode (held still while unfocused: each
-		// frame is a full re-render of the art)
-		if m.mode == ModeNowPlaying && m.vinylMode && m.track != nil && m.track.Playing && !m.blurred {
-			m.vinylAngle = math.Mod(m.vinylAngle+0.057, 2*math.Pi)
-		}
+		// Vinyl spins on its own, faster tick; start it if playback resumed.
+		vinylCmd := m.startVinylSpin()
 		// Animate loading spinner
 		m.tracklist.TickSpinner()
-		prefetch := m.maybePrefetchNext()
+		prefetch := tea.Batch(m.maybePrefetchNext(), vinylCmd)
 		if !m.needsProgressTick() {
 			m.progressTicking = false
 			return m, prefetch
 		}
 		return m, tea.Batch(prefetch, m.progressTick())
+
+	case vinylTickMsg:
+		if !m.vinylSpinning() {
+			m.vinylTicking = false
+			return m, nil
+		}
+		now := time.Time(msg)
+		if !m.vinylLast.IsZero() {
+			dt := now.Sub(m.vinylLast).Seconds()
+			m.vinylAngle = math.Mod(m.vinylAngle+vinylOmega*math.Min(dt, 0.5), 2*math.Pi)
+		}
+		m.vinylLast = now
+		return m, vinylTick()
 	}
 
 	return m, nil
@@ -1372,7 +1384,7 @@ func (m *Model) openNowPlaying(view npView) tea.Cmd {
 			m.vinylAngle = 0
 		}
 	}
-	cmds := []tea.Cmd{m.ensureLyrics()} // so the hint can say if there are lyrics
+	cmds := []tea.Cmd{m.ensureLyrics(), m.startVinylSpin()} // ensureLyrics: so the hint can say if there are lyrics
 	if m.track != nil && m.track.ArtworkURL != "" && m.npArtURL != m.track.ArtworkURL {
 		cmds = append(cmds, m.fetchNPArt(m.track.ArtworkURL))
 	} else {
@@ -1392,9 +1404,9 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.vinylMode {
 			m.vinylAngle = 0
 			m.lyricsView = false // vinyl and lyrics share the art region
-		} else {
-			m.renderNPArt()
+			return m, m.startVinylSpin()
 		}
+		m.renderNPArt()
 		return m, nil
 	case msg.String() == "l":
 		m.lyricsView = !m.lyricsView
