@@ -96,7 +96,7 @@ func (p mprisPlayerMethods) SetPosition(track dbus.ObjectPath, position int64) *
 	return nil
 }
 
-func (p mprisPlayerMethods) OpenUri(string) *dbus.Error { return nil } //nolint:revive // MPRIS's name
+func (p mprisPlayerMethods) OpenUri(string) *dbus.Error { return nil } //nolint:revive,staticcheck // MPRIS's name
 
 // mprisRootMethods implements org.mpris.MediaPlayer2's methods (no window
 // to raise, and quitting is the terminal's business).
@@ -113,11 +113,11 @@ func connect() (*dbus.Conn, error) {
 		return nil, err
 	}
 	if err := conn.Auth(nil); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	if err := conn.Hello(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	return conn, nil
@@ -130,12 +130,12 @@ func start(onEvent func(Event)) (Controller, error) {
 	}
 	c := &mprisController{conn: conn, done: make(chan struct{}), track: mprisNoTrack}
 	player := mprisPlayerMethods{c: c, onEvent: onEvent}
-	if err := conn.ExportWithMap(player, mprisNames, mprisPath, mprisPlayer); err != nil {
-		conn.Close()
+	if err = conn.ExportWithMap(player, mprisNames, mprisPath, mprisPlayer); err != nil {
+		_ = conn.Close()
 		return nil, err
 	}
-	if err := conn.Export(mprisRootMethods{}, mprisPath, mprisRoot); err != nil {
-		conn.Close()
+	if err = conn.Export(mprisRootMethods{}, mprisPath, mprisRoot); err != nil {
+		_ = conn.Close()
 		return nil, err
 	}
 	ro := func(v any) *prop.Prop { return &prop.Prop{Value: v, Emit: prop.EmitTrue} }
@@ -165,7 +165,7 @@ func start(onEvent func(Event)) (Controller, error) {
 		},
 	})
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	c.props = props
@@ -175,8 +175,8 @@ func start(onEvent func(Event)) (Controller, error) {
 		{Name: mprisRoot, Methods: introspect.Methods(mprisRootMethods{}), Properties: props.Introspection(mprisRoot)},
 		{Name: mprisPlayer, Methods: renamed(introspect.Methods(player)), Properties: props.Introspection(mprisPlayer)},
 	}}
-	if err := conn.Export(introspect.NewIntrospectable(node), mprisPath, "org.freedesktop.DBus.Introspectable"); err != nil {
-		conn.Close()
+	if err = conn.Export(introspect.NewIntrospectable(node), mprisPath, "org.freedesktop.DBus.Introspectable"); err != nil {
+		_ = conn.Close()
 		return nil, err
 	}
 	// One name per running waxon: the second gets an instance suffix, as
@@ -188,7 +188,7 @@ func start(onEvent func(Event)) (Controller, error) {
 		reply, err = conn.RequestName(name, dbus.NameFlagDoNotQueue)
 	}
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("%w: couldn't take an MPRIS name", ErrUnsupported)
 	}
 	go c.tick()
