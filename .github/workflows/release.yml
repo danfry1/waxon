@@ -2,14 +2,12 @@ name: Release
 
 # Pushing a version tag (git tag v1.2.3 && git push origin v1.2.3) builds every
 # target with goreleaser, publishes the GitHub Release with notes taken from
-# CHANGELOG.md, updates the Homebrew tap, and — when the GitHub App below is
-# configured — the Scoop bucket.
+# CHANGELOG.md, and updates the Homebrew tap and Scoop bucket.
 #
-# One-time setup for Scoop: a GitHub App installed on danfry1/scoop-bucket with
-# Contents: read/write (the same "tap bumper" App other danfry1 repos use).
-# Store its App ID as the repository variable TAP_BUMP_APP_ID and its private
-# key as the secret TAP_BUMP_APP_PRIVATE_KEY. Without them the Scoop step is
-# skipped and everything else still publishes.
+# One-time setup: a GitHub App installed on danfry1/homebrew-tap and
+# danfry1/scoop-bucket with Contents: read/write (the same "tap bumper" App
+# other danfry1 repos use). Store its App ID as the repository variable
+# TAP_BUMP_APP_ID and its private key as the secret TAP_BUMP_APP_PRIVATE_KEY.
 
 on:
   push:
@@ -46,15 +44,14 @@ jobs:
           fi
           echo "--- release notes ---"; cat "$RUNNER_TEMP/release-notes.md"
 
-      - name: Mint a Scoop bucket token from the GitHub App
-        id: scoop-token
-        if: ${{ vars.TAP_BUMP_APP_ID != '' }}
+      - name: Mint a tap and bucket token from the GitHub App
+        id: tap-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ vars.TAP_BUMP_APP_ID }}
           private-key: ${{ secrets.TAP_BUMP_APP_PRIVATE_KEY }}
           owner: danfry1
-          repositories: scoop-bucket
+          repositories: homebrew-tap,scoop-bucket
 
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
@@ -62,8 +59,8 @@ jobs:
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          SCOOP_BUCKET_GITHUB_TOKEN: ${{ steps.scoop-token.outputs.token }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
+          SCOOP_BUCKET_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
 
       - name: Verify the release notes were applied
         env:
