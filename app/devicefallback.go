@@ -99,8 +99,10 @@ func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
 	}
 	switch len(msg.devices) {
 	case 0:
-		m.toast.Show("No Spotify device found",
-			"Open Spotify on any device, then try again (D to pick)", ToastError)
+		if m.canSetUpPlayer() {
+			return m.openPlayHerePicker()
+		}
+		m.toast.Show("No Spotify device found", m.noDeviceHint(), ToastError)
 		return m, scheduleAutoDismiss()
 	case 1:
 		dev := msg.devices[0]
@@ -115,7 +117,7 @@ func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
 			m.pendingRetry = msg.retry
 			return m, nil
 		}
-		picker := NewDevicePicker(msg.devices, m.width, m.height)
+		picker := NewDevicePicker(m.withPlayHere(msg.devices), m.width, m.height)
 		picker.SetPrompt("No active device — pick one to continue")
 		m.devices = &picker
 		m.pendingRetry = msg.retry
@@ -124,9 +126,34 @@ func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
 	}
 }
 
+// noDeviceHint is the fix offered when Spotify lists no devices: open a
+// Spotify app, or, if waxon's own player isn't set up, set it up.
+func (m Model) noDeviceHint() string {
+	if m.opts.PlayerName == "" && m.opts.PlayerSetup == nil {
+		return "Open Spotify on a device, or play here: waxon player login"
+	}
+	return "Open Spotify on any device, then try again (D to pick)"
+}
+
+// playerProblemMsg carries Options.PlayerProblem to the UI.
+type playerProblemMsg struct{ problem string }
+
+func (m Model) reportPlayerProblem() tea.Cmd {
+	if m.opts.PlayerProblem == "" {
+		return nil
+	}
+	p := m.opts.PlayerProblem
+	return func() tea.Msg { return playerProblemMsg{p} }
+}
+
 // PlayerExitedMsg reports that waxon's own player (librespot) stopped
 // unexpectedly.
 type PlayerExitedMsg struct{ Err error }
+
+func (m Model) handlePlayerProblem(msg playerProblemMsg) (Model, tea.Cmd) {
+	m.toast.Show("waxon's player didn't start", msg.problem, ToastError)
+	return m, scheduleAutoDismiss()
+}
 
 func (m Model) handlePlayerExited(msg PlayerExitedMsg) (Model, tea.Cmd) {
 	m.playerErr = msg.Err

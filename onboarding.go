@@ -70,13 +70,13 @@ func newOnboarding() onboarding {
 func (o onboarding) chooseClientID(opts authOptions, env, configured string) (string, error) {
 	switch {
 	case opts.clientID != "":
-		return normalizeClientID(opts.clientID)
+		return myauth.NormalizeClientID(opts.clientID)
 	case opts.shared:
 		return myauth.DefaultClientID, nil
 	case opts.own:
 		return o.guidePersonalApp()
 	case env != "":
-		return normalizeClientID(env)
+		return myauth.NormalizeClientID(env)
 	case configured != "" && configured != myauth.DefaultClientID:
 		fmt.Fprintf(o.out, "  Using your Spotify app (client ID %s…).\n", configured[:8])
 		fmt.Fprintln(o.out, "  (run 'waxon auth --own' or '--shared' to change)")
@@ -149,7 +149,7 @@ func (o onboarding) guidePersonalApp() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		id, err := normalizeClientID(line)
+		id, err := myauth.NormalizeClientID(line)
 		if err != nil {
 			fmt.Fprintf(o.out, "  %v — try again (or Ctrl-C).\n", err)
 			continue
@@ -167,21 +167,6 @@ func (o onboarding) readLine() (string, error) {
 		return "", err
 	}
 	return line, nil
-}
-
-// normalizeClientID trims and validates a pasted client ID: Spotify issues
-// 32 lowercase hex characters.
-func normalizeClientID(s string) (string, error) {
-	id := strings.ToLower(strings.TrimSpace(s))
-	if len(id) != 32 {
-		return "", fmt.Errorf("a client ID is 32 characters (got %d)", len(id))
-	}
-	for _, c := range id {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return "", errors.New("a client ID is hexadecimal (0-9, a-f)")
-		}
-	}
-	return id, nil
 }
 
 // runAuthWith performs the full setup: choose a client ID, run the OAuth

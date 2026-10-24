@@ -35,6 +35,13 @@ func main() {
 				cleanup()
 				os.Exit(2) //nolint:gocritic // cleanup called above
 			}
+			if interactiveTerminal() {
+				if code := runAuthSetup(opts); code != 0 {
+					cleanup()
+					os.Exit(code)
+				}
+				return
+			}
 			runAuthWith(newOnboarding(), opts)
 			return
 		case "logout":
@@ -100,12 +107,28 @@ func main() {
 	opts := applyUserConfig()
 	opts.SharedClientID = effectiveClientID() == myauth.DefaultClientID
 	cfg, _ := config.Load()
-	runner := newPlayerRunner(cfg)
+	runner, problem := newPlayerRunner(cfg)
 	if runner != nil {
 		opts.PlayerName = runner.name
 	}
+	opts.PlayerProblem = problem
+	var p *tea.Program
+	deps := setupDeps("", "")
+	opts.PlayerSetup = &deps
+	// Set up from the device picker: start the player now, as a launch with
+	// it turned on would have.
+	opts.StartPlayer = func() string {
+		cfg, _ := config.Load()
+		r, _ := newPlayerRunner(cfg)
+		if r == nil {
+			return ""
+		}
+		runner = r
+		r.start(context.Background(), src, p)
+		return r.name
+	}
 	m := app.NewModel(src).WithOptions(opts)
-	p := tea.NewProgram(m, programOptions()...)
+	p = tea.NewProgram(m, programOptions()...)
 	runner.start(context.Background(), src, p)
 	_, err := p.Run()
 	runner.stop()
@@ -223,9 +246,21 @@ func newSource() (*myspotify.PlayerSource, bool) {
 		if errors.Is(err, os.ErrNotExist) {
 			// First run: go straight into setup instead of bouncing the user
 			// to a command they haven't heard of yet.
-			o := newOnboarding()
-			if o.interactive {
-				fmt.Fprintln(o.out, "  Welcome to waxon — let's connect your Spotify account.")
+			if interactiveTerminal() {
+				s := runSetup(setupDeps(os.Getenv("SPOTIFY_CLIENT_ID"), ""), app.SetupFull)
+				switch {
+				case !s.Connected():
+					fmt.Println("Setup stopped. Run 'waxon' again whenever you're ready.")
+					return nil, false
+				case !s.Finished():
+					// Signed in, then left before the end: don't open the
+					// app they just quit out of.
+					fmt.Println("Connected to Spotify. Run 'waxon' to start.")
+					os.Exit(0)
+				}
+				clientID = effectiveClientID()
+				token, err = myauth.LoadToken(tokenPath)
+			} else if o := newOnboarding(); o.interactive {
 				runAuthFlow(o, authOptions{}, true)
 				token, err = myauth.LoadToken(tokenPath)
 			}
@@ -276,19 +311,9 @@ func authenticateWith(clientID string) {
 		os.Exit(1)
 	}
 
-	tokenPath := myauth.DefaultTokenPath()
-	if err := myauth.SaveToken(tokenPath, token); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to save token: %v\n", err)
+	if err := saveLogin(clientID, token); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to save the login: %v\n", err)
 		os.Exit(1)
-	}
-	// The cached library may belong to the previous account.
-	if err := app.RemoveSnapshot(app.DefaultSnapshotPath()); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not remove the library cache: %v\n", err)
-	}
-
-	// Persist the client ID so subsequent launches use the same one.
-	if err := config.Save(config.Config{ClientID: clientID}); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not save config: %v\n", err)
 	}
 }
 

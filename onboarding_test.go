@@ -107,11 +107,11 @@ func TestInputClosedIsAnError(t *testing.T) {
 }
 
 func TestNormalizeClientID(t *testing.T) {
-	if id, err := normalizeClientID("  " + strings.ToUpper(personalID) + "\n"); err != nil || id != personalID {
+	if id, err := myauth.NormalizeClientID("  " + strings.ToUpper(personalID) + "\n"); err != nil || id != personalID {
 		t.Errorf("%q %v", id, err)
 	}
 	for _, bad := range []string{"", "abc", strings.Repeat("z", 32), personalID + "0"} {
-		if _, err := normalizeClientID(bad); err == nil {
+		if _, err := myauth.NormalizeClientID(bad); err == nil {
 			t.Errorf("%q should be rejected", bad)
 		}
 	}

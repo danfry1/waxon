@@ -285,6 +285,7 @@ type Model struct {
 	snapTotal      int
 
 	playerErr  error            // why waxon's own player stopped, if it did
+	setup      *Setup           // open in ModeSetup (setting up the player in place)
 	pagination *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt       string      // large rendered art for now playing view
@@ -392,6 +393,15 @@ type Options struct {
 	// PlayerName is the Connect device waxon's own player (librespot) runs
 	// as; "" when it's off. Playback with no active device prefers it.
 	PlayerName string
+	// PlayerProblem says why the player is on but couldn't start, with
+	// the fix (e.g. "Not signed in: run 'waxon player login'"). Shown as a
+	// toast once the UI is up.
+	PlayerProblem string
+	// PlayerSetup, when set, lets the device picker set up waxon's own
+	// player in place (see setup_app.go); StartPlayer then starts it and
+	// returns its device name.
+	PlayerSetup *SetupDeps
+	StartPlayer func() string
 }
 
 // WithOptions returns a copy of m with opts applied.
@@ -432,6 +442,7 @@ func (m Model) Init() tea.Cmd {
 		tea.Tick(progressTickInterval, func(t time.Time) tea.Msg { return progressTickMsg(t) }),
 		m.fetchPlaylists(),
 		m.loadSnapshot(),
+		m.reportPlayerProblem(),
 	)
 }
 
@@ -505,10 +516,16 @@ func (m Model) progressTick() tea.Cmd {
 }
 
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.setupOwnsMsg(msg) {
+		return m.updateSetup(msg)
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.setup != nil {
+			m.setup.update(msg)
+		}
 		m.layoutResize()
 		m.renderNPArt()
 		return m, nil
@@ -617,6 +634,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PlayerExitedMsg:
 		return m.handlePlayerExited(msg)
+	case playerProblemMsg:
+		return m.handlePlayerProblem(msg)
 
 	case playlistsLoadedMsg:
 		m.playlists = msg.playlists
@@ -958,11 +977,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case devicesLoadedMsg:
 		if len(msg.devices) == 0 {
-			m.toast.Show("No Spotify device found",
-				"Open Spotify on any device and it will show up here", ToastError)
+			if m.canSetUpPlayer() {
+				return m.openPlayHerePicker()
+			}
+			m.toast.Show("No Spotify device found", m.noDeviceHint(), ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		picker := NewDevicePicker(msg.devices, m.width, m.height)
+		picker := NewDevicePicker(m.withPlayHere(msg.devices), m.width, m.height)
 		m.devices = &picker
 		m.mode = ModeDevices
 		return m, nil
@@ -1422,6 +1443,9 @@ func (m Model) handleKeyDevices(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.mode = ModeNormal
 		if dev == nil {
 			return m, nil
+		}
+		if dev.ID == playHereDeviceID {
+			return m.openPlayerSetup()
 		}
 		if retry != nil {
 			// Picker opened to recover a failed command: activate, then replay it.
@@ -2264,6 +2288,9 @@ func (m Model) View() string {
 	}
 	if m.width == 0 || m.height == 0 {
 		return ""
+	}
+	if m.mode == ModeSetup && m.setup != nil {
+		return m.setup.View()
 	}
 	if m.tooSmall() {
 		return viewTooSmall(m.width, m.height)

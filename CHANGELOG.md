@@ -10,6 +10,19 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Added
 
+- A guided, full-screen setup. The first `waxon`, `waxon auth` and
+  `waxon player login` open it: connect Spotify (with the dashboard steps,
+  a live Client ID check and copy/open shortcuts, and paste-the-address over
+  SSH), then choose where music plays. waxon lists the devices on your
+  account and offers either your Spotify apps (nothing to install) or its
+  own player, which it installs with your package manager when you agree
+  and signs in.
+- The device picker (`D`) offers **play here with waxon** while waxon's own
+  player isn't set up, and opens with just that row when Spotify lists no
+  devices, so the player can be set up from inside waxon.
+- `waxon player` shows whether the player is installed, signed in and on,
+  and the next step if not.
+
 - waxon can play by itself, with no Spotify app open. With
   [librespot](https://github.com/librespot-org/librespot) installed, run
   `waxon player login` once; waxon then starts its own Spotify Connect device
@@ -25,6 +38,9 @@ Each release's section is also used verbatim as the GitHub Release notes.
   drawn from a local copy saved on the previous run, then refreshed from
   Spotify in the background. The copy lives in waxon's cache directory and is
   removed by `waxon logout` and `waxon auth`.
+- If the player is turned on but can't start (librespot missing or signed
+  out), waxon says so in a notice with the fix instead of printing a warning
+  before the UI opens.
 - `+`/`-` change the volume at once instead of after a short pause, and
   holding the key follows along (a few changes a second) rather than
   waiting until you let go.

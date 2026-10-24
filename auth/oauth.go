@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/muesli/cancelreader"
@@ -133,99 +134,179 @@ func redirectURI(clientID string) string {
 	return fmt.Sprintf("http://127.0.0.1:%d%s", DefaultCallbackPort, callbackPath(clientID))
 }
 
-func Authenticate(clientID string) (*oauth2.Token, error) {
-	path := callbackPath(clientID)
-	redirectURL := redirectURI(clientID)
+// Login is one browser sign-in attempt. Show URL to the user, then Wait: it
+// returns once Spotify redirects to the local callback server or the user
+// Pastes the address the browser landed on (for when the browser can't reach
+// this machine, e.g. over SSH).
+type Login struct {
+	URL string
+	// Listening is false when the callback port was taken; the login then
+	// completes only by Paste.
+	Listening bool
 
-	cfg := SpotifyOAuthConfig(clientID, redirectURL)
+	cfg      *oauth2.Config
+	verifier string
+	state    string
+	codeCh   chan string
+	errCh    chan error
+
+	mu     sync.Mutex // guards server: Close may race Wait's own close
+	server *http.Server
+}
+
+// BeginLogin prepares a sign-in for clientID and starts the callback server.
+// Close it when done (Wait does on success).
+func BeginLogin(clientID string) (*Login, error) {
+	cfg := SpotifyOAuthConfig(clientID, redirectURI(clientID))
 	verifier, err := generateVerifier()
 	if err != nil {
 		return nil, err
 	}
-	challenge := challengeFromVerifier(verifier)
 	state, err := generateVerifier() // random state for CSRF protection
 	if err != nil {
 		return nil, err
 	}
-
-	authURL := cfg.AuthCodeURL(state,
+	l := &Login{
+		cfg:      cfg,
+		verifier: verifier,
+		state:    state,
+		codeCh:   make(chan string, 1),
+		errCh:    make(chan error, 1),
+	}
+	l.URL = cfg.AuthCodeURL(state,
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-		oauth2.SetAuthURLParam("code_challenge", challenge),
+		oauth2.SetAuthURLParam("code_challenge", challengeFromVerifier(verifier)),
 	)
-
 	addr := fmt.Sprintf("127.0.0.1:%d", DefaultCallbackPort)
-	listener, listenErr := net.Listen("tcp", addr)
-	codeCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	stopPaste, canPaste := readPastedRedirect(state, codeCh, errCh)
-	if listenErr != nil && !canPaste {
-		return nil, fmt.Errorf("listen on %s: %w (is another instance running?)", addr, listenErr)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		// Pasting the redirect still works without the callback server.
+		slog.Warn("callback listener unavailable; paste-only login", "addr", addr, "error", err)
+		return l, nil
+	}
+	l.Listening = true
+	l.server = &http.Server{
+		Handler:           callbackHandler(callbackPath(clientID), state, l.codeCh, l.errCh),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() { _ = l.server.Serve(listener) }()
+	return l, nil
+}
+
+// Paste offers the address the browser landed on. An error says what's wrong
+// with it, so the user can paste again; a refusal on Spotify's page also ends
+// Wait.
+func (l *Login) Paste(raw string) error {
+	code, err := codeFromRedirect(strings.TrimSpace(raw), l.state)
+	var denied deniedError
+	if errors.As(err, &denied) {
+		select {
+		case l.errCh <- err:
+		default:
+		}
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	select {
+	case l.codeCh <- code:
+	default:
+	}
+	return nil
+}
+
+// Wait blocks until the sign-in completes, fails, ctx ends, or five minutes
+// pass, and exchanges the code for a token.
+func (l *Login) Wait(ctx context.Context) (*oauth2.Token, error) {
+	defer l.Close()
+	var code string
+	select {
+	case code = <-l.codeCh:
+	case err := <-l.errCh:
+		return nil, err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(5 * time.Minute):
+		return nil, errors.New("timed out waiting for Spotify authorization (5 minutes)")
+	}
+	// Bound the token exchange so a stalled token endpoint can't hang the
+	// sign-in indefinitely.
+	exchangeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	token, err := l.cfg.Exchange(exchangeCtx, code,
+		oauth2.SetAuthURLParam("code_verifier", l.verifier),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("token exchange: %w", err)
+	}
+	return token, nil
+}
+
+// Close stops the callback server, letting a response in progress (the
+// "Connected" page) finish without making the caller wait for it. Safe to
+// call more than once, from any goroutine.
+func (l *Login) Close() {
+	l.mu.Lock()
+	srv := l.server
+	l.server = nil
+	l.mu.Unlock()
+	if srv != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(ctx)
+		}()
+	}
+}
+
+// Authenticate runs a Login in the terminal: it prints the URL (opening the
+// browser unless over SSH) and accepts a pasted redirect on stdin.
+func Authenticate(clientID string) (*oauth2.Token, error) {
+	l, err := BeginLogin(clientID)
+	if err != nil {
+		return nil, err
+	}
+	stopPaste, canPaste := readPastedRedirect(l)
+	defer stopPaste()
+	if !l.Listening && !canPaste {
+		l.Close()
+		return nil, fmt.Errorf("listen on 127.0.0.1:%d failed (is another instance running?)", DefaultCallbackPort)
 	}
 
-	remote := IsRemoteSession()
-	if remote {
-		fmt.Printf("\n  This looks like an SSH session. Open this URL in a browser on any machine:\n\n    %s\n\n", authURL)
+	if IsRemoteSession() {
+		fmt.Printf("\n  This looks like an SSH session. Open this URL in a browser on any machine:\n\n    %s\n\n", l.URL)
 	} else {
 		fmt.Printf("\n  Opening browser for Spotify login...\n")
-		if browserErr := openBrowser(authURL); browserErr != nil {
+		if browserErr := openBrowser(l.URL); browserErr != nil {
 			fmt.Printf("  Could not open browser automatically.\n")
 		}
-		fmt.Printf("  If it doesn't open, visit this URL:\n\n    %s\n\n", authURL)
+		fmt.Printf("  If it doesn't open, visit this URL:\n\n    %s\n\n", l.URL)
 	}
 	if canPaste {
 		fmt.Printf("  If the browser can't reach this machine, the page after you approve won't load.\n")
 		fmt.Printf("  That's expected: copy its address from the address bar and paste it here.\n\n")
 	}
+	if !l.Listening {
+		fmt.Printf("  (Couldn't listen on 127.0.0.1:%d, so paste the address when you get there.)\n", DefaultCallbackPort)
+	}
 	fmt.Printf("  Waiting for Spotify authorization...\n")
-
-	var server *http.Server
-	if listenErr == nil {
-		server = &http.Server{
-			Handler:           callbackHandler(path, state, codeCh, errCh),
-			ReadHeaderTimeout: 10 * time.Second,
-		}
-		go func() { _ = server.Serve(listener) }()
-	} else {
-		// Pasting the redirect still works without the callback server.
-		slog.Warn("callback listener unavailable; paste-only login", "addr", addr, "error", listenErr)
-		fmt.Printf("  (Couldn't listen on %s, so paste the address when you get there.)\n", addr)
-	}
-
-	var code string
-	select {
-	case code = <-codeCh:
-	case authErr := <-errCh:
-		stopPaste()
-		closeServer(server)
-		return nil, authErr
-	case <-time.After(5 * time.Minute):
-		stopPaste()
-		closeServer(server)
-		return nil, errors.New("timed out waiting for Spotify authorization (5 minutes)")
-	}
-	stopPaste()
-	if server != nil {
-		_ = server.Shutdown(context.Background())
-	}
-
-	// Bound the token exchange so a stalled token endpoint can't hang the
-	// auth command indefinitely.
-	exchangeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	token, err := cfg.Exchange(exchangeCtx, code,
-		oauth2.SetAuthURLParam("code_verifier", verifier),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("token exchange: %w", err)
-	}
-
-	return token, nil
+	return l.Wait(context.Background())
 }
 
-func closeServer(s *http.Server) {
-	if s != nil {
-		_ = s.Close()
+// NormalizeClientID trims and validates a pasted client ID: Spotify issues
+// 32 lowercase hex characters.
+func NormalizeClientID(s string) (string, error) {
+	id := strings.ToLower(strings.TrimSpace(s))
+	if len(id) != 32 {
+		return "", fmt.Errorf("a client ID is 32 characters (got %d)", len(id))
 	}
+	for _, c := range id {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return "", errors.New("a client ID is hexadecimal (0-9, a-f)")
+		}
+	}
+	return id, nil
 }
 
 // IsRemoteSession reports whether waxon is running over SSH, where a browser
@@ -234,15 +315,15 @@ func IsRemoteSession() bool {
 	return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != ""
 }
 
-// readPastedRedirect reads lines from stdin, accepting a pasted redirect URL
-// as an alternative to the callback server, and sends its code on codeCh.
+// readPastedRedirect reads lines from stdin, passing a pasted redirect URL to
+// l as an alternative to the callback server.
 // The returned stop cancels the read: waxon may start the TUI next, and a
 // reader left blocked on stdin would swallow its first keystrokes. ok is
 // false when stdin can't be read this way, and pasting isn't offered.
 //
 // Windows is left on the callback-only flow: cancelreader puts the console in
 // raw mode there (no echo, no line editing, Ctrl-C delivered as a byte).
-func readPastedRedirect(state string, codeCh chan<- string, errCh chan<- error) (stop func(), ok bool) {
+func readPastedRedirect(l *Login) (stop func(), ok bool) {
 	if runtime.GOOS == "windows" {
 		return func() {}, false
 	}
@@ -259,22 +340,14 @@ func readPastedRedirect(state string, codeCh chan<- string, errCh chan<- error) 
 			if line == "" {
 				continue
 			}
-			code, err := codeFromRedirect(line, state)
+			err := l.Paste(line)
 			var denied deniedError
 			if errors.As(err, &denied) {
-				select {
-				case errCh <- err:
-				default:
-				}
 				return
 			}
 			if err != nil {
 				fmt.Printf("  %v. Paste the full address, starting with http://127.0.0.1\n", err)
 				continue
-			}
-			select {
-			case codeCh <- code:
-			default:
 			}
 			return
 		}
