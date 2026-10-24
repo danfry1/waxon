@@ -516,7 +516,7 @@ func (m Model) fetchArtistPage(artistID string) tea.Cmd {
 	return func() tea.Msg {
 		page, err := src.GetArtist(ctx, artistID)
 		if err != nil {
-			return trackErrorMsg{err}
+			return pageLoadFailedMsg{"artist", err}
 		}
 		return artistPageLoadedMsg{page}
 	}
@@ -528,7 +528,7 @@ func (m Model) fetchAlbumPage(albumID string) tea.Cmd {
 	return func() tea.Msg {
 		page, err := src.GetAlbum(ctx, albumID)
 		if err != nil {
-			return trackErrorMsg{err}
+			return pageLoadFailedMsg{"album", err}
 		}
 		return albumPageLoadedMsg{page}
 	}

@@ -28,11 +28,16 @@ Each release's section is also used verbatim as the GitHub Release notes.
   standard place, instead of `%USERPROFILE%\.config\waxon`. An existing
   folder is moved there the first time the new version runs; if it can't
   be moved, waxon carries on using it.
+- Artist pages load faster: the artist, their top tracks and their
+  discography are fetched at the same time instead of one after another.
 
 ### Fixed
 
 - Now Playing no longer shows the terminal's own background in a box
   around the cover and the text; everything sits on the gradient.
+- An artist or album page that fails to load goes back to the view it was
+  opened from, with a message, instead of loading forever. A view that is
+  loading no longer shows the previous one's track count and genres.
 
 ## [1.10.0] - 2026-10-24
 
