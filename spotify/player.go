@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -186,7 +187,9 @@ var errNothingPlaying = errors.New("nothing playing to move")
 // playHere plays what's playing now on device id: the same track, in the
 // same playlist or album, from the same point.
 func (p *PlayerSource) playHere(ctx context.Context, id spotifyapi.ID) error {
-	st, err := p.client.PlayerState(ctx)
+	// Episodes are reported only when asked for (and then decode into Item
+	// all the same: its uri is what's needed).
+	st, err := p.client.PlayerState(ctx, spotifyapi.AdditionalTypes(spotifyapi.EpisodeAdditionalType))
 	if err != nil {
 		return wrapPlayerError(err)
 	}
@@ -194,10 +197,13 @@ func (p *PlayerSource) playHere(ctx context.Context, id spotifyapi.ID) error {
 		return errNothingPlaying
 	}
 	opt := &spotifyapi.PlayOptions{DeviceID: &id, PositionMs: st.Progress}
-	if uri := st.PlaybackContext.URI; uri != "" {
+	switch uri := spotifyapi.URI(p.playableContext(ctx, string(st.PlaybackContext.URI))); {
+	case offsetContext(string(uri)):
 		opt.PlaybackContext = &uri
 		opt.PlaybackOffset = &spotifyapi.PlaybackOffset{URI: st.Item.URI}
-	} else {
+	default:
+		// An artist, show or radio context can't be started at a given
+		// track; the track itself plays on.
 		opt.URIs = []spotifyapi.URI{st.Item.URI}
 	}
 	return wrapPlayerError(p.client.PlayOpt(ctx, opt))
@@ -234,6 +240,20 @@ func (p *PlayerSource) PlayTrack(ctx context.Context, contextURI string, trackUR
 		opts.PlaybackOffset = &spotifyapi.PlaybackOffset{URI: spotifyapi.URI(trackURI)}
 	}
 	return wrapPlayerError(p.client.PlayOpt(ctx, opts))
+}
+
+// offsetContext reports whether playback in context uri can start at a
+// given track (Spotify allows that for albums, playlists and the user's
+// collection only).
+func offsetContext(uri string) bool {
+	parts := strings.Split(uri, ":")
+	switch {
+	case len(parts) >= 3 && (parts[1] == "album" || parts[1] == "playlist"):
+		return true
+	case len(parts) == 4 && parts[1] == "user" && parts[3] == "collection":
+		return true
+	}
+	return false
 }
 
 // likedSongsURI is how waxon names Liked Songs (source.Playlist.URI).

@@ -50,6 +50,9 @@ const (
 	// volumeSentHold caps how long a sent level is kept while Spotify still
 	// reports the old one: librespot reports volume changes seconds late.
 	volumeSentHold = 8 * time.Second
+	// deviceHold is how long a move of playback is held against polls that
+	// still report the old device.
+	deviceHold = 8 * time.Second
 	// maxPollInterval caps error backoff so recovery is never more than a
 	// minute away once Spotify is reachable again.
 	maxPollInterval = 60 * time.Second
@@ -307,10 +310,19 @@ type Model struct {
 	deviceName      string
 	prevDevice      string            // the device played on before deviceName
 	deviceTypes     map[string]string // device name → type, as last listed
-	toast           Toast
-	actionsReturn   Mode                      // mode to return to when the actions popup closes
-	navStack        []navEntry                // browser-like back navigation history
-	trackCache      map[string]cachedPlaylist // playlist ID → cached tracks
+	// A move to deviceHeld is held against polls that still report the old
+	// device until deviceHoldUntil (or one reports the new one).
+	deviceHeld      string
+	deviceHoldUntil time.Time
+	movedAt         time.Time // last move of playback waxon made
+	// switchGen numbers device switches, so a Spotify app opened for an
+	// earlier one doesn't take playback when it comes online.
+	switchGen         int
+	spotifyAppOpening bool
+	toast             Toast
+	actionsReturn     Mode                      // mode to return to when the actions popup closes
+	navStack          []navEntry                // browser-like back navigation history
+	trackCache        map[string]cachedPlaylist // playlist ID → cached tracks
 	// restrictedPlaylists holds playlists Spotify won't list for this app
 	// (source.ErrPlaylistRestricted), so reopening one doesn't refetch.
 	restrictedPlaylists map[string]bool
@@ -450,6 +462,9 @@ type Options struct {
 	// SnapshotPath is where the startup snapshot of the library is kept
 	// (see snapshot.go). "" disables it.
 	SnapshotPath string
+	// ThisComputer are this machine's names (host name, and on macOS the
+	// computer name), which the Spotify app here names its device after.
+	ThisComputer []string
 	// OpenSpotifyApp starts this computer's Spotify desktop app in the
 	// background; nil when it isn't installed (or can't be started here).
 	OpenSpotifyApp func() error
@@ -654,10 +669,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 		if msg.track != nil {
 			m.tracklist.SetNowPlaying(msg.track.ID)
-			if d := msg.track.DeviceName; d != m.deviceName && m.deviceName != "" && d != "" {
-				m.prevDevice = m.deviceName
+			switch d := msg.track.DeviceName; {
+			case m.deviceHeld != "" && d == m.deviceHeld:
+				m.deviceHeld = "" // Spotify has caught up with the move
+			case m.deviceHeld != "" && time.Now().Before(m.deviceHoldUntil):
+				// A poll from before the move: keep the device moved to.
+			default:
+				m.deviceHeld = ""
+				if d != m.deviceName && m.deviceName != "" && d != "" {
+					m.prevDevice = m.deviceName
+				}
+				m.deviceName = d
 			}
-			m.deviceName = msg.track.DeviceName
 			m.lastPollTime = time.Now()
 			m.lastPollPos = msg.track.Position
 			if msg.track.ArtworkURL != "" && msg.track.ArtworkURL != m.albumart.CurrentURL() {
@@ -1145,6 +1168,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.device != m.deviceName {
 			m.prevDevice, m.deviceName = m.deviceName, msg.device
 		}
+		m.deviceHeld, m.deviceHoldUntil = msg.device, time.Now().Add(deviceHold)
+		m.movedAt = time.Now()
 		title, detail := m.modeLabel(msg.device)
 		m.toast.Show(title, detail, ToastSuccess)
 		return m, scheduleAutoDismiss()
@@ -1674,6 +1699,7 @@ func (m Model) handleKeyDevices(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if dev.ID == openSpotifyDeviceID {
 			return m.startSpotifyApp(retry)
 		}
+		m.supersedeSwitch()
 		if retry != nil {
 			// Picker opened to recover a failed command: activate, then replay it.
 			m.toast.Show("Playing on "+dev.Name, "", ToastInfo)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -52,13 +53,42 @@ type (
 		dev   source.Device
 		err   error
 		retry tea.Cmd
+		gen   int // the switch it belongs to (Model.switchGen)
 	}
 )
 
-// isComputerApp reports whether dev looks like a Spotify app on a
-// computer (not waxon's own player).
-func (m Model) isComputerApp(dev source.Device) bool {
-	return dev.Type == "Computer" && dev.Name != m.opts.PlayerName
+// isOtherApp reports whether dev is a Spotify app on some computer: not a
+// phone or speaker, and not a waxon player (this one or another machine's).
+func (m Model) isOtherApp(dev source.Device) bool {
+	return dev.Type == "Computer" && dev.Name != m.opts.PlayerName && !strings.HasPrefix(dev.Name, "waxon (")
+}
+
+// isThisComputersApp reports whether dev is the Spotify app on this
+// computer: a Spotify app named like this machine (the app names itself
+// after the computer). Another computer's app on the account isn't one.
+func (m Model) isThisComputersApp(dev source.Device) bool {
+	if !m.isOtherApp(dev) {
+		return false
+	}
+	name := deviceKey(dev.Name)
+	for _, n := range m.opts.ThisComputer {
+		if k := deviceKey(n); k != "" && k == name {
+			return true
+		}
+	}
+	return false
+}
+
+// deviceKey is name reduced to lower-case letters and digits, so
+// "Daniel’s MacBook Pro" matches the host name "Daniels-MacBook-Pro".
+func deviceKey(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // withOpenSpotify adds the "open the Spotify app" row to a device list
@@ -68,7 +98,7 @@ func (m Model) withOpenSpotify(devices []source.Device) []source.Device {
 		return devices
 	}
 	for _, d := range devices {
-		if m.isComputerApp(d) {
+		if m.isThisComputersApp(d) {
 			return devices
 		}
 	}
@@ -79,15 +109,29 @@ func (m Model) withOpenSpotify(devices []source.Device) []source.Device {
 // startSpotifyApp starts the Spotify app and moves playback to it (or, with
 // retry, replays the command waiting on a device) once it's online.
 func (m Model) startSpotifyApp(retry tea.Cmd) (Model, tea.Cmd) {
+	if m.spotifyAppOpening {
+		m.toast.Show("Still opening the Spotify app…", "waxon controls it once it's ready", ToastInfo)
+		return m, scheduleAutoDismiss()
+	}
+	m.switchGen++
+	m.spotifyAppOpening = true
 	m.toast.Show("Opening the Spotify app…", "waxon controls it once it's ready", ToastInfo)
-	return m, tea.Batch(scheduleAutoDismiss(), m.waitForSpotifyApp(retry))
+	return m, tea.Batch(scheduleAutoDismiss(), m.waitForSpotifyApp(retry, m.switchGen))
 }
 
-func (m Model) waitForSpotifyApp(retry tea.Cmd) tea.Cmd {
-	src, ctx, launch, player := m.source, m.ctx, m.opts.OpenSpotifyApp, m.opts.PlayerName
+func (m Model) waitForSpotifyApp(retry tea.Cmd, gen int) tea.Cmd {
+	src, ctx, launch := m.source, m.ctx, m.opts.OpenSpotifyApp
 	return func() tea.Msg {
+		// The app is the computer that's named like this one, or failing
+		// that one that wasn't online before it was started.
+		seen := map[string]bool{}
+		if before, err := src.Devices(ctx); err == nil {
+			for _, d := range before {
+				seen[d.ID] = true
+			}
+		}
 		if err := launch(); err != nil {
-			return spotifyAppMsg{err: err}
+			return spotifyAppMsg{err: err, gen: gen}
 		}
 		wait, cancel := context.WithTimeout(ctx, spotifyAppWait)
 		defer cancel()
@@ -96,7 +140,7 @@ func (m Model) waitForSpotifyApp(retry tea.Cmd) tea.Cmd {
 		for {
 			select {
 			case <-wait.Done():
-				return spotifyAppMsg{err: errSpotifyAppSlow}
+				return spotifyAppMsg{err: errSpotifyAppSlow, gen: gen}
 			case <-tick.C:
 			}
 			devices, err := src.Devices(wait)
@@ -104,8 +148,8 @@ func (m Model) waitForSpotifyApp(retry tea.Cmd) tea.Cmd {
 				continue // it's starting; Spotify may not answer every time
 			}
 			for _, d := range devices {
-				if d.Type == "Computer" && d.Name != player {
-					return spotifyAppMsg{dev: d, retry: retry}
+				if m.isThisComputersApp(d) || (m.isOtherApp(d) && !seen[d.ID]) {
+					return spotifyAppMsg{dev: d, retry: retry, gen: gen}
 				}
 			}
 		}
@@ -113,6 +157,10 @@ func (m Model) waitForSpotifyApp(retry tea.Cmd) tea.Cmd {
 }
 
 func (m Model) spotifyAppReady(msg spotifyAppMsg) (Model, tea.Cmd) {
+	if msg.gen != m.switchGen {
+		return m, nil // superseded: playback was moved some other way since
+	}
+	m.spotifyAppOpening = false
 	if msg.err != nil {
 		detail := "Open it and sign in, then press D"
 		if !errors.Is(msg.err, errSpotifyAppSlow) {
@@ -209,13 +257,13 @@ func (m Model) swapDevice(devices []source.Device) (Model, tea.Cmd) {
 func (m Model) switchTo(want string, devices []source.Device) (Model, tea.Cmd) {
 	player := m.opts.PlayerName
 	for _, d := range devices {
-		if (want != "" && d.Name == want) || (want == "" && m.isComputerApp(d)) {
+		if (want != "" && d.Name == want) || (want == "" && m.isThisComputersApp(d)) {
 			return m.moveTo(d)
 		}
 	}
 	// It isn't online. This computer's Spotify app can be started; a phone
 	// or a speaker can't be from here.
-	wasApp := want == "" || (m.deviceTypes[want] == "Computer" && want != player)
+	wasApp := want == "" || m.isThisComputersApp(source.Device{Name: want, Type: m.deviceTypes[want]})
 	switch {
 	case wasApp && m.opts.OpenSpotifyApp != nil:
 		return m.startSpotifyApp(nil)
@@ -232,6 +280,7 @@ func (m Model) switchTo(want string, devices []source.Device) (Model, tea.Cmd) {
 // moveTo moves playback to dev, saying so at once: a device that has just
 // come online can take a few seconds to accept it.
 func (m Model) moveTo(dev source.Device) (Model, tea.Cmd) {
+	m.supersedeSwitch()
 	title, _ := m.modeLabel(dev.Name)
 	m.toast.Show(title+"…", "", ToastInfo)
 	return m, tea.Batch(scheduleAutoDismiss(), m.transferPlayback(dev.ID, dev.Name))
@@ -244,8 +293,16 @@ func (m Model) modeLabel(device string) (title, detail string) {
 	switch {
 	case device != "" && device == m.opts.PlayerName:
 		return "Playing in waxon", "gd hands it to the Spotify app"
-	case m.deviceTypes[device] == "Computer" && m.opts.PlayerName != "":
+	case m.isThisComputersApp(source.Device{Name: device, Type: m.deviceTypes[device]}):
 		return "Controlling the Spotify app", device + " · gd plays in waxon again"
 	}
 	return "Playing on " + device, ""
+}
+
+// supersedeSwitch drops a Spotify app still being opened for an earlier
+// switch: playback is going elsewhere now, and it mustn't be taken back
+// when the app comes online.
+func (m *Model) supersedeSwitch() {
+	m.switchGen++
+	m.spotifyAppOpening = false
 }

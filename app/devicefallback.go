@@ -117,11 +117,19 @@ var activationRetryWaits = []time.Duration{activationSettleDelay, 700 * time.Mil
 func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
 	if msg.refused != nil {
 		for _, dev := range msg.devices {
-			if dev.IsActive {
+			if !dev.IsActive {
+				continue
+			}
+			if time.Since(m.movedAt) < refusedRetryWindow {
 				// A device that has only just taken over refuses commands
 				// for a moment: try again shortly before giving up.
 				return m, retryRefused(m.ctx, msg.retry, msg.refused)
 			}
+			// Otherwise it's Spotify's answer (pause when already paused):
+			// the "just started" advice doesn't apply.
+			title, _, _ := friendlyPlaybackError(msg.refused)
+			m.toast.Show(title, "", ToastError)
+			return m, scheduleAutoDismiss()
 		}
 	}
 	// waxon's own player is what the user set up to play on.
@@ -160,7 +168,7 @@ func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
 			m.pendingRetry = msg.retry
 			return m, nil
 		}
-		picker := NewDevicePicker(m.withPlayHere(msg.devices), m.width, m.height)
+		picker := NewDevicePicker(m.withOpenSpotify(m.withPlayHere(msg.devices)), m.width, m.height)
 		picker.SetPrompt("No active device — pick one to continue")
 		m.devices = &picker
 		m.pendingRetry = msg.retry
@@ -222,7 +230,7 @@ func friendlyPlaybackError(err error) (title, detail string, ok bool) {
 	case errors.Is(err, source.ErrInsufficientScope):
 		return "Permission needed", "Run 'waxon auth' once to allow playlist changes", true
 	case errors.Is(err, source.ErrDeviceUnavailable):
-		return "Spotify couldn't play on that device", "It may still be starting; try again in a moment", true
+		return "Spotify couldn't reach that device", "Try again in a moment", true
 	case errors.Is(err, source.ErrPlaybackRestricted):
 		return "Spotify refused that on this device", "A device that has just started can take a moment; try again", true
 	case errors.Is(err, source.ErrForbidden):
@@ -230,6 +238,10 @@ func friendlyPlaybackError(err error) (title, detail string, ok bool) {
 	}
 	return "", "", false
 }
+
+// refusedRetryWindow is how soon after waxon moved playback a refused
+// command is put down to the device still settling, and retried.
+const refusedRetryWindow = 10 * time.Second
 
 // retryRefused replays retry, refused by an active device, after the
 // activation pauses; still refused, it shows refused.

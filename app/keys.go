@@ -130,7 +130,7 @@ const (
 	GActionAlbums             // ga — saved albums
 	GActionArtists            // gA — followed artists
 	GActionPodcasts           // gp — podcasts
-	GActionSwapDevice         // gd — swap to the previous device
+	GActionSwapDevice         // gd — play in waxon ⇄ control the Spotify app
 )
 
 // gMotion is a two-key g-prefix motion: the second key, the action it

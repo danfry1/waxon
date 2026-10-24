@@ -15,6 +15,9 @@ import (
 )
 
 var (
+	// here is this computer's names, as main passes them (host name, and
+	// the macOS computer name the Spotify app is named after).
+	here      = []string{"Dans-MacBook", "Dan's MacBook"}
 	playerDev = source.Device{ID: "p", Name: "waxon (Mac)", Type: "Computer"}
 	appDev    = source.Device{ID: "a", Name: "Dan's MacBook", Type: "Computer"}
 	phoneDev  = source.Device{ID: "ph", Name: "Dan's iPhone", Type: "Smartphone"}
@@ -71,7 +74,7 @@ func run(t *testing.T, m Model, cmd tea.Cmd) Model {
 
 func TestSwapGoesBackToThePreviousDevice(t *testing.T) {
 	stub, moved := switchStub(playerDev, phoneDev)
-	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
 	for _, dev := range []string{phoneDev.Name, playerDev.Name} {
 		res, _ := m.Update(trackUpdateMsg{track: &source.Track{ID: "t", DeviceName: dev}})
 		m = res.(Model)
@@ -96,7 +99,7 @@ func TestToggleOpensTheSpotifyAppFromThePlayer(t *testing.T) {
 		defer mu.Unlock()
 		return online, nil
 	}
-	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name, OpenSpotifyApp: func() error {
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name, OpenSpotifyApp: func() error {
 		mu.Lock()
 		defer mu.Unlock()
 		opened++
@@ -112,7 +115,7 @@ func TestToggleOpensTheSpotifyAppFromThePlayer(t *testing.T) {
 
 func TestToggleFromTheSpotifyAppGoesToThePlayer(t *testing.T) {
 	stub, moved := switchStub(playerDev, appDev)
-	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
 	m.deviceName = appDev.Name
 	run(t, m, m.switchDevice(toggleHere))
 	if len(*moved) != 1 || (*moved)[0] != playerDev.ID {
@@ -123,7 +126,7 @@ func TestToggleFromTheSpotifyAppGoesToThePlayer(t *testing.T) {
 // A phone that's gone offline can't be started from here: say so.
 func TestSwapToOfflinePhoneExplains(t *testing.T) {
 	stub, moved := switchStub(playerDev)
-	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name, OpenSpotifyApp: func() error {
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name, OpenSpotifyApp: func() error {
 		t.Error("the Spotify app shouldn't be opened for a phone")
 		return nil
 	}})
@@ -158,7 +161,7 @@ func TestPickerOffersToOpenTheSpotifyApp(t *testing.T) {
 		}
 		return false
 	}
-	m := newTestModel(&StubSource{}).WithOptions(Options{PlayerName: playerDev.Name, OpenSpotifyApp: launcher})
+	m := newTestModel(&StubSource{}).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name, OpenSpotifyApp: launcher})
 	if !has(m.withOpenSpotify([]source.Device{playerDev})) {
 		t.Error("with only waxon's player online, the picker should offer the app")
 	}
@@ -217,7 +220,7 @@ func TestRefusedCommandOnGoneDeviceRecovers(t *testing.T) {
 		}
 		return nil
 	}
-	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
 	m = run(t, m, m.playTrack("spotify:track:x", "spotify:album:y"))
 	if len(*moved) != 1 || (*moved)[0] != playerDev.ID || plays != 2 {
 		t.Errorf("moved to %v, played %d times; want waxon's player activated and the song replayed", *moved, plays)
@@ -235,7 +238,7 @@ func TestRefusedCommandOnActiveDeviceIsShown(t *testing.T) {
 	stub.PlayTrackFn = func(context.Context, string, string) error {
 		return fmt.Errorf("%w: Restriction violated", source.ErrPlaybackRestricted)
 	}
-	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
 	m = run(t, m, m.playTrack("spotify:track:x", "spotify:album:y"))
 	if len(*moved) != 0 || !m.toast.Visible() || m.toast.toastType != ToastError {
 		t.Errorf("moved to %v, toast %q; want the refusal shown", *moved, m.toast.message)
@@ -246,7 +249,7 @@ func TestRefusedCommandOnActiveDeviceIsShown(t *testing.T) {
 // up with the first.
 func TestToggleTwiceGoesThereAndBack(t *testing.T) {
 	stub, moved := switchStub(playerDev, appDev)
-	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
 	m.deviceName = playerDev.Name
 	m = run(t, m, m.switchDevice(toggleHere))
 	m = run(t, m, m.switchDevice(toggleHere))
@@ -259,7 +262,7 @@ func TestToggleTwiceGoesThereAndBack(t *testing.T) {
 // doesn't send it there (":device -" does).
 func TestToggleIgnoresThePreviousDevice(t *testing.T) {
 	stub, moved := switchStub(playerDev, appDev, phoneDev)
-	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
 	m.deviceName, m.prevDevice = playerDev.Name, phoneDev.Name
 	run(t, m, m.switchDevice(toggleHere))
 	if len(*moved) != 1 || (*moved)[0] != appDev.ID {
@@ -269,7 +272,7 @@ func TestToggleIgnoresThePreviousDevice(t *testing.T) {
 
 func TestGDKeyToggles(t *testing.T) {
 	stub, moved := switchStub(playerDev, appDev)
-	m := newTestModel(stub).WithOptions(Options{PlayerName: playerDev.Name})
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
 	m.deviceName = playerDev.Name
 	res, _ := m.Update(runeKey("g"))
 	m = res.(Model)
@@ -277,5 +280,118 @@ func TestGDKeyToggles(t *testing.T) {
 	run(t, res.(Model), cmd)
 	if len(*moved) != 1 || (*moved)[0] != appDev.ID {
 		t.Errorf("gd moved to %v, want the Spotify app", *moved)
+	}
+}
+
+var (
+	workApp     = source.Device{ID: "w", Name: "Work Laptop", Type: "Computer"}
+	otherPlayer = source.Device{ID: "op", Name: "waxon (work)", Type: "Computer"}
+)
+
+// Another computer's Spotify app, or another machine's waxon, isn't this
+// computer's app: gd opens the one here instead of sending music there.
+func TestToggleIgnoresOtherComputers(t *testing.T) {
+	spotifyAppPoll = time.Millisecond
+	t.Cleanup(func() { spotifyAppPoll = time.Second })
+	var mu sync.Mutex
+	online := []source.Device{playerDev, workApp, otherPlayer}
+	stub, moved := switchStub()
+	stub.DevicesFn = func(context.Context) ([]source.Device, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return online, nil
+	}
+	opened := 0
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name, OpenSpotifyApp: func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		opened++
+		online = append(online, appDev)
+		return nil
+	}})
+	m.deviceName = playerDev.Name
+	if !hasOpenRow(m.withOpenSpotify(online)) {
+		t.Error("the picker should still offer this computer's app")
+	}
+	run(t, m, m.switchDevice(toggleHere))
+	if opened != 1 || len(*moved) != 1 || (*moved)[0] != appDev.ID {
+		t.Errorf("opened %d, moved to %v; want this computer's app opened and used", opened, *moved)
+	}
+}
+
+func hasOpenRow(devs []source.Device) bool {
+	for _, d := range devs {
+		if d.ID == openSpotifyDeviceID {
+			return true
+		}
+	}
+	return false
+}
+
+// A poll answered before Spotify caught up with a move doesn't undo it,
+// so a quick second gd still goes back.
+func TestMoveHeldAgainstStalePolls(t *testing.T) {
+	stub, moved := switchStub(playerDev, appDev)
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
+	m.deviceName = playerDev.Name
+	m = run(t, m, m.switchDevice(toggleHere))
+	res, _ := m.Update(trackUpdateMsg{track: &source.Track{ID: "t", DeviceName: playerDev.Name}})
+	m = res.(Model)
+	if m.deviceName != appDev.Name {
+		t.Fatalf("a stale poll put deviceName back to %q", m.deviceName)
+	}
+	run(t, m, m.switchDevice(toggleHere))
+	if len(*moved) != 2 || (*moved)[1] != playerDev.ID {
+		t.Errorf("moved to %v, want there and back", *moved)
+	}
+}
+
+// Moving playback elsewhere while the app is still opening means it
+// doesn't take playback when it comes online.
+func TestAppOpenedForAnEarlierSwitchDoesNothing(t *testing.T) {
+	stub, moved := switchStub(playerDev, phoneDev)
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name, OpenSpotifyApp: func() error { return nil }})
+	m, _ = m.startSpotifyApp(nil)
+	gen := m.switchGen
+	m, _ = m.moveTo(phoneDev)
+	res, cmd := m.Update(spotifyAppMsg{dev: appDev, gen: gen})
+	run(t, res.(Model), cmd)
+	for _, id := range *moved {
+		if id == appDev.ID {
+			t.Errorf("the late app took playback: %v", *moved)
+		}
+	}
+}
+
+// Long after any move, a refusal is Spotify's answer (pause when already
+// paused): shown at once, not retried.
+func TestRefusalLongAfterAMoveIsNotRetried(t *testing.T) {
+	active := playerDev
+	active.IsActive = true
+	stub, _ := switchStub(active)
+	tries := 0
+	stub.PauseFn = func(context.Context) error {
+		tries++
+		return fmt.Errorf("%w: Restriction violated", source.ErrPlaybackRestricted)
+	}
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
+	m = run(t, m, m.controlCmd(stub.Pause))
+	if tries != 1 || !m.toast.Visible() {
+		t.Errorf("tried %d times, toast %q; want one try and the refusal shown", tries, m.toast.message)
+	}
+}
+
+func TestIsThisComputersApp(t *testing.T) {
+	m := newTestModel(&StubSource{}).WithOptions(Options{ThisComputer: []string{"Mac", "Daniel’s MacBook Pro"}, PlayerName: "waxon (Mac)"})
+	for name, want := range map[string]bool{
+		"Daniel’s MacBook Pro": true,
+		"Daniels MacBook Pro":  true,
+		"Work Laptop":          false,
+		"waxon (Mac)":          false,
+		"waxon (work)":         false,
+	} {
+		if got := m.isThisComputersApp(source.Device{Name: name, Type: "Computer"}); got != want {
+			t.Errorf("%q: got %v, want %v", name, got, want)
+		}
 	}
 }

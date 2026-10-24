@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	spotifyapi "github.com/zmb3/spotify/v2"
@@ -113,5 +114,58 @@ func TestPlayLikedSongsAsTheAccountsCollection(t *testing.T) {
 	}
 	if len(sent) != 2 || sent[0] != "spotify:user:dan:collection" || sent[1] != "spotify:playlist:abc" {
 		t.Errorf("contexts sent = %v", sent)
+	}
+}
+
+// The fallback asks for episodes too, starts a track at its offset only
+// in contexts that allow it, and names Liked Songs as the apps accept.
+func TestTransferFallbackContexts(t *testing.T) {
+	for _, tc := range []struct {
+		name, ctx, wantCtx string
+		wantOffset         bool
+	}{
+		{"artist: just the track", "spotify:artist:a", "", false},
+		{"show: just the episode", "spotify:show:s", "", false},
+		{"album: at the track", "spotify:album:b", "spotify:album:b", true},
+		{"liked songs: as the collection", likedSongsURI, "spotify:user:dan:collection", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var played map[string]any
+			askedEpisodes := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPut && r.URL.Path == "/v1/me/player":
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = io.WriteString(w, `{"error":{"status":500,"message":"Server error."}}`)
+				case r.URL.Path == "/v1/me":
+					_, _ = io.WriteString(w, `{"id":"dan"}`)
+				case r.Method == http.MethodGet && r.URL.Path == "/v1/me/player":
+					askedEpisodes = strings.Contains(r.URL.Query().Get("additional_types"), "episode")
+					_, _ = io.WriteString(w, `{"progress_ms":5000,"is_playing":true,"context":{"uri":"`+tc.ctx+`"},"item":{"uri":"spotify:track:t"}}`)
+				case r.URL.Path == "/v1/me/player/play":
+					_ = json.NewDecoder(r.Body).Decode(&played)
+					w.WriteHeader(http.StatusNoContent)
+				}
+			}))
+			defer srv.Close()
+			hc := &http.Client{Transport: &rewriteTransport{base: http.DefaultTransport, testURL: srv.URL}}
+			p := &PlayerSource{client: spotifyapi.New(hc), httpClient: hc}
+			if err := p.TransferPlayback(context.Background(), "app"); err != nil {
+				t.Fatal(err)
+			}
+			if !askedEpisodes {
+				t.Error("the state wasn't asked for episodes")
+			}
+			gotCtx, _ := played["context_uri"].(string)
+			_, gotOffset := played["offset"]
+			if gotCtx != tc.wantCtx || gotOffset != tc.wantOffset {
+				t.Errorf("played %v; want context %q, offset %v", played, tc.wantCtx, tc.wantOffset)
+			}
+			if !tc.wantOffset {
+				if uris, _ := played["uris"].([]any); len(uris) != 1 || uris[0] != "spotify:track:t" {
+					t.Errorf("uris = %v, want the playing item", played["uris"])
+				}
+			}
+		})
 	}
 }

@@ -122,6 +122,7 @@ func main() {
 	}
 	opts.PlayerProblem = problem
 	opts.OpenSpotifyApp = spotifyAppLauncher()
+	opts.ThisComputer = thisComputerNames()
 	var p *tea.Program
 	deps := setupDeps("", "")
 	opts.PlayerSetup = &deps

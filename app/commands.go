@@ -1060,7 +1060,9 @@ func (m Model) navigateToPlaybackContext() (tea.Cmd, bool) {
 	// Playlists and Liked Songs live in the user's library — use that entry so
 	// the loaded view has the right name and artwork.
 	for _, pl := range m.playlists {
-		if pl.URI == uri {
+		// Liked Songs plays as the account's collection
+		// (spotify:user:<id>:collection), which Spotify then reports.
+		if pl.URI == uri || (pl.ID == likedPlaylistID && isAccountCollection(uri)) {
 			return m.fetchPlaylistTracks(pl), true
 		}
 	}
@@ -1144,4 +1146,11 @@ func copyToClipboard(text string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = strings.NewReader(text)
 	return cmd.Run()
+}
+
+// isAccountCollection reports whether uri is a user's saved-tracks
+// collection, spotify:user:<id>:collection.
+func isAccountCollection(uri string) bool {
+	parts := strings.Split(uri, ":")
+	return len(parts) == 4 && parts[0] == "spotify" && parts[1] == "user" && parts[3] == "collection"
 }

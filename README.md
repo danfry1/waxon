@@ -125,8 +125,8 @@ it asks which one when there are several.
 itself** and **controlling the Spotify app**, carrying on from the same
 point. If the Spotify app is installed but closed, `gd` opens it (and the
 picker offers to **open the Spotify app**): waxon starts it in the
-background and hands playback to it once it's online. `:device -` goes back to whichever device you were on before,
-phones and speakers included.
+background and hands playback to it once it's online. `:device -` goes
+back to whichever device you were on before, phones and speakers included.
 
 > **About the player login.** Spotify only lets its own apps stream audio, so
 > librespot — an open-source, unofficial Spotify Connect client (it also powers

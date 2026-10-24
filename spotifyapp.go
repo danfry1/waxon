@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // spotifyAppLauncher returns a function that starts the Spotify desktop
@@ -53,4 +54,23 @@ func startDetached(cmd *exec.Cmd) error {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// thisComputerNames are the names the Spotify app on this machine may give
+// its device: the host name and, on macOS, the computer name ("Daniel's
+// MacBook Pro"), which it uses there.
+func thisComputerNames() []string {
+	var names []string
+	if host, err := os.Hostname(); err == nil && host != "" {
+		host, _, _ = strings.Cut(host, ".")
+		names = append(names, host)
+	}
+	if runtime.GOOS == "darwin" {
+		if out, err := exec.Command("scutil", "--get", "ComputerName").Output(); err == nil {
+			if name := strings.TrimSpace(string(out)); name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }
