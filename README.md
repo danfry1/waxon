@@ -149,7 +149,7 @@ Below 80 columns waxon shows one pane at a time — `h`/`l`/`Tab` switch between
 
 ### Now Playing
 
-Full-screen album art rendered with Unicode half-blocks, gradient backgrounds, and a vinyl spinning mode.
+Full-screen album art rendered with Unicode half-blocks over a gradient drawn from the cover. Press `V` for vinyl: the record turns at 33⅓ with the cover on its label, light catching the grooves, and a tonearm that moves across the record as the track plays.
 
 <p align="center">
   <img src="demo/recordings/nowplaying.gif" alt="now playing view" width="800">

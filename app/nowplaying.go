@@ -56,9 +56,11 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 	// terminal height, but View runs every 500ms tick — memoise them.
 	accent, bgRows := npDerived(albumImg, height)
 
-	// Render art block — vinyl uses bgRows for outside-circle pixels
-	if vinylMode && albumImg != nil {
-		artBlock = vinylFrame(albumImg, vinylAngle, artW, artH, bgRows)
+	// Vinyl is drawn once the layout says which background rows it sits
+	// on (below), so the area around the record matches the gradient.
+	vinyl := vinylMode && albumImg != nil && !lyr.active && artW > 0
+	if vinyl {
+		artBlock = strings.Repeat(strings.Repeat(" ", artW)+"\n", artH-1) + strings.Repeat(" ", artW)
 	}
 
 	// Compute a single bg color for the text area (bottom-center of gradient)
@@ -123,12 +125,27 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 		sections = append(sections, dimStyle.Render(hint))
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Center, sections...)
+	// Joined, not lipgloss.JoinVertical: that pads narrower lines with
+	// unstyled spaces, which show the terminal's own background; the loop
+	// below centres each line on its row's gradient instead.
+	content := strings.Join(sections, "\n")
 	contentLines := strings.Split(content, "\n")
 
 	topPad := (height - len(contentLines)) / 2
 	if topPad < 0 {
 		topPad = 0
+	}
+	if vinyl {
+		var rows []rgb
+		if bgRows != nil {
+			rows = bgRows[min(topPad, len(bgRows)):min(topPad+artH, len(bgRows))]
+		}
+		progress := 0.0
+		if track != nil && track.Duration > 0 {
+			progress = float64(track.Position) / float64(track.Duration)
+		}
+		sections[0] = vinylFrame(albumImg, vinylAngle, progress, artW, artH, rows, hexRGB(string(accent)))
+		contentLines = strings.Split(strings.Join(sections, "\n"), "\n")
 	}
 
 	// Compose each row with gradient background filling full width
@@ -183,22 +200,37 @@ var npDerivedMemo struct {
 // (poll results, key presses), not just when the angle advances, and each
 // frame resamples the whole image.
 var vinylMemo struct {
-	img   image.Image
-	angle float64
-	w, h  int
-	rows  []rgb
-	out   string
+	img      image.Image
+	angle    float64
+	progress float64
+	w, h     int
+	rows     []rgb
+	accent   rgb
+	out      string
 }
 
-func vinylFrame(img image.Image, angle float64, w, h int, bgRows []rgb) string {
+func vinylFrame(img image.Image, angle, progress float64, w, h int, bgRows []rgb, accent rgb) string {
 	v := &vinylMemo
+	// The arm moves imperceptibly between frames: a frame is reused until
+	// it has moved a thousandth of the track.
+	progress = math.Round(progress*1000) / 1000
 	sameRows := len(v.rows) == len(bgRows) && (len(bgRows) == 0 || &v.rows[0] == &bgRows[0])
-	if v.out != "" && v.img == img && v.angle == angle && v.w == w && v.h == h && sameRows {
+	if v.out != "" && v.img == img && v.angle == angle && v.progress == progress &&
+		v.w == w && v.h == h && sameRows && v.accent == accent {
 		return v.out
 	}
-	v.img, v.angle, v.w, v.h, v.rows = img, angle, w, h, bgRows
-	v.out = renderVinyl(img, angle, w, h, bgRows)
+	v.img, v.angle, v.progress, v.w, v.h, v.rows, v.accent = img, angle, progress, w, h, bgRows, accent
+	v.out = renderVinyl(img, angle, progress, w, h, bgRows, accent)
 	return v.out
+}
+
+// hexRGB parses "#rrggbb" (a neutral grey when it isn't one).
+func hexRGB(s string) rgb {
+	var r, g, b uint8
+	if n, _ := fmt.Sscanf(s, "#%02x%02x%02x", &r, &g, &b); n != 3 {
+		return rgb{R: 160, G: 160, B: 160}
+	}
+	return rgb{R: r, G: g, B: b}
 }
 
 // npDerived returns the accent colour and background gradient rows for img

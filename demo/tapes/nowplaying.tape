@@ -35,7 +35,13 @@ Sleep 2s
 
 # Open now playing again — Purple Rain art
 Type "N"
-Sleep 4s
+Sleep 3s
+
+# Vinyl: the record turns with the cover on its label
+Type "V"
+Sleep 5s
+Type "V"
+Sleep 500ms
 
 Escape
 Sleep 1s
