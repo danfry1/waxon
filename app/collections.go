@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/danfry1/waxon/source"
@@ -63,6 +64,18 @@ func libraryRowTile(id string) string {
 	return renderHalfBlocks(img, 3, 1)
 }
 
+// collectionColumns are the column headers of each collection's view (the
+// track list's are for tracks): marker, #, then the three text columns.
+var collectionColumns = map[string][]string{
+	collectionBrowseID:   {" ", "", "", "", ""},
+	collectionAlbumsID:   {" ", "", "Album", "Artist", "Year"},
+	collectionArtistsID:  {" ", "", "Artist", "", ""},
+	collectionPodcastsID: {" ", "", "Show", "Publisher", ""},
+}
+
+// artistPageColumns head an artist's page: its releases, and their year.
+var artistPageColumns = []string{" ", "", "Release", "", "Year"}
+
 // isCollection reports whether id is one of the library collections rather
 // than a playlist.
 func isCollection(id string) bool {
@@ -97,6 +110,7 @@ func (m *Model) openCollection(id string) tea.Cmd {
 		m.pushNav()
 		m.focusPane = PaneTrackList
 		m.tracklist.SetTracks(rows, "Your Library", "")
+		m.tracklist.SetColumnTitles(collectionColumns[collectionBrowseID]...)
 		return nil
 	}
 	if id == collectionRecentID {
@@ -115,6 +129,7 @@ func (m *Model) openCollection(id string) tea.Cmd {
 // collectionLoadedMsg carries a saved-albums or followed-artists list as
 // navigable rows. notice is set instead of rows when the list can't be shown.
 type collectionLoadedMsg struct {
+	id     string
 	title  string
 	rows   []source.Track
 	info   string
@@ -134,25 +149,25 @@ func (m Model) fetchCollection(id, title string) tea.Cmd {
 			var albums []source.SavedAlbum
 			albums, err = src.SavedAlbums(ctx)
 			for _, a := range albums {
-				rows = append(rows, source.Track{Name: a.Name, Album: a.Artist, Artist: a.Year, AlbumID: a.ID, IsAlbumRow: true})
+				rows = append(rows, source.Track{Name: a.Name, Album: a.Artist, Artist: a.Year, AlbumID: a.ID, ArtworkURL: a.ImageURL, IsAlbumRow: true})
 			}
 			info = countLabel(len(rows), "album", "albums")
 		case collectionArtistsID:
 			var artists []source.SearchArtist
 			artists, err = src.FollowedArtists(ctx)
 			for _, a := range artists {
-				rows = append(rows, source.Track{Name: a.Name, ArtistID: a.ID, IsAlbumRow: true})
+				rows = append(rows, source.Track{Name: a.Name, ArtistID: a.ID, ArtworkURL: a.ImageURL, IsAlbumRow: true})
 			}
 			info = countLabel(len(rows), "artist", "artists")
 		case collectionPodcastsID:
 			var shows []source.Show
 			shows, err = src.SavedShows(ctx)
 			for _, s := range shows {
-				rows = append(rows, source.Track{Name: s.Name, Album: s.Publisher, ShowID: s.ID, IsAlbumRow: true})
+				rows = append(rows, source.Track{Name: s.Name, Album: s.Publisher, ShowID: s.ID, ArtworkURL: s.ImageURL, IsAlbumRow: true})
 			}
 			info = countLabel(len(rows), "podcast", "podcasts")
 		}
-		msg := collectionLoadedMsg{title: title, rows: rows, info: info, err: err}
+		msg := collectionLoadedMsg{id: id, title: title, rows: rows, info: info, err: err}
 		switch {
 		case errors.Is(err, source.ErrInsufficientScope):
 			msg.rows, msg.info, msg.err = nil, "", nil
@@ -189,6 +204,12 @@ func (m *Model) openRow(t source.Track) (tea.Cmd, bool) {
 	switch {
 	case isCollection(t.ID):
 		return m.openCollection(t.ID), true
+	case t.ID == playArtistRowID:
+		return m.playPlaylistFromStart(t.URI), true
+	case t.ID == shuffleArtistRowID:
+		m.shuffleOn = true
+		m.modeHoldUntil = time.Now().Add(volumeHold)
+		return m.shufflePlay(t.URI), true
 	case t.AlbumID != "":
 		m.pushNav()
 		m.tracklist.SetLoading(t.Name)
@@ -227,4 +248,37 @@ func (m Model) fetchShowEpisodes(showID, title string) tea.Cmd {
 			total:      total,
 		}
 	}
+}
+
+// rowIconLoadedMsg carries the cover of album, artist and show rows whose
+// image is url.
+type rowIconLoadedMsg struct{ url, icon string }
+
+// fetchRowIcons loads the covers of the rows on screen that have none yet
+// (from the art cache when it has them).
+func (m Model) fetchRowIcons() tea.Cmd {
+	urls := m.tracklist.RowIconURLs()
+	if len(urls) == 0 {
+		return nil
+	}
+	ctx, ap := m.ctx, m.artworkProvider
+	cmds := make([]tea.Cmd, 0, len(urls))
+	for _, url := range urls {
+		cmds = append(cmds, func() tea.Msg {
+			var img image.Image
+			if ap != nil {
+				if i, ok := ap.ArtworkImage(url); ok {
+					img = i
+				}
+			}
+			if img == nil {
+				var err error
+				if img, err = FetchImage(ctx, url); err != nil {
+					return nil // the row goes without
+				}
+			}
+			return rowIconLoadedMsg{url: url, icon: renderHalfBlocks(img, 3, 1)}
+		})
+	}
+	return tea.Batch(cmds...)
 }
