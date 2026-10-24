@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode"
@@ -174,7 +176,38 @@ func (m Model) spotifyAppReady(msg spotifyAppMsg) (Model, tea.Cmd) {
 		m.toast.Show("Playing on "+msg.dev.Name, "", ToastInfo)
 		return m, tea.Batch(scheduleAutoDismiss(), m.activateAndRetry(msg.dev.ID, msg.retry))
 	}
-	return m, m.transferPlayback(msg.dev.ID, msg.dev.Name)
+	return m, m.handToNewApp(msg.dev)
+}
+
+// A Spotify app that has only just started takes playback and then, as it
+// finishes loading, drops it for its own last session: after handing it
+// over, check it's really playing there, and hand it over again if not.
+var (
+	newAppSettle = 2 * time.Second // wait before checking
+	newAppTries  = 4
+)
+
+func (m Model) handToNewApp(dev source.Device) tea.Cmd {
+	src, ctx := m.source, m.ctx
+	return func() tea.Msg {
+		var err error
+		for range newAppTries {
+			if err = transferRetrying(ctx, src, dev.ID); err != nil {
+				return trackErrorMsg{err}
+			}
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(newAppSettle):
+			}
+			st, stErr := src.CurrentPlayback(ctx)
+			if stErr == nil && st != nil && st.Track != nil && st.Track.DeviceName == dev.Name && st.Track.Playing {
+				return playbackMovedMsg{dev.Name}
+			}
+			slog.Info("the Spotify app didn't keep playback; handing it over again", "device", dev.Name)
+		}
+		return trackErrorMsg{fmt.Errorf("%w: it didn't start playing", source.ErrDeviceUnavailable)}
+	}
 }
 
 // noteDevice remembers dev's type by name: track updates only carry the

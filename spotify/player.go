@@ -196,6 +196,12 @@ func (p *PlayerSource) playHere(ctx context.Context, id spotifyapi.ID) error {
 	if st == nil || st.Item == nil || st.Item.URI == "" {
 		return errNothingPlaying
 	}
+	// Stop the device playing first, or both play for a moment: Spotify
+	// doesn't stop it, as a real handover would. A failed pause is no
+	// reason not to move.
+	if from := st.Device.ID; from != "" && from != id && st.Playing {
+		_ = p.client.PauseOpt(ctx, &spotifyapi.PlayOptions{DeviceID: &from})
+	}
 	opt := &spotifyapi.PlayOptions{DeviceID: &id, PositionMs: st.Progress}
 	switch uri := spotifyapi.URI(p.playableContext(ctx, string(st.PlaybackContext.URI))); {
 	case offsetContext(string(uri)):

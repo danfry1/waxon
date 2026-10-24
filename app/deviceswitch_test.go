@@ -23,10 +23,15 @@ var (
 	phoneDev  = source.Device{ID: "ph", Name: "Dan's iPhone", Type: "Smartphone"}
 )
 
-// switchStub lists devices and records where playback was moved.
+// switchStub lists devices and records where playback was moved; the
+// playback state reports it playing on the last device moved to.
 func switchStub(devices ...source.Device) (*StubSource, *[]string) {
 	var mu sync.Mutex
 	var moved []string
+	byID := map[string]string{}
+	for _, d := range append(devices, appDev) {
+		byID[d.ID] = d.Name
+	}
 	return &StubSource{
 		DevicesFn: func(context.Context) ([]source.Device, error) { return devices, nil },
 		TransferPlaybackFn: func(_ context.Context, id string) error {
@@ -35,8 +40,18 @@ func switchStub(devices ...source.Device) (*StubSource, *[]string) {
 			moved = append(moved, id)
 			return nil
 		},
+		CurrentPlaybackFn: func(context.Context) (*source.PlaybackState, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			if len(moved) == 0 {
+				return &source.PlaybackState{}, nil
+			}
+			return &source.PlaybackState{Track: &source.Track{ID: "t", Playing: true, DeviceName: byID[moved[len(moved)-1]]}}, nil
+		},
 	}, &moved
 }
+
+func init() { newAppSettle = time.Millisecond }
 
 // run feeds cmd's messages back into m until nothing is left to do.
 // Commands still running after a moment are timers (toast dismissals), and
@@ -391,5 +406,26 @@ func TestIsThisComputersApp(t *testing.T) {
 		if got := m.isThisComputersApp(source.Device{Name: name, Type: "Computer"}); got != want {
 			t.Errorf("%q: got %v, want %v", name, got, want)
 		}
+	}
+}
+
+// A Spotify app that has just started can take playback and then drop it
+// as it finishes loading: waxon checks, and hands it over again.
+func TestNewAppThatDropsPlaybackGetsItAgain(t *testing.T) {
+	stub, moved := switchStub(playerDev, appDev)
+	checks := 0
+	stub.CurrentPlaybackFn = func(context.Context) (*source.PlaybackState, error) {
+		checks++
+		dev := appDev.Name
+		if checks == 1 {
+			dev = playerDev.Name // dropped: back where it was
+		}
+		return &source.PlaybackState{Track: &source.Track{ID: "t", Playing: true, DeviceName: dev}}, nil
+	}
+	m := newTestModel(stub).WithOptions(Options{ThisComputer: here, PlayerName: playerDev.Name})
+	m.spotifyAppOpening = true
+	m = run(t, m, func() tea.Msg { return spotifyAppMsg{dev: appDev, gen: m.switchGen} })
+	if len(*moved) != 2 || m.deviceName != appDev.Name {
+		t.Errorf("moved %v, device %q; want it handed over twice and on the app", *moved, m.deviceName)
 	}
 }

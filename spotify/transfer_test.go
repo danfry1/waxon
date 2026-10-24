@@ -33,6 +33,7 @@ func TestTransferFallsBackToPlayingOnTheDevice(t *testing.T) {
 func testTransferFallback(t *testing.T, status int, body string) {
 	var played map[string]any
 	var playedOn string
+	var order []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPut && r.URL.Path == "/v1/me/player":
@@ -43,8 +44,12 @@ func testTransferFallback(t *testing.T, status int, body string) {
 				"context":{"uri":"spotify:user:me:collection"},
 				"item":{"uri":"spotify:track:42x","id":"42x","name":"Song"},
 				"device":{"id":"lib","name":"waxon (Mac)"}}`)
+		case r.Method == http.MethodPut && r.URL.Path == "/v1/me/player/pause":
+			order = append(order, "pause "+r.URL.Query().Get("device_id"))
+			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodPut && r.URL.Path == "/v1/me/player/play":
 			playedOn = r.URL.Query().Get("device_id")
+			order = append(order, "play "+playedOn)
 			_ = json.NewDecoder(r.Body).Decode(&played)
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -64,6 +69,11 @@ func testTransferFallback(t *testing.T, status int, body string) {
 	}
 	if off, _ := played["offset"].(map[string]any); off["uri"] != "spotify:track:42x" {
 		t.Errorf("offset = %v, want the playing track", played["offset"])
+	}
+	// The old device stops before the new one starts, so they don't both
+	// play for a moment.
+	if len(order) != 2 || order[0] != "pause lib" || order[1] != "play app" {
+		t.Errorf("requests = %v, want the old device paused, then play on the new", order)
 	}
 }
 
