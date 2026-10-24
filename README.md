@@ -474,6 +474,10 @@ Debug log: `WAXON_LOG=/tmp/waxon.log waxon` (includes rate-limit `Retry-After` v
 | `WAXON_ART`         | Override the `art` setting for one run (`blocks`, `kitty`, `auto`) |
 | `WAXON_NO_BROWSER`  | Don't launch a browser during `waxon auth`; just print the URL (SSH) |
 
+## Releasing
+
+Maintainers cut releases by following [RELEASING.md](RELEASING.md).
+
 ## Acknowledgements
 
 Built with [Bubbletea](https://github.com/charmbracelet/bubbletea), [Bubbles](https://github.com/charmbracelet/bubbles), and [Lip Gloss](https://github.com/charmbracelet/lipgloss) by [Charmbracelet](https://charm.sh). Demo recordings made with [VHS](https://github.com/charmbracelet/vhs). Huge thanks to the Charm team for making terminal UIs a joy to build.
