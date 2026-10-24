@@ -1657,21 +1657,19 @@ func TestHandleKeyNormalFocusSwitch(t *testing.T) {
 	}
 }
 
-// gl / gq go to the Library / Queue (1 and 2 are counts now).
+// gl goes to the Library (1 and 2 are counts now); gq opens the queue.
 func TestHandleKeyNormalSectionSwitch(t *testing.T) {
-	for _, k := range []string{"l", "q"} {
-		m := newTestModel(&StubSource{})
-		m.focusPane = PaneTrackList
-		res, _ := m.Update(runeKey("g"))
-		res, _ = res.(Model).Update(runeKey(k))
-		if res.(Model).focusPane != PaneSidebar {
-			t.Errorf("g%s: focus = %v, want the sidebar", k, res.(Model).focusPane)
-		}
+	m0 := newTestModel(&StubSource{})
+	m0.focusPane = PaneTrackList
+	res, _ := m0.Update(runeKey("g"))
+	res, _ = res.(Model).Update(runeKey("l"))
+	if res.(Model).focusPane != PaneSidebar {
+		t.Errorf("gl: focus = %v, want the sidebar", res.(Model).focusPane)
 	}
 	// A digit in the sidebar starts a count instead.
 	m := newTestModel(&StubSource{})
 	m.focusPane = PaneSidebar
-	res, _ := m.Update(runeKey("2"))
+	res, _ = m.Update(runeKey("2"))
 	if res.(Model).count != 2 {
 		t.Errorf("2 in the sidebar: count = %d, want 2", res.(Model).count)
 	}
@@ -3451,11 +3449,11 @@ func TestGTrackerMotionGQ(t *testing.T) {
 	model := result.(Model)
 
 	g2 := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}
-	result, _ = model.Update(g2)
+	result, cmd := model.Update(g2)
 	model = result.(Model)
 
-	if model.focusPane != PaneSidebar {
-		t.Errorf("gq should switch to PaneSidebar, got %v", model.focusPane)
+	if model.focusPane != PaneTrackList || model.tracklist.title != "Queue" || cmd == nil {
+		t.Errorf("gq should open the queue in the track list: focus %v, title %q", model.focusPane, model.tracklist.title)
 	}
 }
 
@@ -3605,34 +3603,6 @@ func TestHandleEnterAlbumRow(t *testing.T) {
 	}
 	if calledAlbumID != "alb1" {
 		t.Errorf("album ID = %q, want %q", calledAlbumID, "alb1")
-	}
-}
-
-func TestHandleEnterSidebarQueue(t *testing.T) {
-	var calledTrackURI string
-	stub := &StubSource{
-		PlayTrackDirectFn: func(_ context.Context, trackURI string) error {
-			calledTrackURI = trackURI
-			return nil
-		},
-	}
-	m := newTestModel(stub)
-	m.focusPane = PaneSidebar
-	m.sidebar.SetSection(SectionQueue)
-	m.sidebar.SetQueueTracks([]source.Track{
-		{ID: "qt1", URI: "spotify:track:qt1", Name: "Queue Track"},
-	})
-
-	_, cmd := m.handleEnter()
-	if cmd == nil {
-		t.Fatal("handleEnter on queue track should return a cmd")
-	}
-	msg := cmd()
-	if _, ok := msg.(controlDoneMsg); !ok {
-		t.Errorf("expected controlDoneMsg, got %T", msg)
-	}
-	if calledTrackURI != "spotify:track:qt1" {
-		t.Errorf("trackURI = %q, want %q", calledTrackURI, "spotify:track:qt1")
 	}
 }
 
@@ -4188,21 +4158,6 @@ func TestFetchMoreTracksNilPagination(t *testing.T) {
 // 6. Sidebar methods
 // ===========================================================================
 
-func TestSidebarSetQueueTracks(t *testing.T) {
-	sb := NewSidebar(30, 20)
-	tracks := []source.Track{
-		{ID: "q1", Name: "Song A", Artist: "Artist A"},
-		{ID: "q2", Name: "Song B", Artist: "Artist B"},
-		{ID: "q3", Name: "Song C", Artist: "Artist C"},
-	}
-	sb.SetQueueTracks(tracks)
-
-	items := sb.list.Items()
-	if len(items) != 3 {
-		t.Errorf("items count = %d, want 3", len(items))
-	}
-}
-
 func TestSidebarSelectedPlaylist(t *testing.T) {
 	sb := NewSidebar(30, 20)
 	playlists := []source.Playlist{
@@ -4224,23 +4179,6 @@ func TestSidebarSelectedPlaylistEmpty(t *testing.T) {
 	sb := NewSidebar(30, 20)
 	if sb.SelectedPlaylist() != nil {
 		t.Error("SelectedPlaylist on empty sidebar should be nil")
-	}
-}
-
-func TestSidebarSectionSetSection(t *testing.T) {
-	sb := NewSidebar(30, 20)
-	if sb.Section() != SectionLibrary {
-		t.Errorf("initial section = %v, want SectionLibrary", sb.Section())
-	}
-
-	sb.SetSection(SectionQueue)
-	if sb.Section() != SectionQueue {
-		t.Errorf("section = %v, want SectionQueue", sb.Section())
-	}
-
-	sb.SetSection(SectionLibrary)
-	if sb.Section() != SectionLibrary {
-		t.Errorf("section = %v, want SectionLibrary", sb.Section())
 	}
 }
 
@@ -4310,57 +4248,6 @@ func TestSidebarItemTitleWithIcon(t *testing.T) {
 	title := item.Title()
 	if !strings.HasPrefix(title, "ICON ") {
 		t.Errorf("Title() = %q, should start with icon", title)
-	}
-}
-
-func TestSidebarIconsSurviveQueueToggle(t *testing.T) {
-	sb := NewSidebar(30, 20)
-	playlists := []source.Playlist{
-		{ID: "pl1", Name: "Playlist 1"},
-		{ID: "pl2", Name: "Playlist 2"},
-	}
-	sb.SetPlaylists(playlists)
-
-	// Simulate icons arriving
-	sb.SetPlaylistIcons(map[string]string{
-		"pl1": "ICON1",
-		"pl2": "ICON2",
-	})
-
-	// Verify icons are set
-	items := sb.list.Items()
-	if si, ok := items[0].(sidebarItem); !ok || si.icon != "ICON1" {
-		t.Fatalf("before toggle: item 0 icon = %q, want %q", si.icon, "ICON1")
-	}
-
-	// Simulate the Bubbletea update cycle: value-receiver Update returns
-	// a new Sidebar which replaces the old one (just like the real app does
-	// with m.sidebar, _ = m.sidebar.Update(msg)).
-	sb, _ = sb.Update(tea.KeyMsg{Type: tea.KeyDown})
-
-	// Switch to queue (key "2")
-	sb.SetSection(SectionQueue)
-	sb.SetQueueTracks([]source.Track{{ID: "t1", Name: "Track 1", Artist: "Artist"}})
-
-	// Simulate more updates while on queue view
-	sb, _ = sb.Update(tea.KeyMsg{Type: tea.KeyDown})
-
-	// Switch back to library (key "1")
-	sb.SetSection(SectionLibrary)
-
-	// Icons must still be present
-	items = sb.list.Items()
-	if len(items) != 2 {
-		t.Fatalf("after toggle: item count = %d, want 2", len(items))
-	}
-	for i, item := range items {
-		si, ok := item.(sidebarItem)
-		if !ok {
-			t.Fatalf("item %d is not sidebarItem", i)
-		}
-		if si.icon == "" {
-			t.Errorf("item %d (%s) lost its icon after queue toggle", i, si.playlist.Name)
-		}
 	}
 }
 
@@ -5673,95 +5560,6 @@ func TestSearchViewSingleCharPrompt(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Sidebar queue section + filter
 // ---------------------------------------------------------------------------
-
-func TestSidebarQueueSectionShowsQueueNotLibrary(t *testing.T) {
-	s := NewSidebar(30, 40)
-	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}, {ID: "p2", Name: "Jazz"}})
-	s.SetSection(SectionQueue)
-	s.SetQueueTracks([]source.Track{{ID: "t1", Name: "Song One", Artist: "Band"}})
-	s.SetSection(SectionLibrary)
-
-	// Switching back to the queue must not show library rows under QUEUE.
-	s.SetSection(SectionQueue)
-	items := s.list.Items()
-	if len(items) != 1 {
-		t.Fatalf("queue section shows %d items, want 1 (the last-known queue)", len(items))
-	}
-	if _, ok := items[0].(queueItem); !ok {
-		t.Errorf("queue section shows %T, want queueItem", items[0])
-	}
-}
-
-func TestSidebarQueueSectionEmptyTitle(t *testing.T) {
-	s := NewSidebar(30, 40)
-	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}})
-	s.SetSection(SectionQueue)
-	if len(s.list.Items()) != 0 {
-		t.Error("queue with nothing fetched yet must not display library rows")
-	}
-	if s.list.Title != "QUEUE (empty)" {
-		t.Errorf("title = %q", s.list.Title)
-	}
-}
-
-func TestSidebarFilterAppliesToQueueWhenShown(t *testing.T) {
-	s := NewSidebar(30, 40)
-	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}, {ID: "p2", Name: "Songbook"}})
-	s.SetSection(SectionQueue)
-	s.SetQueueTracks([]source.Track{
-		{ID: "t1", Name: "Song One", Artist: "Band"},
-		{ID: "t2", Name: "Other", Artist: "Rocket"},
-		{ID: "t3", Name: "Third", Artist: "Nobody"},
-	})
-
-	s.SetFilter("song")
-	items := s.list.Items()
-	if len(items) != 1 {
-		t.Fatalf("filter on queue returned %d items, want 1 (track title match)", len(items))
-	}
-	if qi, ok := items[0].(queueItem); !ok || qi.track.ID != "t1" {
-		t.Errorf("filtered queue item = %#v, want track t1", items[0])
-	}
-
-	s.SetFilter("rock") // matches artist "Rocket", not the "Rock" playlist
-	items = s.list.Items()
-	if len(items) != 1 {
-		t.Fatalf("artist filter returned %d items, want 1", len(items))
-	}
-	if qi, ok := items[0].(queueItem); !ok || qi.track.ID != "t2" {
-		t.Errorf("filtered by artist = %#v, want track t2", items[0])
-	}
-
-	s.ClearFilter()
-	if len(s.list.Items()) != 3 {
-		t.Error("ClearFilter should restore the full queue")
-	}
-	if _, ok := s.list.Items()[0].(queueItem); !ok {
-		t.Error("ClearFilter on the queue section must restore queue items, not playlists")
-	}
-}
-
-func TestSidebarQueueFilterSurvivesRefresh(t *testing.T) {
-	s := NewSidebar(30, 40)
-	s.SetPlaylists([]source.Playlist{{ID: "p1", Name: "Rock"}})
-	s.SetSection(SectionQueue)
-	s.SetQueueTracks([]source.Track{{ID: "t1", Name: "Song One"}, {ID: "t2", Name: "Other"}})
-	s.SetFilter("song")
-	// The queue is re-fetched in the background (track change, add-to-queue).
-	s.SetQueueTracks([]source.Track{{ID: "t2", Name: "Other"}, {ID: "t3", Name: "Song Three"}})
-	items := s.list.Items()
-	if len(items) != 1 {
-		t.Fatalf("filter dropped on refresh: %d items, want 1", len(items))
-	}
-	if qi, ok := items[0].(queueItem); !ok || qi.track.ID != "t3" {
-		t.Errorf("filtered refresh shows %#v, want t3", items[0])
-	}
-	// Switching sections resets the filter.
-	s.SetSection(SectionLibrary)
-	if len(s.list.Items()) != 1 || s.filterText != "" {
-		t.Error("section switch should clear the filter and show the full library")
-	}
-}
 
 func TestSidebarLibraryFilterSurvivesIconRefresh(t *testing.T) {
 	s := NewSidebar(30, 40)

@@ -956,14 +956,6 @@ func (m Model) openActions() (Model, tea.Cmd) {
 	if isCollection(pl.ID) {
 		return m.openSidebarRow(*pl) // nothing to do to it but open it
 	}
-	if m.sidebar.Section() == SectionQueue {
-		// A queued track, not a playlist: the track's own menu.
-		popup := NewTrackActions(pl.Name, "", pl.URI, "", "", "", m.likedCache[pl.ID], m.width, m.height)
-		m.actions = &popup
-		m.actionsReturn = ModeNormal
-		m.mode = ModeActions
-		return m, m.checkLikeStatus(pl.ID)
-	}
 	popup := NewPlaylistActions(pl.Name, pl.URI, m.width, m.height)
 	m.actions = &popup
 	m.actionsReturn = ModeNormal

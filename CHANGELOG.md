@@ -29,6 +29,11 @@ ignoring your keys.
 
 ### Added
 
+- The queue (`gq`) shows in the main pane rather than the narrow sidebar:
+  Now playing, Next in queue (what you added) and Next from the playlist,
+  with a count and total time. Enter skips forward to a track, as the
+  Spotify app does, instead of playing it on its own and dropping the rest
+  of the queue; the view refreshes as tracks change.
 - Artist pages start with **Play** and **Shuffle**, which play the artist
   on Spotify (most apps can't list an artist's top tracks, so a page had
   nothing to play). Album, artist and show rows show their covers, lists

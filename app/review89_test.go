@@ -72,24 +72,6 @@ func TestShufflePlayUnplayablePlaylist(t *testing.T) {
 	}
 }
 
-// o on a queue entry opens the track's menu, not a playlist's.
-func TestQueueEntryMenuIsATrackMenu(t *testing.T) {
-	m := newTestModel(&StubSource{})
-	m.sidebar.SetQueueTracks([]source.Track{{ID: "q1", URI: "spotify:track:q1", Name: "Next up"}})
-	m.sidebar.SetSection(SectionQueue)
-	m.focusPane = PaneSidebar
-	res, _ := m.Update(runeKey("o"))
-	mm := res.(Model)
-	if mm.actions == nil {
-		t.Fatal("no menu")
-	}
-	for _, it := range mm.actions.items {
-		if it.Type == ActionShufflePlaylist || it.Type == ActionPlayPlaylist {
-			t.Errorf("a queued track's menu offers %q", it.Label)
-		}
-	}
-}
-
 // ga on an album row opens that album, not the playing track's.
 func TestGoToAlbumOnAnAlbumRow(t *testing.T) {
 	var opened string
