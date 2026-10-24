@@ -13,8 +13,10 @@ Enter
 Sleep 2s
 Show
 
-# Podcasts
-Type "gp"
+# Podcasts, in the Library
+Type "jjjj"
+Sleep 600ms
+Enter
 Sleep 1.5s
 Enter
 Sleep 2s

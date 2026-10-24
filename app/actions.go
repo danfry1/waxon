@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -259,7 +260,7 @@ func (a ActionsPopup) View() string {
 		// Each row's number picks it (shown while there are nine or fewer).
 		num := " "
 		if len(a.items) <= 9 {
-			num = fmt.Sprint(i + 1)
+			num = strconv.Itoa(i + 1)
 		}
 		line := fmt.Sprintf("%s%s  %s  %s", prefix, num, item.Icon, item.Label)
 		content += style.Render(line) + "\n"

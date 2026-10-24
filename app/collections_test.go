@@ -63,7 +63,7 @@ func TestGoToAlbumAndArtistOfTrack(t *testing.T) {
 	m.focusPane = PaneTrackList
 	for _, k := range []string{"a", "A"} {
 		res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
-		res, cmd := res.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		_, cmd := res.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
 		if cmd == nil {
 			t.Fatalf("g%s: no fetch", k)
 		}

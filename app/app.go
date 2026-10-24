@@ -345,14 +345,14 @@ type Model struct {
 	// current track's cover for them.
 	mediaLast   mediaPublished
 	mediaArt    image.Image
-	mediaArtFor string           // the artwork URL mediaArt is for
-	setup       *Setup           // open in ModeSetup (setting up the player in place)
-	helpScroll  int              // first row of the help overlay shown
+	mediaArtFor string // the artwork URL mediaArt is for
+	setup       *Setup // open in ModeSetup (setting up the player in place)
+	helpScroll  int    // first row of the help overlay shown
 	// overlayFromNP: the open overlay was opened from Now Playing, which it
 	// returns to.
 	overlayFromNP bool
-	muteRestore   int // the volume before m muted it
-	pagination  *paginationState // non-nil while a playlist is being lazily loaded
+	muteRestore   int              // the volume before m muted it
+	pagination    *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt        string      // large rendered art for now playing view
 	npArtURL     string      // URL of the art currently rendered for NP
@@ -2007,7 +2007,6 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Quit):
 		return m.quit()
-
 
 	case key.Matches(msg, m.keys.Filter):
 		m.gtracker.Reset()

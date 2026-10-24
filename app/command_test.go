@@ -99,18 +99,18 @@ func TestNowPlayingReopensAsLeft(t *testing.T) {
 
 func TestCLIStyleCommands(t *testing.T) {
 	for in, want := range map[string]Command{
-		"next":         {Type: CmdControl, StrArg: "next"},
-		"previous":     {Type: CmdControl, StrArg: "prev"},
-		"pause":        {Type: CmdControl, StrArg: "pause"},
-		"seek +30":     {Type: CmdSeek, IntArg: 30, StrArg: "+"},
-		"seek 1:30":    {Type: CmdSeek, IntArg: 90},
-		"vol -10":      {Type: CmdVolume, IntArg: -10, StrArg: "rel"},
-		"vol 40":       {Type: CmdVolume, IntArg: 40},
-		"shuffle on":   {Type: CmdShuffle, StrArg: "on"},
-		"shuffle":      {Type: CmdShuffle},
-		"like off":     {Type: CmdLike, StrArg: "off"},
-		"mute":         {Type: CmdMute},
-		"h":            {Type: CmdHelp},
+		"next":       {Type: CmdControl, StrArg: "next"},
+		"previous":   {Type: CmdControl, StrArg: "prev"},
+		"pause":      {Type: CmdControl, StrArg: "pause"},
+		"seek +30":   {Type: CmdSeek, IntArg: 30, StrArg: "+"},
+		"seek 1:30":  {Type: CmdSeek, IntArg: 90},
+		"vol -10":    {Type: CmdVolume, IntArg: -10, StrArg: "rel"},
+		"vol 40":     {Type: CmdVolume, IntArg: 40},
+		"shuffle on": {Type: CmdShuffle, StrArg: "on"},
+		"shuffle":    {Type: CmdShuffle},
+		"like off":   {Type: CmdLike, StrArg: "off"},
+		"mute":       {Type: CmdMute},
+		"h":          {Type: CmdHelp},
 	} {
 		got, err := ParseCommand(in)
 		if err != nil || got != want {
@@ -126,12 +126,12 @@ func TestCLIStyleCommands(t *testing.T) {
 
 func TestCompleteCommand(t *testing.T) {
 	for in, want := range map[string]string{
-		"ne":      "next ",
-		"p":       "p",        // play, playlist new, podcasts, prev, pause: no common part past p
-		"pla":     "play",     // play and playlist new
-		"sh":      "shuffle ", // the only one
-		"vol 5":   "vol 5",    // an argument: left alone
-		"zzz":     "zzz",
+		"ne":    "next ",
+		"p":     "p",        // play, playlist new, podcasts, prev, pause: no common part past p
+		"pla":   "play",     // play and playlist new
+		"sh":    "shuffle ", // the only one
+		"vol 5": "vol 5",    // an argument: left alone
+		"zzz":   "zzz",
 	} {
 		if got := completeCommand(in); got != want {
 			t.Errorf("complete(%q) = %q, want %q", in, got, want)

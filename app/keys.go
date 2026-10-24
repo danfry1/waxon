@@ -46,8 +46,8 @@ type KeyMap struct {
 	LikePlaying    key.Binding
 	ActionsPlaying key.Binding
 	Mute           key.Binding
-	Devices  key.Binding
-	Mode     key.Binding // play in waxon ⇄ control the Spotify app
+	Devices        key.Binding
+	Mode           key.Binding // play in waxon ⇄ control the Spotify app
 
 	// Navigation history
 	Back key.Binding
@@ -96,8 +96,8 @@ func DefaultKeyMap() KeyMap {
 		LikePlaying:    key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "like the playing track")),
 		ActionsPlaying: key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "actions for the playing track")),
 		Mute:           key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
-		Devices:  key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "devices")),
-		Mode:     key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "play in waxon ⇄ control the Spotify app")),
+		Devices:        key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "devices")),
+		Mode:           key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "play in waxon ⇄ control the Spotify app")),
 
 		Back: key.NewBinding(key.WithKeys("backspace", "b"), key.WithHelp("⌫/b", "back")),
 
@@ -108,7 +108,6 @@ func DefaultKeyMap() KeyMap {
 		NowPlaying: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "now playing")),
 		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 		Escape:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close/cancel")),
-
 	}
 }
 
