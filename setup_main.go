@@ -89,6 +89,8 @@ func (setupPlayer) Installed() bool {
 	return err == nil
 }
 
+func (setupPlayer) LoggedIn() bool { return player.LoggedIn(player.Dir()) }
+
 func (setupPlayer) Installer() (args []string, manager, command string) {
 	in := player.FindInstaller()
 	return in.Args, in.Manager, in.Command

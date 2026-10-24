@@ -127,8 +127,9 @@ func main() {
 		if r == nil {
 			return ""
 		}
+		runner.stop() // a previous one that died
 		runner = r
-		r.start(context.Background(), src, p)
+		r.launch(context.Background(), src, p, false)
 		return r.name
 	}
 	m := app.NewModel(src).WithOptions(opts)

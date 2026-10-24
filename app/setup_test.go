@@ -50,6 +50,7 @@ func (f *fakeLogin) Wait(ctx context.Context) error {
 type fakePlayer struct {
 	mu        sync.Mutex
 	installed bool
+	loggedIn  bool
 	enabled   bool
 	loginErr  error
 	paste     bool // ask for a pasted address, like librespot over SSH
@@ -60,6 +61,12 @@ func (p *fakePlayer) Installed() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.installed
+}
+
+func (p *fakePlayer) LoggedIn() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.loggedIn
 }
 
 func (p *fakePlayer) Installer() ([]string, string, string) {

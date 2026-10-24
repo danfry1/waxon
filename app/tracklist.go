@@ -821,6 +821,12 @@ func (tl *TrackList) RestoreState(s NavState) {
 	tl.headerInfo = s.headerInfo
 	tl.notice = s.notice
 	tl.contextURI = s.contextURI
+	// Back on this view, a slower page for one opened meanwhile mustn't
+	// replace it.
+	tl.want = s.contextURI
+	if tl.want == "" {
+		tl.want = loadingOther
+	}
 	tl.artBlock = s.artBlock
 	tl.filtered, tl.filteredIdx = nil, nil
 	tl.filterText = ""

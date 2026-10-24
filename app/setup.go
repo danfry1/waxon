@@ -74,6 +74,8 @@ type SetupLogin interface {
 // SetupPlayer is waxon's built-in player (the player package).
 type SetupPlayer interface {
 	Installed() bool
+	// LoggedIn reports whether librespot already has a saved login.
+	LoggedIn() bool
 	// Installer is the package-manager command that installs librespot (nil
 	// args: none found; command then says what to do by hand).
 	Installer() (args []string, manager, command string)

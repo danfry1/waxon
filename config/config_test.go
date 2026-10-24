@@ -301,3 +301,25 @@ func TestSaveKeepsUnknownKeys(t *testing.T) {
 		}
 	}
 }
+
+// An empty file, "null", or a Notepad byte-order mark is an empty config,
+// not a broken one: saving fills it in.
+func TestSaveOverEmptyishConfig(t *testing.T) {
+	for _, body := range []string{"", "  \n", "null", "\xef\xbb\xbf{\"theme\": \"nord\"}"} {
+		path := filepath.Join(t.TempDir(), "config.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := saveTo(path, Config{Player: "off"}); err != nil {
+			t.Errorf("%q: saveTo = %v", body, err)
+			continue
+		}
+		got, err := loadFrom(path)
+		if err != nil || got.Player != "off" {
+			t.Errorf("%q: after save got %+v, %v", body, got, err)
+		}
+		if strings.Contains(body, "nord") && got.Theme != "nord" {
+			t.Errorf("%q: the theme was lost", body)
+		}
+	}
+}

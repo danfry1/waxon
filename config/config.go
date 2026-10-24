@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -77,6 +78,12 @@ func loadFrom(path string) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
+	// An empty file (touch config.json), "null", or one saved by Windows
+	// Notepad with a byte-order mark is still a config, just an empty one.
+	data = bytes.TrimSpace(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")))
+	if len(data) == 0 || string(data) == "null" {
+		return Config{}, nil
+	}
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
 		return Config{}, fmt.Errorf("unmarshal config: %w", err)
@@ -114,7 +121,11 @@ func saveTo(path string, updates Config) error {
 func marshalKeepingUnknown(path string, cfg Config) ([]byte, error) {
 	out := map[string]json.RawMessage{}
 	if data, err := os.ReadFile(path); err == nil {
+		data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 		_ = json.Unmarshal(data, &out) // it parsed as a Config just now
+	}
+	if out == nil { // the file said null
+		out = map[string]json.RawMessage{}
 	}
 	known, err := json.Marshal(cfg)
 	if err != nil {

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -38,7 +40,13 @@ func (m Model) openPlayHerePicker() (Model, tea.Cmd) {
 	return m, nil
 }
 
+// openPlayerSetup sets up waxon's player in place, or, when it's installed
+// and signed in (it stopped, but not over its login), just restarts it.
 func (m Model) openPlayerSetup() (Model, tea.Cmd) {
+	if p := m.opts.PlayerSetup.Player; p.Installed() && p.LoggedIn() && !loginTrouble(m.playerErr) && m.opts.StartPlayer != nil {
+		m.mode = ModeNormal
+		return m.startedPlayer(m.opts.StartPlayer())
+	}
 	s := NewSetup(*m.opts.PlayerSetup, SetupPlayerOnly)
 	s.width, s.height = m.width, m.height
 	m.setup = s
@@ -58,16 +66,34 @@ func (m Model) updateSetup(msg tea.Msg) (Model, tea.Cmd) {
 	m.setup = nil
 	m.mode = ModeNormal
 	if on && m.opts.StartPlayer != nil {
-		if name := m.opts.StartPlayer(); name != "" {
-			m.opts.PlayerName = name
-			m.playerErr = nil
-			m.toast.Show("waxon's player is starting", "Press play in a moment: it plays right here", ToastSuccess)
-		} else {
-			m.toast.Show("waxon's player didn't start", "Run 'waxon player' to see what's missing", ToastError)
-		}
-		return m, tea.Batch(cmd, scheduleAutoDismiss())
+		var toast tea.Cmd
+		m, toast = m.startedPlayer(m.opts.StartPlayer())
+		return m, tea.Batch(cmd, toast)
 	}
 	return m, cmd
+}
+
+// startedPlayer records the player StartPlayer just started (name "" if it
+// couldn't) and says so.
+func (m Model) startedPlayer(name string) (Model, tea.Cmd) {
+	if name == "" {
+		m.toast.Show("waxon's player didn't start", "Run 'waxon player' to see what's missing", ToastError)
+		return m, scheduleAutoDismiss()
+	}
+	m.opts.PlayerName = name
+	m.playerErr = nil
+	m.toast.Show("waxon's player is starting", "Press play in a moment: it plays right here", ToastSuccess)
+	return m, scheduleAutoDismiss()
+}
+
+// loginTrouble reports whether the player stopped over its login, which a
+// plain restart can't fix.
+func loginTrouble(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "credential") || strings.Contains(msg, "login") || strings.Contains(msg, "auth")
 }
 
 // setupOwnsMsg reports whether msg belongs to an open Setup.
