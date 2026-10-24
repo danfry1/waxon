@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/danfry1/waxon/media"
 	"github.com/danfry1/waxon/source"
 	spotifyapi "github.com/zmb3/spotify/v2"
 	"golang.org/x/oauth2"
@@ -76,7 +77,16 @@ type (
 	}
 	cmdFlashMsg     struct{ text string }
 	volumeCommitMsg struct{ gen int }
-	trackUpdateMsg  struct {
+	// volumeSetMsg: Spotify accepted the level sent at press gen.
+	volumeSetMsg struct{ vol, gen int }
+	// volumeFailedMsg: the level sent at press gen was refused.
+	volumeFailedMsg struct {
+		gen int
+		err error
+	}
+	// volumeGlowMsg steps the fade of glow id.
+	volumeGlowMsg  struct{ id int }
+	trackUpdateMsg struct {
 		track      *source.Track
 		volume     int
 		shuffleOn  bool
@@ -316,9 +326,14 @@ type Model struct {
 	resumePlaylistID string
 	tracklistVersion string
 
-	playerErr  error            // why waxon's own player stopped, if it did
-	setup      *Setup           // open in ModeSetup (setting up the player in place)
-	pagination *paginationState // non-nil while a playlist is being lazily loaded
+	playerErr error // why waxon's own player stopped, if it did
+	// System media controls (media.go): what was last published, and the
+	// current track's cover for them.
+	mediaLast   mediaPublished
+	mediaArt    image.Image
+	mediaArtFor string           // the artwork URL mediaArt is for
+	setup       *Setup           // open in ModeSetup (setting up the player in place)
+	pagination  *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt        string      // large rendered art for now playing view
 	npArtURL     string      // URL of the art currently rendered for NP
@@ -367,6 +382,13 @@ type Model struct {
 	volumeLast      int  // the level waxon last set, shown while the device reports it within rounding
 	volumeLastSet   bool
 	volumeSentAt    time.Time // last volume sent, to rate-limit a held + key
+	// The volume display (volumeShow): a change is in flight from a press
+	// until Spotify accepts the newest level; volumeAccepted is the last
+	// level it accepted; volumeGlow counts the glow's fade down.
+	volumeInFlight bool
+	volumeAccepted int
+	volumeGlow     int
+	volumeGlowID   int
 	// modeHoldUntil does the same for shuffle and repeat after S / r.
 	modeHoldUntil time.Time
 	// refreshPending counts post-control re-polls still scheduled, so a burst
@@ -438,6 +460,9 @@ type Options struct {
 	// returns its device name.
 	PlayerSetup *SetupDeps
 	StartPlayer func() string
+	// Media publishes what's playing to the system's media controls (media
+	// keys, Now Playing); presses come back as MediaMsg. nil: none.
+	Media media.Controller
 }
 
 // WithOptions returns a copy of m with opts applied.
@@ -488,6 +513,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return res, cmd
 	}
+	nm.publishMedia(time.Now())
 	if artMode == ArtKitty {
 		if nm.quitting {
 			kittyClear() // still on the alternate screen, where the images are
@@ -665,8 +691,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case artworkLoadedMsg:
 		if m.track != nil && msg.url == m.track.ArtworkURL {
 			m.albumart.SetImage(msg.img)
+			m.mediaArt, m.mediaArtFor = msg.img, msg.url
 		}
 		return m, nil
+
+	case MediaMsg:
+		return m.handleMedia(msg)
 
 	case artErrorMsg:
 		slog.Warn("artwork fetch failed", "url", msg.url, "error", msg.err)
@@ -1087,6 +1117,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyPendingJump()
 
 	case noActiveDeviceMsg:
+		// A volume change waits on a device now, perhaps forever (the
+		// picker can be cancelled); its retry still lands it if one is chosen.
+		m.volumeInFlight = false
+		if m.toast.meter {
+			m.toast.Hide()
+		}
 		return m, m.fetchDevicesForRetry(msg.retry)
 
 	case deviceChoicesMsg:
@@ -1176,6 +1212,36 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cmdFlashMsg:
 		m.toast.Show(msg.text, "", ToastInfo)
 		return m, scheduleAutoDismiss()
+
+	case volumeSetMsg:
+		m.volumeAccepted = msg.vol
+		if msg.gen != m.volumeGen {
+			return m, nil // a newer level is on its way
+		}
+		m.volumeInFlight = false
+		m.volumeGlow = volumeFadeSteps
+		m.volumeGlowID++
+		m.toast.ShowVolume()
+		return m, tea.Batch(scheduleAutoDismiss(), volumeGlowTick(m.volumeGlowID))
+
+	case volumeFailedMsg:
+		if msg.gen == m.volumeGen {
+			m.volumeInFlight = false
+			if m.toast.meter {
+				m.toast.Hide() // an error toast follows
+			}
+		}
+		return m.Update(trackErrorMsg{msg.err})
+
+	case volumeGlowMsg:
+		if msg.id != m.volumeGlowID || m.volumeGlow == 0 {
+			return m, nil
+		}
+		m.volumeGlow--
+		if m.volumeGlow > 0 {
+			return m, volumeGlowTick(msg.id)
+		}
+		return m, nil
 
 	case trackLikedMsg:
 		if m.track != nil && m.track.ID == msg.trackID {
@@ -1282,7 +1348,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case clearToastMsg:
-		m.toast.Hide()
+		if m.toast.Expired(msg.at) {
+			m.toast.Hide()
+		}
 		return m, nil
 
 	case progressTickMsg:
@@ -2488,6 +2556,8 @@ func (m Model) View() string {
 	if m.count > 0 {
 		m.statusbar.pending = strconv.Itoa(m.count)
 	}
+	show := volumeShow{level: m.volume, accepted: m.volumeAccepted, pending: m.volumeInFlight, glow: m.volumeGlow}
+	m.statusbar.volume, m.toast.volume = show, show
 	var view string
 	if m.artStatusBar() {
 		artView := m.albumart.View()

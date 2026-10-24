@@ -35,6 +35,9 @@ type Config struct {
 	Player string `json:"player,omitempty"`
 	// PlayerPath is the librespot binary (default: librespot on PATH).
 	PlayerPath string `json:"player_path,omitempty"`
+	// MediaKeys, when false, stops waxon answering the keyboard's media keys
+	// and showing in the system's Now Playing (default on).
+	MediaKeys *bool `json:"media_keys,omitempty"`
 }
 
 // Dir returns the waxon config directory: $XDG_CONFIG_HOME/waxon when set,
@@ -226,6 +229,9 @@ func merge(existing, updates Config) Config {
 	}
 	if updates.PlayerPath != "" {
 		result.PlayerPath = updates.PlayerPath
+	}
+	if updates.MediaKeys != nil {
+		result.MediaKeys = updates.MediaKeys
 	}
 	return result
 }
