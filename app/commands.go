@@ -595,11 +595,34 @@ func (m Model) transferPlayback(deviceID, deviceName string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
 	return func() tea.Msg {
-		if err := src.TransferPlayback(ctx, deviceID); err != nil {
+		if err := transferRetrying(ctx, src, deviceID); err != nil {
 			return trackErrorMsg{err}
 		}
-		return cmdFlashMsg{"Playback → " + deviceName}
+		return playbackMovedMsg{deviceName}
 	}
+}
+
+// transferRetryWaits are the pauses before each further try of a transfer
+// Spotify refused as not ready: a device that has just come online takes a
+// few seconds before it can take over.
+var transferRetryWaits = []time.Duration{time.Second, 1500 * time.Millisecond, 2 * time.Second, 2500 * time.Millisecond}
+
+// transferRetrying moves playback to deviceID, trying again while Spotify
+// says the device isn't ready for it.
+func transferRetrying(ctx context.Context, src source.RichSource, deviceID string) error {
+	err := src.TransferPlayback(ctx, deviceID)
+	for _, wait := range transferRetryWaits {
+		if !errors.Is(err, source.ErrDeviceUnavailable) && !errors.Is(err, source.ErrPlaybackRestricted) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(wait):
+		}
+		err = src.TransferPlayback(ctx, deviceID)
+	}
+	return err
 }
 
 func (m Model) playPlaylistFromStart(contextURI string) tea.Cmd {
@@ -792,6 +815,9 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 			return cmdFlashMsg{"Repeat: " + repeatLabel(mode)}
 		})
 	case CmdDevice:
+		if cmd.StrArg != "" {
+			return m.switchDevice(cmd.StrArg)
+		}
 		return m.fetchDevices()
 	case CmdRecent:
 		m.pushNav()

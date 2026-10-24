@@ -313,7 +313,7 @@ func (p *PlayerSource) Playlists(ctx context.Context) ([]source.Playlist, error)
 
 	liked := source.Playlist{
 		ID:         LikedPlaylistID,
-		URI:        "spotify:collection:tracks",
+		URI:        likedSongsURI,
 		Name:       "♥ Liked Songs",
 		TrackCount: likedPage.Total,
 	}

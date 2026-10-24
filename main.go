@@ -121,6 +121,7 @@ func main() {
 		opts.PlayerName = runner.name
 	}
 	opts.PlayerProblem = problem
+	opts.OpenSpotifyApp = spotifyAppLauncher()
 	var p *tea.Program
 	deps := setupDeps("", "")
 	opts.PlayerSetup = &deps

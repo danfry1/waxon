@@ -227,6 +227,11 @@ var ErrPlaylistRestricted = errors.New("spotify doesn't share this playlist's tr
 // activated answers this until it's ready, so a retry shortly after works.
 var ErrPlaybackRestricted = errors.New("spotify refused that playback command")
 
+// ErrDeviceUnavailable is returned when Spotify answers a playback command
+// with a server error, as it does for a device that has only just come
+// online (a Spotify app that's still starting); a retry shortly after works.
+var ErrDeviceUnavailable = errors.New("spotify couldn't reach that device")
+
 // ErrPremiumRequired is returned by playback commands when the account is
 // not Spotify Premium; the Web API only permits playback control for Premium.
 var ErrPremiumRequired = errors.New("premium account required for playback control")

@@ -305,6 +305,8 @@ type Model struct {
 	likeUnavailable bool
 	likedCache      map[string]bool // saved state of tracks we've looked up or changed this session
 	deviceName      string
+	prevDevice      string            // the device played on before deviceName
+	deviceTypes     map[string]string // device name → type, as last listed
 	toast           Toast
 	actionsReturn   Mode                      // mode to return to when the actions popup closes
 	navStack        []navEntry                // browser-like back navigation history
@@ -448,6 +450,9 @@ type Options struct {
 	// SnapshotPath is where the startup snapshot of the library is kept
 	// (see snapshot.go). "" disables it.
 	SnapshotPath string
+	// OpenSpotifyApp starts this computer's Spotify desktop app in the
+	// background; nil when it isn't installed (or can't be started here).
+	OpenSpotifyApp func() error
 	// PlayerName is the Connect device waxon's own player (librespot) runs
 	// as; "" when it's off. Playback with no active device prefers it.
 	PlayerName string
@@ -649,6 +654,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 		if msg.track != nil {
 			m.tracklist.SetNowPlaying(msg.track.ID)
+			if d := msg.track.DeviceName; d != m.deviceName && m.deviceName != "" && d != "" {
+				m.prevDevice = m.deviceName
+			}
 			m.deviceName = msg.track.DeviceName
 			m.lastPollTime = time.Now()
 			m.lastPollPos = msg.track.Position
@@ -1123,20 +1131,38 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.toast.meter {
 			m.toast.Hide()
 		}
-		return m, m.fetchDevicesForRetry(msg.retry)
+		return m, m.fetchDevicesForRetry(msg.retry, msg.refused)
 
 	case deviceChoicesMsg:
 		return m.handleDeviceChoices(msg)
 
+	case deviceTargetMsg:
+		return m.deviceTarget(msg)
+
+	case playbackMovedMsg:
+		// Polls take a moment to catch up; until they do, this is where
+		// playback is (so a second gd goes back, not here again).
+		if msg.device != m.deviceName {
+			m.prevDevice, m.deviceName = m.deviceName, msg.device
+		}
+		m.toast.Show("Playback → "+msg.device, "", ToastInfo)
+		return m, scheduleAutoDismiss()
+
+	case spotifyAppMsg:
+		return m.spotifyAppReady(msg)
+
 	case devicesLoadedMsg:
+		for _, d := range msg.devices {
+			m.noteDevice(d)
+		}
 		if len(msg.devices) == 0 {
-			if m.canSetUpPlayer() {
+			if m.canOfferDevices() {
 				return m.openPlayHerePicker()
 			}
 			m.toast.Show("No Spotify device found", m.noDeviceHint(), ToastError)
 			return m, scheduleAutoDismiss()
 		}
-		picker := NewDevicePicker(m.withPlayHere(msg.devices), m.width, m.height)
+		picker := NewDevicePicker(m.withOpenSpotify(m.withPlayHere(msg.devices)), m.width, m.height)
 		m.devices = &picker
 		m.mode = ModeDevices
 		return m, nil
@@ -1289,6 +1315,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case trackErrorMsg:
+		slog.Warn("command failed", "error", msg.err)
 		// A rejected change (e.g. a device without volume control) should
 		// show Spotify's real state on the next poll, not the optimistic one.
 		m.volumeHoldUntil, m.modeHoldUntil = time.Time{}, time.Time{}
@@ -1643,6 +1670,9 @@ func (m Model) handleKeyDevices(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if dev.ID == playHereDeviceID {
 			return m.openPlayerSetup()
 		}
+		if dev.ID == openSpotifyDeviceID {
+			return m.startSpotifyApp(retry)
+		}
 		if retry != nil {
 			// Picker opened to recover a failed command: activate, then replay it.
 			m.toast.Show("Playing on "+dev.Name, "", ToastInfo)
@@ -1800,6 +1830,8 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.openCollection(collectionArtistsID)
 		case GActionPodcasts:
 			return m, m.openCollection(collectionPodcastsID)
+		case GActionSwapDevice:
+			return m, m.switchDevice("-")
 		default:
 			return m, nil
 		}

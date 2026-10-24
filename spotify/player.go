@@ -3,7 +3,9 @@ package spotify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
@@ -163,7 +165,42 @@ func (p *PlayerSource) Devices(ctx context.Context) ([]source.Device, error) {
 
 func (p *PlayerSource) TransferPlayback(ctx context.Context, deviceID string) error {
 	id := spotifyapi.ID(deviceID)
-	return wrapPlayerError(p.client.TransferPlayback(ctx, id, true))
+	err := wrapPlayerError(p.client.TransferPlayback(ctx, id, true))
+	if errors.Is(err, source.ErrDeviceUnavailable) || errors.Is(err, source.ErrPlaybackRestricted) {
+		// Spotify refuses a handover it can't make: a server error from
+		// librespot to the Spotify app, "Restriction violated" when the
+		// device playing has gone (a Spotify app that was quit). Starting
+		// the same track at the same point on the device does the same
+		// thing without the handover.
+		playErr := p.playHere(ctx, id)
+		slog.Info("transfer refused; played on the device instead", "device", deviceID, "transfer", err, "play", playErr)
+		if playErr == nil || !errors.Is(playErr, errNothingPlaying) {
+			return playErr
+		}
+	}
+	return err
+}
+
+var errNothingPlaying = errors.New("nothing playing to move")
+
+// playHere plays what's playing now on device id: the same track, in the
+// same playlist or album, from the same point.
+func (p *PlayerSource) playHere(ctx context.Context, id spotifyapi.ID) error {
+	st, err := p.client.PlayerState(ctx)
+	if err != nil {
+		return wrapPlayerError(err)
+	}
+	if st == nil || st.Item == nil || st.Item.URI == "" {
+		return errNothingPlaying
+	}
+	opt := &spotifyapi.PlayOptions{DeviceID: &id, PositionMs: st.Progress}
+	if uri := st.PlaybackContext.URI; uri != "" {
+		opt.PlaybackContext = &uri
+		opt.PlaybackOffset = &spotifyapi.PlaybackOffset{URI: st.Item.URI}
+	} else {
+		opt.URIs = []spotifyapi.URI{st.Item.URI}
+	}
+	return wrapPlayerError(p.client.PlayOpt(ctx, opt))
 }
 
 // Queue reads the queue through waxon's own API path so episodes keep their
@@ -189,7 +226,7 @@ func (p *PlayerSource) Queue(ctx context.Context) ([]source.Track, error) {
 }
 
 func (p *PlayerSource) PlayTrack(ctx context.Context, contextURI string, trackURI string) error {
-	uri := spotifyapi.URI(contextURI)
+	uri := spotifyapi.URI(p.playableContext(ctx, contextURI))
 	opts := &spotifyapi.PlayOptions{
 		PlaybackContext: &uri,
 	}
@@ -197,6 +234,24 @@ func (p *PlayerSource) PlayTrack(ctx context.Context, contextURI string, trackUR
 		opts.PlaybackOffset = &spotifyapi.PlaybackOffset{URI: spotifyapi.URI(trackURI)}
 	}
 	return wrapPlayerError(p.client.PlayOpt(ctx, opts))
+}
+
+// likedSongsURI is how waxon names Liked Songs (source.Playlist.URI).
+const likedSongsURI = "spotify:collection:tracks"
+
+// playableContext is contextURI as a playback request should name it. The
+// Spotify apps refuse Liked Songs as spotify:collection:tracks ("Restriction
+// violated"; librespot accepts it) but play it as the account's collection,
+// spotify:user:<id>:collection.
+func (p *PlayerSource) playableContext(ctx context.Context, contextURI string) string {
+	if contextURI != likedSongsURI {
+		return contextURI
+	}
+	id, err := p.currentUserID(ctx)
+	if err != nil || id == "" {
+		return contextURI
+	}
+	return "spotify:user:" + id + ":collection"
 }
 
 func (p *PlayerSource) PlayTrackDirect(ctx context.Context, trackURI string) error {

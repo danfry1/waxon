@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -16,14 +17,21 @@ const activationSettleDelay = 400 * time.Millisecond
 
 // noActiveDeviceMsg is emitted when a playback command failed because Spotify
 // has no active device. retry re-runs the original command once a device has
-// been activated.
-type noActiveDeviceMsg struct{ retry tea.Cmd }
+// been activated. refused is set when Spotify instead refused the command
+// ("Restriction violated"), which it also does when the device it still
+// counts as playing has gone (a Spotify app that was quit); it's shown if a
+// device turns out to be active after all.
+type noActiveDeviceMsg struct {
+	retry   tea.Cmd
+	refused error
+}
 
 // deviceChoicesMsg carries the device list fetched in response to a
 // noActiveDeviceMsg, along with the command to retry once a device is chosen.
 type deviceChoicesMsg struct {
 	devices []source.Device
 	retry   tea.Cmd
+	refused error
 }
 
 // deviceAware wraps a playback command so that a no-active-device failure is
@@ -33,8 +41,13 @@ type deviceChoicesMsg struct {
 func deviceAware(cmd tea.Cmd) tea.Cmd {
 	return func() tea.Msg {
 		msg := cmd()
-		if e, ok := msg.(trackErrorMsg); ok && errors.Is(e.err, source.ErrNoActiveDevice) {
-			return noActiveDeviceMsg{retry: cmd}
+		if e, ok := msg.(trackErrorMsg); ok {
+			switch {
+			case errors.Is(e.err, source.ErrNoActiveDevice):
+				return noActiveDeviceMsg{retry: cmd}
+			case errors.Is(e.err, source.ErrPlaybackRestricted):
+				return noActiveDeviceMsg{retry: cmd, refused: e.err}
+			}
 		}
 		return msg
 	}
@@ -42,7 +55,7 @@ func deviceAware(cmd tea.Cmd) tea.Cmd {
 
 // fetchDevicesForRetry lists devices so the UI can decide how to recover from a
 // no-active-device failure (auto-activate, pick, or explain).
-func (m Model) fetchDevicesForRetry(retry tea.Cmd) tea.Cmd {
+func (m Model) fetchDevicesForRetry(retry tea.Cmd, refused error) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
 	return func() tea.Msg {
@@ -50,7 +63,7 @@ func (m Model) fetchDevicesForRetry(retry tea.Cmd) tea.Cmd {
 		if err != nil {
 			return trackErrorMsg{err}
 		}
-		return deviceChoicesMsg{devices: devices, retry: retry}
+		return deviceChoicesMsg{devices: devices, retry: retry, refused: refused}
 	}
 }
 
@@ -61,7 +74,7 @@ func (m Model) activateAndRetry(deviceID string, retry tea.Cmd) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
 	return func() tea.Msg {
-		if err := src.TransferPlayback(ctx, deviceID); err != nil {
+		if err := transferRetrying(ctx, src, deviceID); err != nil {
 			return trackErrorMsg{err}
 		}
 		if retry == nil {
@@ -102,6 +115,15 @@ var activationRetryWaits = []time.Duration{activationSettleDelay, 700 * time.Mil
 //   - one device: activate it and replay the command transparently
 //   - several: open the device picker with the command pending
 func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
+	if msg.refused != nil {
+		for _, dev := range msg.devices {
+			if dev.IsActive {
+				// A device that has only just taken over refuses commands
+				// for a moment: try again shortly before giving up.
+				return m, retryRefused(m.ctx, msg.retry, msg.refused)
+			}
+		}
+	}
 	// waxon's own player is what the user set up to play on.
 	if name := m.opts.PlayerName; name != "" {
 		for _, dev := range msg.devices {
@@ -120,7 +142,7 @@ func (m Model) handleDeviceChoices(msg deviceChoicesMsg) (Model, tea.Cmd) {
 	}
 	switch len(msg.devices) {
 	case 0:
-		if m.canSetUpPlayer() {
+		if m.canOfferDevices() {
 			return m.openPlayHerePicker()
 		}
 		m.toast.Show("No Spotify device found", m.noDeviceHint(), ToastError)
@@ -199,8 +221,30 @@ func friendlyPlaybackError(err error) (title, detail string, ok bool) {
 		return "No active Spotify device", "Open Spotify on any device, or press D", true
 	case errors.Is(err, source.ErrInsufficientScope):
 		return "Permission needed", "Run 'waxon auth' once to allow playlist changes", true
+	case errors.Is(err, source.ErrDeviceUnavailable):
+		return "Spotify couldn't play on that device", "It may still be starting; try again in a moment", true
+	case errors.Is(err, source.ErrPlaybackRestricted):
+		return "Spotify refused that on this device", "A device that has just started can take a moment; try again", true
 	case errors.Is(err, source.ErrForbidden):
 		return "Not available with this Spotify app", "Spotify blocks this for development-mode apps (see README)", true
 	}
 	return "", "", false
+}
+
+// retryRefused replays retry, refused by an active device, after the
+// activation pauses; still refused, it shows refused.
+func retryRefused(ctx context.Context, retry tea.Cmd, refused error) tea.Cmd {
+	return func() tea.Msg {
+		for _, wait := range activationRetryWaits {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(wait):
+			}
+			if msg := retry(); !deviceNotReady(msg) {
+				return msg
+			}
+		}
+		return trackErrorMsg{refused}
+	}
 }
