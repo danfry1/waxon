@@ -123,3 +123,24 @@ func (m *Model) popNav() bool {
 	}
 	return true
 }
+
+// pageLoadFailed handles an artist or album page that didn't load: if it is
+// still the one loading, the view it was opened from comes back instead of
+// a loading state that would never end.
+func (m Model) pageLoadFailed(msg pageLoadFailedMsg) (Model, tea.Cmd) {
+	m.pendingJumpTrackID = "" // its page never came
+	if m.tracklist.loading && m.tracklist.want == loadingOther && !m.popNav() {
+		m.tracklist.loading = false
+		m.tracklist.SetNotice("Couldn't load this " + msg.what + ".")
+	}
+	switch {
+	case isAuthError(msg.err):
+		m.toast.Show("Session expired", "Run 'waxon auth' to reconnect", ToastError)
+	case isRateLimitError(msg.err):
+		m.noteRateLimit(msg.err)
+		m.toast.Show("Spotify is rate limiting", m.rateLimitHint(msg.err), ToastError)
+	default:
+		m.toast.Show("Couldn't load the "+msg.what, "Spotify didn't answer; try again in a moment", ToastError)
+	}
+	return m, scheduleAutoDismiss()
+}

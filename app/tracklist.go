@@ -169,6 +169,9 @@ func (tl *TrackList) SetLoading(title string) {
 	tl.tracks = nil
 	tl.searchKeys = nil
 	tl.notice = ""
+	// The last view's header lines don't belong to the one loading.
+	tl.subtitle, tl.headerInfo = "", ""
+	tl.table.SetHeight(tl.tableHeight())
 	// A new view starts unfiltered; a filter left on would otherwise also
 	// pull every page of the next playlist.
 	tl.filterText = ""

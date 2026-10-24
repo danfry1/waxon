@@ -197,6 +197,14 @@ type sidebarIconLoadedMsg struct {
 	id   string // playlist ID
 	icon string // rendered icon
 }
+
+// pageLoadFailedMsg reports that an artist or album page (what) didn't
+// load.
+type pageLoadFailedMsg struct {
+	what string
+	err  error
+}
+
 type artistPageLoadedMsg struct {
 	page *source.ArtistPage
 }
@@ -887,6 +895,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rendered := renderHalfBlocks(msg.img, HeaderArtW, HeaderArtH)
 		m.tracklist.SetArt(rendered)
 		return m, nil
+
+	case pageLoadFailedMsg:
+		return m.pageLoadFailed(msg)
 
 	case artistPageLoadedMsg:
 		if msg.page != nil {
