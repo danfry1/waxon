@@ -8,6 +8,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-24
+
 ### Keys changed
 
 The keys were reworked around a few rules: lowercase acts on the selection
@@ -29,36 +31,6 @@ ignoring your keys.
 
 ### Added
 
-- The queue (`gq`) shows in the main pane rather than the narrow sidebar:
-  Now playing, Next in queue (what you added) and Next from the playlist,
-  with a count and total time. Enter skips forward to a track, as the
-  Spotify app does, instead of playing it on its own and dropping the rest
-  of the queue; the view refreshes as tracks change.
-- Artist pages start with **Play** and **Shuffle**, which play the artist
-  on Spotify (most apps can't list an artist's top tracks, so a page had
-  nothing to play). Album, artist and show rows show their covers, lists
-  of releases are headed Release / Album / Year rather than as tracks, and
-  each section line carries its count ("ALBUMS · 5").
-- The cursor skips section lines and blank rows instead of stopping on
-  them.
-- `m` mutes and unmutes; a count multiplies a seek (`6]` is +30s); `Esc`
-  clears a filter or a half-typed count.
-- The actions menu numbers its rows (`o` then `1` goes to the album) and
-  takes letters too: `a` queue, `f` like, `+` add to a playlist, `d`
-  remove. Go to Album / Artist come first. Playlists get **Shuffle Play**.
-- In search, `Tab` moves to the results, where `a`, `f` and `o` act on the
-  selected track.
-- Now Playing isn't a dead end: playback keys, `s`, `D`, `M`, `:` and `?`
-  work in it, and what they open closes back to it.
-- `:play`, `:pause`, `:next`, `:prev`, `:seek ±N|M:SS`, `:vol ±N`, `:mute`,
-  `:like [on|off]`, `:shuffle [on|off]` and `:h`, read like the CLI's. As
-  you type one, the rest of it shows dimmed (then what it takes, such as
-  `0-100 or ±N` for `:vol`), and `Tab` or `→` accepts it.
-- Vinyl mode is a proper record now: black grooved vinyl with the cover on
-  its centre label, a reflection that stays put as the record turns under
-  it, and a tonearm whose needle moves across the record as the track
-  plays. It turns smoothly at 33⅓ rpm (it used to step twice a second at
-  about 1 rpm), and only while it's on screen and playing.
 - Media keys: the keyboard's play/pause, next and previous keys control
   waxon, and the system's Now Playing (Control Center on macOS, MPRIS on
   Linux desktops) shows the track, its cover and progress, with working
@@ -73,9 +45,39 @@ ignoring your keys.
 - When the Spotify desktop app is installed but closed, the device picker
   offers to open it, and `M` does too: waxon starts it in the background
   and moves playback there once it's online.
+- The queue (`gq`) shows in the main pane rather than the narrow sidebar:
+  Now playing, Next in queue (what you added) and Next from the playlist,
+  with a count and total time. Enter skips forward to a track, as the
+  Spotify app does, instead of playing it on its own and dropping the rest
+  of the queue; the view refreshes as tracks change.
+- Artist pages start with **Play** and **Shuffle**, which play the artist
+  on Spotify (most apps can't list an artist's top tracks, so a page had
+  nothing to play). Album, artist and show rows show their covers, lists
+  of releases are headed Release / Album / Year rather than as tracks, and
+  each section line carries its count ("ALBUMS · 5").
+- Vinyl mode is a proper record now: black grooved vinyl with the cover on
+  its centre label, a reflection that stays put as the record turns under
+  it, and a tonearm whose needle moves across the record as the track
+  plays. It turns smoothly at 33⅓ rpm (it used to step twice a second at
+  about 1 rpm), and only while it's on screen and playing.
 - `waxon doctor` warns when waxon's logins sit in a git repository (a
   dotfiles repo, say) or a folder a sync service uploads (Dropbox, iCloud
   Drive, OneDrive, Google Drive), where they could leave the machine.
+- The actions menu numbers its rows (`o` then `1` goes to the album) and
+  takes letters too: `a` queue, `f` like, `+` add to a playlist, `d`
+  remove. Go to Album / Artist come first. Playlists get **Shuffle Play**.
+- In search, `Tab` moves to the results, where `a`, `f` and `o` act on the
+  selected track.
+- Now Playing isn't a dead end: playback keys, `s`, `D`, `M`, `:` and `?`
+  work in it, and what they open closes back to it.
+- `:play`, `:pause`, `:next`, `:prev`, `:seek ±N|M:SS`, `:vol ±N`, `:mute`,
+  `:like [on|off]`, `:shuffle [on|off]` and `:h`, read like the CLI's. As
+  you type one, the rest of it shows dimmed (then what it takes, such as
+  `0-100 or ±N` for `:vol`), and `Tab` or `→` accepts it.
+- `m` mutes and unmutes; a count multiplies a seek (`6]` is +30s); `Esc`
+  clears a filter or a half-typed count.
+- The cursor skips section lines and blank rows instead of stopping on
+  them.
 
 ### Changed
 
@@ -440,7 +442,8 @@ Initial release: vim-modal Spotify TUI with PKCE auth, library and queue
 sidebar, track list, search, device picker, Now Playing view with album art,
 and command mode.
 
-[Unreleased]: https://github.com/danfry1/waxon/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/danfry1/waxon/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/danfry1/waxon/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/danfry1/waxon/compare/v1.8.1...v1.10.0
 [1.8.1]: https://github.com/danfry1/waxon/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/danfry1/waxon/compare/v1.7.0...v1.8.0
