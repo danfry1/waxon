@@ -8,8 +8,18 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-24
+
 ### Added
 
+- waxon can play by itself, with no Spotify app open. With
+  [librespot](https://github.com/librespot-org/librespot) installed, waxon
+  starts its own Spotify Connect device in the background, plays through it
+  whenever nothing else is active, and stops it on quit. It streams at
+  320 kbps, the highest quality Spotify offers Premium. The guided setup
+  below sets it up (or run `waxon player login`); `waxon player off` turns
+  it off. If it can't start, waxon says why in a notice with the fix. Its
+  login is kept in `~/.config/waxon/librespot/`, readable only by you.
 - A guided, full-screen setup. The first `waxon`, `waxon auth` and
   `waxon player login` open it: connect Spotify (with the dashboard steps,
   a live Client ID check and copy/open shortcuts, and paste-the-address over
@@ -26,50 +36,6 @@ Each release's section is also used verbatim as the GitHub Release notes.
   app, the login (and whether Spotify still accepts it), devices, the
   player, the lyrics service and the terminal — and prints the fix for
   anything that's wrong. It exits non-zero when something is broken.
-
-- waxon can play by itself, with no Spotify app open. With
-  [librespot](https://github.com/librespot-org/librespot) installed, run
-  `waxon player login` once; waxon then starts its own Spotify Connect device
-  in the background, plays through it when nothing else is active, and stops
-  it on quit. `waxon player off` turns it off. The player's login is kept
-  in `~/.config/waxon/librespot/`, readable only by you.
-
-### Changed
-
-- Now Playing reopens the way you left it: on the lyrics, the vinyl or the
-  cover. `:lyrics` and `:vinyl` open it straight on those.
-- Playlists open instantly. waxon keeps the first page of each playlist
-  you open in its cache directory, along with Spotify's version of it, and
-  shows a playlist straight from there when it hasn't changed — no request
-  at all. A playlist that changed shows its cached copy at once and refreshes
-  in the background.
-- waxon starts where you left off: your library, the playlist you had open
-  and your place in it appear before Spotify has answered, then update with
-  anything that changed. `waxon logout` and `waxon auth` clear the cache.
-- If the player is turned on but can't start (librespot missing or signed
-  out), waxon says so in a notice with the fix instead of printing a warning
-  before the UI opens.
-- `+`/`-` change the volume at once instead of after a short pause, and
-  holding the key follows along (a few changes a second) rather than
-  waiting until you let go.
-- The help overlay says its Now Playing keys (`l` lyrics, `V` vinyl) work
-  once Now Playing is open, and Now Playing's key hints now list `V`.
-
-### Fixed
-
-- The first play on a device that was only just activated (often waxon's
-  own player) no longer fails with "Restriction violated": waxon retries
-  it for a moment while the device gets ready.
-- `+`/`-` move the volume in round steps (55, 60, 65) whatever level it
-  started at, and keep doing so on devices that round the level they report
-  (librespot shows 60% as 59%).
-- The volume shown after `+`/`-` or `:vol` no longer jumps back to the old
-  level on devices that report changes late, such as librespot.
-
-## [1.9.0] - 2026-10-23
-
-### Added
-
 - Experimental: real album-art images in kitty and Ghostty. Set
   `"art": "kitty"` (or `"auto"`) in config.json, or run with `WAXON_ART=kitty`.
   The status-bar and Now Playing covers use the kitty graphics protocol's
@@ -92,7 +58,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 - Playback keys: `+`/`=` and `-` change the volume by 5, `S` toggles shuffle
   and `r` cycles repeat (off → all → one). They work in the main view and in
   Now Playing, and can be rebound as `vol_up`, `vol_down`, `shuffle` and
-  `repeat`. Holding `+` sends a single volume change once you stop.
+  `repeat`. Volume moves in round steps (55, 60, 65) and responds at once;
+  holding a key follows along at a few changes a second.
 - Click the progress bar in the status area to seek.
 - Visual mode: `v` in the track list selects a range of tracks. `a` queues
   them in order, `f` likes them, `o` adds them to a playlist and `d` removes
@@ -104,6 +71,18 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Changed
 
+- Now Playing reopens the way you left it: on the lyrics, the vinyl or the
+  cover. `:lyrics` and `:vinyl` open it straight on those.
+- Playlists open instantly. waxon keeps the first page of each playlist
+  you open in its cache directory, along with Spotify's version of it, and
+  shows a playlist straight from there when it hasn't changed — no request
+  at all. A playlist that changed shows its cached copy at once and refreshes
+  in the background.
+- waxon starts where you left off: your library, the playlist you had open
+  and your place in it appear before Spotify has answered, then update with
+  anything that changed. `waxon logout` and `waxon auth` clear the cache.
+- The help overlay says its Now Playing keys (`l` lyrics, `V` vinyl) work
+  once Now Playing is open, and Now Playing's key hints now list `V`.
 - The track list shows placeholder rows while a list first loads, and a
   "loading more" spinner in its header while the next page of a long playlist
   is fetched.
@@ -125,6 +104,15 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Fixed
 
+- Saving a setting no longer wipes a `config.json` that has a syntax error
+  (it says to fix the file instead), and keeps settings waxon doesn't know.
+- On Windows, signing in opens the whole Spotify link; it used to be cut
+  short.
+- The first play on a device that was only just activated (often waxon's
+  own player) no longer fails with "Restriction violated": waxon retries
+  it for a moment while the device gets ready.
+- The volume shown after `+`/`-` or `:vol` no longer jumps back to the old
+  level on devices that report changes late, such as librespot.
 - A stray or stale request to the login callback no longer aborts
   `waxon auth`; it's ignored and the login carries on.
 - Filtering a long playlist with `/` now finds tracks that hadn't loaded yet.
@@ -331,8 +319,8 @@ Initial release: vim-modal Spotify TUI with PKCE auth, library and queue
 sidebar, track list, search, device picker, Now Playing view with album art,
 and command mode.
 
-[Unreleased]: https://github.com/danfry1/waxon/compare/v1.9.0...HEAD
-[1.9.0]: https://github.com/danfry1/waxon/compare/v1.8.1...v1.9.0
+[Unreleased]: https://github.com/danfry1/waxon/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/danfry1/waxon/compare/v1.8.1...v1.10.0
 [1.8.1]: https://github.com/danfry1/waxon/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/danfry1/waxon/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/danfry1/waxon/compare/v1.6.0...v1.7.0
