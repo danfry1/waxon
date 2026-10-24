@@ -43,7 +43,8 @@ func (m Model) openPlayHerePicker() (Model, tea.Cmd) {
 // openPlayerSetup sets up waxon's player in place, or, when it's installed
 // and signed in (it stopped, but not over its login), just restarts it.
 func (m Model) openPlayerSetup() (Model, tea.Cmd) {
-	if p := m.opts.PlayerSetup.Player; p.Installed() && p.LoggedIn() && !loginTrouble(m.playerErr) && m.opts.StartPlayer != nil {
+	if p := m.opts.PlayerSetup.Player; m.playerErr != nil && !loginTrouble(m.playerErr) &&
+		p.Installed() && p.LoggedIn() && m.opts.StartPlayer != nil {
 		m.mode = ModeNormal
 		return m.startedPlayer(m.opts.StartPlayer())
 	}

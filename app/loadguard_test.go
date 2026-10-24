@@ -82,3 +82,14 @@ func TestPlayHereSignsInAgainAfterLoginFailure(t *testing.T) {
 		t.Errorf("a login failure should go through the player sign-in, mode=%v", m.mode)
 	}
 }
+
+// Signed in but turned off (waxon player off): "play here" goes through the
+// player setup, which turns it back on; a plain restart would find it off.
+func TestPlayHereTurnsOffPlayerBackOn(t *testing.T) {
+	deps := SetupDeps{Player: &fakePlayer{installed: true, loggedIn: true}}
+	m := newTestModel(&StubSource{}).WithOptions(Options{PlayerSetup: &deps, StartPlayer: func() string { return "" }})
+	m, _ = m.openPlayerSetup()
+	if m.mode != ModeSetup {
+		t.Errorf("mode=%v; want the player setup (which enables it)", m.mode)
+	}
+}
