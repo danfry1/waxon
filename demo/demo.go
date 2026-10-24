@@ -518,7 +518,9 @@ func (d *DemoSource) GetArtist(_ context.Context, artistID string) (*source.Arti
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if page, ok := d.artists[artistID]; ok {
-		return page, nil
+		p := *page
+		p.ID = artistID // as the real source sets it (the page's Play row)
+		return &p, nil
 	}
 	return &source.ArtistPage{Name: "Unknown Artist"}, nil
 }

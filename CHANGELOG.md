@@ -29,6 +29,13 @@ ignoring your keys.
 
 ### Added
 
+- Artist pages start with **Play** and **Shuffle**, which play the artist
+  on Spotify (most apps can't list an artist's top tracks, so a page had
+  nothing to play). Album, artist and show rows show their covers, lists
+  of releases are headed Release / Album / Year rather than as tracks, and
+  each section line carries its count ("ALBUMS · 5").
+- The cursor skips section lines and blank rows instead of stopping on
+  them.
 - `m` mutes and unmutes; a count multiplies a seek (`6]` is +30s); `Esc`
   clears a filter or a half-typed count.
 - The actions menu numbers its rows (`o` then `1` goes to the album) and

@@ -73,7 +73,7 @@ Sleep 800ms
 Type "2"
 Sleep 2s
 
-# -- Browse Tame Impala discography, enter Currents --
+# -- Browse Tame Impala discography (past Play / Shuffle), enter Currents --
 Type "j"
 Sleep 300ms
 Type "j"
