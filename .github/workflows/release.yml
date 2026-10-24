@@ -77,7 +77,6 @@ jobs:
             gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
 
-
   # Bump the source-built formula in danfry1/homebrew-tap to this tag. The
   # formula builds from GitHub's source archive for the tag, so only the URL and
   # that archive's sha256 change. The tap push uses a short-lived App token.
@@ -112,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           url="https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz"
-          sha=$(curl --fail --silent --show-error --location "$url" | sha256sum | cut -d' ' -f1)
+          sha=$(curl --fail --silent --show-error --location --retry 3 "$url" | sha256sum | cut -d' ' -f1)
           formula=tap/waxon.rb
           sed -i -E \
             -e "s#^  url \"[^\"]*\"#  url \"${url}\"#" \
