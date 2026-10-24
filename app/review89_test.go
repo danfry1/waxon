@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/danfry1/waxon/source"
 )
@@ -132,5 +134,16 @@ func TestCommandParsingEdges(t *testing.T) {
 		if _, err := ParseCommand(bad); err == nil {
 			t.Errorf("%q should be an error", bad)
 		}
+	}
+}
+
+// The volume meter shows the level being set, drawn over the screen.
+func TestVolumeMeterShowsTheLevel(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.width, m.height = 120, 40
+	m.layoutResize()
+	m.runCommand(Command{Type: CmdVolume, IntArg: 50})
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "50%") || strings.Contains(v, " 0%") {
+		t.Errorf("the meter should read 50%%:\n%s", v)
 	}
 }

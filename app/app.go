@@ -2659,9 +2659,15 @@ func (m Model) View() string {
 	// what a key did from inside one (a from search, F in Now Playing) shows.
 	view := m.screen()
 	if m.toast.Visible() {
+		m.toast.volume = m.volumeShow() // the meter, when it's the volume toast
 		view = m.toast.Overlay(view, m.width)
 	}
 	return view
+}
+
+// volumeShow is the volume as the status bar and the meter draw it.
+func (m Model) volumeShow() volumeShow {
+	return volumeShow{level: m.volume, accepted: m.volumeAccepted, pending: m.volumeInFlight, glow: m.volumeGlow}
 }
 
 // screen is what's on screen under the toast: a popup, Now Playing, or the
@@ -2730,8 +2736,7 @@ func (m Model) screen() string {
 	if m.count > 0 {
 		m.statusbar.pending = strconv.Itoa(m.count)
 	}
-	show := volumeShow{level: m.volume, accepted: m.volumeAccepted, pending: m.volumeInFlight, glow: m.volumeGlow}
-	m.statusbar.volume, m.toast.volume = show, show
+	m.statusbar.volume = m.volumeShow()
 	var view string
 	if m.artStatusBar() {
 		artView := m.albumart.View()
