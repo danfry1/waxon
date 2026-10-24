@@ -124,8 +124,10 @@ func TestParseThemeCommandUsage(t *testing.T) {
 
 func TestKeyMapFromOverrides(t *testing.T) {
 	km, err := KeyMapFromOverrides(map[string]string{"next": "l, right", "play_pause": "space,p"})
-	if err != nil {
-		t.Fatal(err)
+	// Both are applied, and both clashes are reported: l is also focus
+	// right, p also previous track.
+	if err == nil || !strings.Contains(err.Error(), `"l" is both focus_right and next`) || !strings.Contains(err.Error(), `"p" is both`) {
+		t.Errorf("clashes not reported: %v", err)
 	}
 	if !keyMatches(km.Next, "l") || !keyMatches(km.Next, "right") || keyMatches(km.Next, "n") {
 		t.Errorf("next override not applied: %v", km.Next.Keys())
@@ -140,11 +142,19 @@ func TestKeyMapFromOverrides(t *testing.T) {
 	if !keyMatches(km.Prev, "p") {
 		t.Error("prev should be unchanged")
 	}
-	if _, err := KeyMapFromOverrides(map[string]string{"nxt": "l"}); err == nil || !strings.Contains(err.Error(), "available:") {
-		t.Errorf("unknown action should error with the list, got %v", err)
+	// One mistake doesn't throw the rest away.
+	km, err = KeyMapFromOverrides(map[string]string{"nxt": "x", "quit": "ctrl+q"})
+	if err == nil || !strings.Contains(err.Error(), `unknown action "nxt"`) {
+		t.Errorf("unknown action should be reported, got %v", err)
+	}
+	if !keyMatches(km.Quit, "ctrl+q") {
+		t.Error("a valid override next to a misspelt one should still apply")
 	}
 	if _, err := KeyMapFromOverrides(map[string]string{"next": " , "}); err == nil {
 		t.Error("empty key list should error")
+	}
+	if _, err := KeyMapFromOverrides(map[string]string{"next": ">", "prev": "<"}); err != nil {
+		t.Errorf("keys no one else uses shouldn't be reported: %v", err)
 	}
 }
 

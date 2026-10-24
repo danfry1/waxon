@@ -1178,13 +1178,26 @@ func TestHelpListsEveryBoundKey(t *testing.T) {
 	}
 }
 
-func TestHelpClipsToShortTerminal(t *testing.T) {
+// On a short terminal the help overlay fits the screen and scrolls.
+func TestHelpScrollsOnShortTerminal(t *testing.T) {
 	got := ViewHelp(80, 20)
 	if lines := strings.Count(got, "\n") + 1; lines > 20 {
 		t.Errorf("help overlay is %d lines tall on a 20-row terminal", lines)
 	}
-	if !strings.Contains(got, "enlarge the terminal") {
-		t.Error("clipped help should say it was clipped")
+	if !strings.Contains(got, "j/k to scroll") {
+		t.Error("help that doesn't fit should say it scrolls")
+	}
+	m := newTestModel(&StubSource{})
+	m.width, m.height, m.mode = 80, 20, ModeHelp
+	top := m.View()
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	m = res.(Model)
+	if m.helpScroll == 0 || m.View() == top {
+		t.Error("G should scroll the help to its end")
+	}
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	if res.(Model).helpScroll != 0 {
+		t.Error("g should scroll back to the top")
 	}
 }
 

@@ -47,6 +47,20 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Fixed
 
+- Ctrl-C quits, as in any terminal program.
+- Opening a playlist from the sidebar moves to its tracks, so the next
+  Enter plays one (it took Enter, `l`, Enter).
+- `C-d`/`C-u` move half a page in the sidebar too, and rebound movement
+  keys move it.
+- `a` in the sidebar no longer queues a track from the list you aren't
+  looking at.
+- Search results move with `C-n`/`C-p` (and `C-j`/`C-k`) as well as the
+  arrows; the hint no longer says j/k, which type into the query.
+- One misspelt action in `keys` no longer throws away all your custom keys:
+  the rest apply, and waxon says what it skipped, and which keys you've
+  given to two actions, in the app rather than behind the full-screen UI.
+- The help overlay scrolls (j/k, C-d/C-u, g/G) instead of cutting off on a
+  short terminal.
 - Now Playing no longer shows the terminal's own background in a box
   around the cover and the text; everything sits on the gradient.
 - A toast's dismiss timer no longer hides a newer toast early.

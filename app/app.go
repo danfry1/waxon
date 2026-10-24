@@ -347,6 +347,7 @@ type Model struct {
 	mediaArt    image.Image
 	mediaArtFor string           // the artwork URL mediaArt is for
 	setup       *Setup           // open in ModeSetup (setting up the player in place)
+	helpScroll  int              // first row of the help overlay shown
 	pagination  *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt        string      // large rendered art for now playing view
@@ -471,6 +472,9 @@ type Options struct {
 	// PlayerName is the Connect device waxon's own player (librespot) runs
 	// as; "" when it's off. Playback with no active device prefers it.
 	PlayerName string
+	// KeysProblem says which of the config's custom keys weren't applied or
+	// clash; shown once at startup.
+	KeysProblem string
 	// PlayerProblem says why the player is on but couldn't start, with
 	// the fix (e.g. "Not signed in: run 'waxon player login'"). Shown as a
 	// toast once the UI is up.
@@ -524,6 +528,7 @@ func (m Model) Init() tea.Cmd {
 		m.fetchPlaylists(),
 		m.loadSnapshot(),
 		m.reportPlayerProblem(),
+		m.reportKeysProblem(),
 	)
 }
 
@@ -956,6 +961,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rendered := renderHalfBlocks(msg.img, HeaderArtW, HeaderArtH)
 		m.tracklist.SetArt(rendered)
 		return m, nil
+
+	case keysProblemMsg:
+		m.toast.Show("Some custom keys in config.json need fixing", msg.problem, ToastError)
+		return m, scheduleAutoDismiss()
 
 	case pageLoadFailedMsg:
 		return m.pageLoadFailed(msg)
@@ -1444,6 +1453,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyCtrlC {
+		return m.quit() // from anywhere, as in any terminal program
+	}
 	switch m.mode {
 	case ModeHelp:
 		return m.handleKeyHelp(msg)
@@ -1468,10 +1480,48 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// keysProblemMsg carries Options.KeysProblem to the UI.
+type keysProblemMsg struct{ problem string }
+
+func (m Model) reportKeysProblem() tea.Cmd {
+	if m.opts.KeysProblem == "" {
+		return nil
+	}
+	p := m.opts.KeysProblem
+	// After the player's notice, if there's one, so both are seen.
+	return tea.Tick(toastDuration, func(time.Time) tea.Msg { return keysProblemMsg{p} })
+}
+
+// quit saves where the user was and ends the program.
+func (m Model) quit() (Model, tea.Cmd) {
+	m.saveSnapshotOnQuit()
+	m.cancel()
+	m.quitting = true
+	return m, tea.Quit
+}
+
 func (m Model) handleKeyHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if msg.Type == tea.KeyEscape || key.Matches(msg, m.keys.Help) || msg.String() == "q" {
 		m.mode = ModeNormal
+		m.helpScroll = 0
+		return m, nil
 	}
+	half := max(1, helpRows(m.height)/2)
+	switch {
+	case key.Matches(msg, m.keys.Down):
+		m.helpScroll++
+	case key.Matches(msg, m.keys.Up):
+		m.helpScroll--
+	case key.Matches(msg, m.keys.HalfDown):
+		m.helpScroll += half
+	case key.Matches(msg, m.keys.HalfUp):
+		m.helpScroll -= half
+	case key.Matches(msg, m.keys.Bottom):
+		m.helpScroll = helpMaxScroll(m.keys, m.width, m.height)
+	case msg.String() == "g":
+		m.helpScroll = 0
+	}
+	m.helpScroll = max(0, min(m.helpScroll, helpMaxScroll(m.keys, m.width, m.height)))
 	return m, nil
 }
 
@@ -1897,10 +1947,7 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, m.openNowPlaying(npViewLast)
 
 	case key.Matches(msg, m.keys.Quit):
-		m.saveSnapshotOnQuit()
-		m.cancel()
-		m.quitting = true
-		return m, tea.Quit
+		return m.quit()
 
 	case key.Matches(msg, m.keys.Help):
 		m.gtracker.Reset()
@@ -2031,9 +2078,19 @@ func (m Model) handleKeyNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Up), key.Matches(msg, m.keys.Down),
 		key.Matches(msg, m.keys.HalfUp), key.Matches(msg, m.keys.HalfDown):
 		if m.focusPane == PaneSidebar {
-			var cmd tea.Cmd
-			m.sidebar, cmd = m.sidebar.Update(msg)
-			return m, cmd
+			// Driven here rather than by the list's own keys, so half pages
+			// and rebound keys work in the sidebar too.
+			switch {
+			case key.Matches(msg, m.keys.Up):
+				m.sidebar.Move(-max(1, count))
+			case key.Matches(msg, m.keys.Down):
+				m.sidebar.Move(max(1, count))
+			case key.Matches(msg, m.keys.HalfUp):
+				m.sidebar.Move(-m.sidebar.HalfPage())
+			case key.Matches(msg, m.keys.HalfDown):
+				m.sidebar.Move(m.sidebar.HalfPage())
+			}
+			return m, nil
 		}
 		switch {
 		case key.Matches(msg, m.keys.Up):
@@ -2279,6 +2336,7 @@ func (m Model) handleEnter() (Model, tea.Cmd) {
 			}
 			m.pushNav()
 			m.tracklist.SetLoadingFor(pl.Name, pl.URI)
+			m.focusPane = PaneTrackList // so the next Enter plays from it
 			return m, m.fetchPlaylistTracks(*pl)
 		}
 	} else {
@@ -2573,7 +2631,7 @@ func (m Model) View() string {
 
 	// Help overlay replaces everything
 	if m.mode == ModeHelp {
-		return viewHelp(m.keys, m.width, m.height)
+		return viewHelp(m.keys, m.width, m.height, m.helpScroll)
 	}
 
 	// Now Playing overlay replaces everything
