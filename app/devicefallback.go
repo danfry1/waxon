@@ -182,7 +182,10 @@ func (m Model) handlePlayerExited(msg PlayerExitedMsg) (Model, tea.Cmd) {
 	if msg.Err != nil {
 		detail = msg.Err.Error()
 	}
-	m.toast.Show("waxon's player stopped", detail, ToastError)
+	// It's gone: let the device picker offer "play here" again, which signs
+	// it in afresh and restarts it.
+	m.opts.PlayerName = ""
+	m.toast.Show("waxon's player stopped: press D to restart it", detail, ToastError)
 	return m, scheduleAutoDismiss()
 }
 

@@ -89,6 +89,8 @@ func (setupPlayer) Installed() bool {
 	return err == nil
 }
 
+func (setupPlayer) LoggedIn() bool { return player.LoggedIn(player.Dir()) }
+
 func (setupPlayer) Installer() (args []string, manager, command string) {
 	in := player.FindInstaller()
 	return in.Args, in.Manager, in.Command
@@ -156,7 +158,7 @@ func runAuthSetup(opts authOptions) int {
 		note = "Using the client ID in $SPOTIFY_CLIENT_ID."
 	case saved.ClientID != "" && saved.ClientID != myauth.DefaultClientID:
 		id = saved.ClientID
-		note = "Using your Spotify app (" + id[:8] + "…). 'waxon auth --own' or '--shared' switches."
+		note = "Using your Spotify app (" + short(id) + "). 'waxon auth --own' or '--shared' switches."
 	}
 	if s := runSetup(setupDeps(id, note), app.SetupFull); !s.Connected() {
 		return 1

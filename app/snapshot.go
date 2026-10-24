@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -127,7 +128,9 @@ func (m Model) saveSnapshot() tea.Cmd {
 	if path == "" || !m.libraryLive || len(m.playlists) == 0 {
 		return nil
 	}
-	snap := librarySnapshot{Playlists: m.playlists, Last: m.lastPlaylistID}
+	// A copy: the library slice is edited in place (track counts) while the
+	// write runs.
+	snap := librarySnapshot{Playlists: slices.Clone(m.playlists), Last: m.lastPlaylistID}
 	snapshotSeq++
 	seq := snapshotSeq
 	return func() tea.Msg {
@@ -184,7 +187,7 @@ func (m Model) applySnapshot(snap *librarySnapshot) (Model, tea.Cmd) {
 		m.lastPlaylistID = pl.ID
 		m.resumePlaylistID, m.resumeCursor = pl.ID, snap.Cursor
 		m.snapshotShown = true
-		m.tracklist.SetLoading(pl.Name)
+		m.tracklist.SetLoadingFor(pl.Name, pl.URI)
 		cmds = append(cmds, m.fetchPlaylistTracks(*pl))
 	}
 	return m, tea.Batch(cmds...)
@@ -207,6 +210,15 @@ func samePage(shown, live []source.Track) bool {
 		}
 	}
 	return true
+}
+
+// shownTotal is the size of the playlist on screen: its total when more
+// pages are still to load, else what's shown.
+func (m Model) shownTotal() int {
+	if m.pagination != nil {
+		return m.pagination.total
+	}
+	return len(m.tracklist.tracks)
 }
 
 // playlistByID finds a library playlist (nil if it isn't in the library).

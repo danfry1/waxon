@@ -22,6 +22,11 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // tl.offset is always the exact data index of the first visible row, which
 // is what makes click-to-row mapping reliable even when the list is scrolled.
 type TrackList struct {
+	// want is the playlist (URI) the list is waiting for, so a slower
+	// answer for one the user has since left can't replace it; loadingOther
+	// while something that isn't a playlist loads, "" when nothing was asked.
+	want string
+
 	table       table.Model
 	tracks      []source.Track
 	filtered    []source.Track // subset visible after filter; nil means no filter active
@@ -140,7 +145,24 @@ func (tl *TrackList) Restyle() {
 	tl.rebuildRows()
 }
 
+// loadingOther is TrackList.want while a view that isn't a playlist loads.
+const loadingOther = "\x00other"
+
+// SetLoadingFor shows the loading state for the playlist uri.
+func (tl *TrackList) SetLoadingFor(title, uri string) {
+	tl.SetLoading(title)
+	tl.want = uri
+}
+
+// Expect records that the playlist uri was asked for (without showing the
+// loading state, for refreshes of the list on screen).
+func (tl *TrackList) Expect(uri string) { tl.want = uri }
+
+// Wants reports whether a loaded playlist page for uri may replace the list.
+func (tl *TrackList) Wants(uri string) bool { return tl.want == "" || tl.want == uri }
+
 func (tl *TrackList) SetLoading(title string) {
+	tl.want = loadingOther
 	tl.loading = true
 	tl.visual = -1
 	tl.title = title
@@ -766,6 +788,7 @@ type NavState struct {
 	headerInfo string
 	notice     string
 	contextURI string
+	want       string // what the list was waiting for (TrackList.want)
 	artBlock   string
 	cursor     int
 	offset     int
@@ -781,6 +804,7 @@ func (tl *TrackList) GetState(pane Pane) NavState {
 		headerInfo: tl.headerInfo,
 		notice:     tl.notice,
 		contextURI: tl.contextURI,
+		want:       tl.want,
 		artBlock:   tl.artBlock,
 		cursor:     tl.cursor,
 		offset:     tl.offset,
@@ -799,6 +823,10 @@ func (tl *TrackList) RestoreState(s NavState) {
 	tl.headerInfo = s.headerInfo
 	tl.notice = s.notice
 	tl.contextURI = s.contextURI
+	// Back on this view, it waits for what it waited for before, so a
+	// slower page for the one opened meanwhile can't replace it (and the
+	// empty start view still takes the startup load).
+	tl.want = s.want
 	tl.artBlock = s.artBlock
 	tl.filtered, tl.filteredIdx = nil, nil
 	tl.filterText = ""

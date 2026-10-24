@@ -284,11 +284,11 @@ func TestDeviceChoicesPlayerNotReady(t *testing.T) {
 		t.Errorf("toast = %q, want the player-not-ready hint", got)
 	}
 
-	// Once it has died, say why instead.
+	// Once it has died, it's no longer the device to wait for: the picker's
+	// "play here" row comes back to restart it.
 	result, _ = m.Update(PlayerExitedMsg{Err: errors.New("librespot stopped: Bad credentials")})
-	result, _ = result.(Model).Update(deviceChoicesMsg{retry: func() tea.Msg { return nil }})
-	if got := result.(Model).toast.View(120); !strings.Contains(got, "Bad credentials") {
-		t.Errorf("toast = %q, want librespot's error", got)
+	if got := result.(Model); got.opts.PlayerName != "" || !strings.Contains(got.toast.View(120), "press D to restart") {
+		t.Errorf("after the player died: name=%q toast=%q", got.opts.PlayerName, got.toast.View(120))
 	}
 }
 

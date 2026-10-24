@@ -69,6 +69,8 @@ func (p *demoPlayer) Installed() bool {
 	return err == nil
 }
 
+func (p *demoPlayer) LoggedIn() bool { return false }
+
 func (p *demoPlayer) Installer() ([]string, string, string) {
 	script := `echo "==> Fetching librespot"; sleep 0.6; echo "==> Pouring librespot--0.8.0.bottle.tar.gz"; sleep 0.6; echo "🍺  librespot was installed"; touch "$1"; sleep 0.8`
 	return []string{"sh", "-c", script, "sh", p.markerPath()}, "Homebrew", "brew install librespot"
