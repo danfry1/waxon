@@ -18,6 +18,12 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Changed
 
+- Homebrew installs waxon from a formula that builds it from source again,
+  instead of a cask that shipped an unsigned binary and cleared macOS's
+  quarantine flag on it. If you installed the cask and trusted the tap, the
+  next `brew update` installs the formula for you; then remove the cask with
+  `brew uninstall --cask --force waxon`. Otherwise run
+  `brew uninstall --cask --force waxon && brew install danfry1/tap/waxon`.
 - On Windows, waxon keeps its config and logins in `%AppData%\waxon`, the
   standard place, instead of `%USERPROFILE%\.config\waxon`. An existing
   folder is moved there the first time the new version runs; if it can't
