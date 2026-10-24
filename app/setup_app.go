@@ -30,10 +30,16 @@ func (m Model) withPlayHere(devices []source.Device) []source.Device {
 		source.Device{ID: playHereDeviceID, Name: "This computer: play here with waxon", Type: "+"})
 }
 
-// openPlayHerePicker opens the device picker with only the "play here" row,
-// for when Spotify lists no devices.
+// canOfferDevices reports whether the picker has rows to offer when Spotify
+// lists no devices: "play here" or "open the Spotify app".
+func (m Model) canOfferDevices() bool {
+	return m.canSetUpPlayer() || m.opts.OpenSpotifyApp != nil
+}
+
+// openPlayHerePicker opens the device picker with only the rows waxon adds
+// ("play here", "open the Spotify app"), for when Spotify lists no devices.
 func (m Model) openPlayHerePicker() (Model, tea.Cmd) {
-	picker := NewDevicePicker(m.withPlayHere(nil), m.width, m.height)
+	picker := NewDevicePicker(m.withOpenSpotify(m.withPlayHere(nil)), m.width, m.height)
 	picker.SetPrompt("No Spotify apps are open. Play right here?")
 	m.devices = &picker
 	m.mode = ModeDevices

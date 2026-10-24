@@ -22,6 +22,13 @@ Each release's section is also used verbatim as the GitHub Release notes.
 - Changing the volume shows a level meter: the part Spotify hasn't
   applied yet is drawn dimly and fills in, with a brief glow, once the new
   level takes effect. The status bar's volume dims and glows the same way.
+- `M` switches between playing in waxon and controlling the Spotify app
+  on this computer, carrying on from the same point. `:device -` goes back to the
+  device you were on before, and `:device <name>` switches to a device by
+  name.
+- When the Spotify desktop app is installed but closed, the device picker
+  offers to open it, and `M` does too: waxon starts it in the background
+  and moves playback there once it's online.
 
 ### Changed
 
@@ -43,6 +50,20 @@ Each release's section is also used verbatim as the GitHub Release notes.
 - Now Playing no longer shows the terminal's own background in a box
   around the cover and the text; everything sits on the gradient.
 - A toast's dismiss timer no longer hides a newer toast early.
+- waxon's player shows as a computer (`[PC]`) in device lists, not a
+  speaker.
+- Playing from Liked Songs on a Spotify app works: the apps refused it
+  ("Restriction violated") as waxon named it; only waxon's own player
+  accepted that.
+- Moving playback from waxon's player to a Spotify app works. Spotify
+  refuses that handover, so waxon starts the same track at the same point
+  on the app instead. A device that has only just come online gets a few
+  seconds to accept before waxon reports a problem.
+- A command Spotify sends to a device that's gone (a Spotify app quit
+  while playing) is replayed on a device that's there, as when no device
+  is active.
+- The device, actions, playlist and search popups no longer show the
+  terminal's background colour as a ring around their border.
 - An artist or album page that fails to load goes back to the view it was
   opened from, with a message, instead of loading forever. A view that is
   loading no longer shows the previous one's track count and genres.

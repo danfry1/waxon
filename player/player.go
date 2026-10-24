@@ -112,11 +112,12 @@ func DeviceName() string {
 	return "waxon (" + host + ")"
 }
 
-// baseArgs are the flags every run shares: a fixed name, no zeroconf
-// (nobody else should be able to take the device over), and the login kept
-// in dir. No --cache, so no audio is cached.
+// baseArgs are the flags every run shares: a fixed name shown as a
+// computer (librespot says "speaker" otherwise), no zeroconf (nobody else
+// should be able to take the device over), and the login kept in dir. No
+// --cache, so no audio is cached.
 func baseArgs(dir, name string) []string {
-	return []string{"--name", name, "--disable-discovery", "--system-cache", dir}
+	return []string{"--name", name, "--device-type", "computer", "--disable-discovery", "--system-cache", dir}
 }
 
 // complete reports whether a whole credentials file is in dir (librespot

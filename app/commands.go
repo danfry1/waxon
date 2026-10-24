@@ -595,11 +595,34 @@ func (m Model) transferPlayback(deviceID, deviceName string) tea.Cmd {
 	src := m.source
 	ctx := m.ctx
 	return func() tea.Msg {
-		if err := src.TransferPlayback(ctx, deviceID); err != nil {
+		if err := transferRetrying(ctx, src, deviceID); err != nil {
 			return trackErrorMsg{err}
 		}
-		return cmdFlashMsg{"Playback → " + deviceName}
+		return playbackMovedMsg{deviceName}
 	}
+}
+
+// transferRetryWaits are the pauses before each further try of a transfer
+// Spotify refused as not ready: a device that has just come online takes a
+// few seconds before it can take over.
+var transferRetryWaits = []time.Duration{time.Second, 1500 * time.Millisecond, 2 * time.Second, 2500 * time.Millisecond}
+
+// transferRetrying moves playback to deviceID, trying again while Spotify
+// says the device isn't ready for it.
+func transferRetrying(ctx context.Context, src source.RichSource, deviceID string) error {
+	err := src.TransferPlayback(ctx, deviceID)
+	for _, wait := range transferRetryWaits {
+		if !errors.Is(err, source.ErrDeviceUnavailable) && !errors.Is(err, source.ErrPlaybackRestricted) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(wait):
+		}
+		err = src.TransferPlayback(ctx, deviceID)
+	}
+	return err
 }
 
 func (m Model) playPlaylistFromStart(contextURI string) tea.Cmd {
@@ -792,6 +815,9 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 			return cmdFlashMsg{"Repeat: " + repeatLabel(mode)}
 		})
 	case CmdDevice:
+		if cmd.StrArg != "" {
+			return m.switchDevice(cmd.StrArg)
+		}
 		return m.fetchDevices()
 	case CmdRecent:
 		m.pushNav()
@@ -1034,7 +1060,9 @@ func (m Model) navigateToPlaybackContext() (tea.Cmd, bool) {
 	// Playlists and Liked Songs live in the user's library — use that entry so
 	// the loaded view has the right name and artwork.
 	for _, pl := range m.playlists {
-		if pl.URI == uri {
+		// Liked Songs plays as the account's collection
+		// (spotify:user:<id>:collection), which Spotify then reports.
+		if pl.URI == uri || (pl.ID == likedPlaylistID && isAccountCollection(uri)) {
 			return m.fetchPlaylistTracks(pl), true
 		}
 	}
@@ -1118,4 +1146,11 @@ func copyToClipboard(text string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = strings.NewReader(text)
 	return cmd.Run()
+}
+
+// isAccountCollection reports whether uri is a user's saved-tracks
+// collection, spotify:user:<id>:collection.
+func isAccountCollection(uri string) bool {
+	parts := strings.Split(uri, ":")
+	return len(parts) == 4 && parts[0] == "spotify" && parts[1] == "user" && parts[3] == "collection"
 }

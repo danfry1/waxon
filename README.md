@@ -121,6 +121,13 @@ If nothing is playing when you press play, waxon picks a device for you:
 its own player when you've set it up, the only device when there's one, or
 it asks which one when there are several.
 
+`M` switches waxon between its two modes on this computer: **playing by
+itself** and **controlling the Spotify app**, carrying on from the same
+point. If the Spotify app is installed but closed, `M` opens it (and the
+picker offers to **open the Spotify app**): waxon starts it in the
+background and hands playback to it once it's online. `:device -` goes
+back to whichever device you were on before, phones and speakers included.
+
 > **About the player login.** Spotify only lets its own apps stream audio, so
 > librespot — an open-source, unofficial Spotify Connect client (it also powers
 > spotifyd, raspotify and ncspot) — signs in as the Spotify desktop app, and
@@ -279,6 +286,7 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `/`   | Filter current view |
 | `s`   | Spotify search      |
 | `D`   | Device switcher     |
+| `M`   | Play in waxon ⇄ control the Spotify app |
 | `:`   | Command mode        |
 
 ### Visual mode
@@ -316,6 +324,8 @@ Enter command mode by pressing `:`, then type a command.
 | `:shuffle`              | Toggle shuffle       |
 | `:repeat off\|all\|one` | Set repeat mode      |
 | `:device`               | Open device switcher |
+| `:device -`             | Back to the previous device |
+| `:device <name>`        | Switch to the device whose name contains `<name>` |
 | `:search <query>`       | Search Spotify       |
 | `:recent`               | Recently played      |
 | `:albums`               | Saved albums         |
@@ -345,7 +355,7 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
   <img src="demo/recordings/themes.gif" alt="switching themes with :theme" width="800">
 </p>
 
-**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings.
+**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down shuffle repeat visual add_queue like actions devices mode back filter search command help now_playing quit section1 section2`. The `g`-prefix motions (`gg gl gq gc gr ga gA gp`) and `Esc` are fixed. The `?` help overlay always shows your live bindings.
 
 **Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
 

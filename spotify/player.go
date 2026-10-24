@@ -3,9 +3,12 @@ package spotify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -163,7 +166,53 @@ func (p *PlayerSource) Devices(ctx context.Context) ([]source.Device, error) {
 
 func (p *PlayerSource) TransferPlayback(ctx context.Context, deviceID string) error {
 	id := spotifyapi.ID(deviceID)
-	return wrapPlayerError(p.client.TransferPlayback(ctx, id, true))
+	err := wrapPlayerError(p.client.TransferPlayback(ctx, id, true))
+	if errors.Is(err, source.ErrDeviceUnavailable) || errors.Is(err, source.ErrPlaybackRestricted) {
+		// Spotify refuses a handover it can't make: a server error from
+		// librespot to the Spotify app, "Restriction violated" when the
+		// device playing has gone (a Spotify app that was quit). Starting
+		// the same track at the same point on the device does the same
+		// thing without the handover.
+		playErr := p.playHere(ctx, id)
+		slog.Info("transfer refused; played on the device instead", "device", deviceID, "transfer", err, "play", playErr)
+		if playErr == nil || !errors.Is(playErr, errNothingPlaying) {
+			return playErr
+		}
+	}
+	return err
+}
+
+var errNothingPlaying = errors.New("nothing playing to move")
+
+// playHere plays what's playing now on device id: the same track, in the
+// same playlist or album, from the same point.
+func (p *PlayerSource) playHere(ctx context.Context, id spotifyapi.ID) error {
+	// Episodes are reported only when asked for (and then decode into Item
+	// all the same: its uri is what's needed).
+	st, err := p.client.PlayerState(ctx, spotifyapi.AdditionalTypes(spotifyapi.EpisodeAdditionalType))
+	if err != nil {
+		return wrapPlayerError(err)
+	}
+	if st == nil || st.Item == nil || st.Item.URI == "" {
+		return errNothingPlaying
+	}
+	// Stop the device playing first, or both play for a moment: Spotify
+	// doesn't stop it, as a real handover would. A failed pause is no
+	// reason not to move.
+	if from := st.Device.ID; from != "" && from != id && st.Playing {
+		_ = p.client.PauseOpt(ctx, &spotifyapi.PlayOptions{DeviceID: &from})
+	}
+	opt := &spotifyapi.PlayOptions{DeviceID: &id, PositionMs: st.Progress}
+	switch uri := spotifyapi.URI(p.playableContext(ctx, string(st.PlaybackContext.URI))); {
+	case offsetContext(string(uri)):
+		opt.PlaybackContext = &uri
+		opt.PlaybackOffset = &spotifyapi.PlaybackOffset{URI: st.Item.URI}
+	default:
+		// An artist, show or radio context can't be started at a given
+		// track; the track itself plays on.
+		opt.URIs = []spotifyapi.URI{st.Item.URI}
+	}
+	return wrapPlayerError(p.client.PlayOpt(ctx, opt))
 }
 
 // Queue reads the queue through waxon's own API path so episodes keep their
@@ -189,7 +238,7 @@ func (p *PlayerSource) Queue(ctx context.Context) ([]source.Track, error) {
 }
 
 func (p *PlayerSource) PlayTrack(ctx context.Context, contextURI string, trackURI string) error {
-	uri := spotifyapi.URI(contextURI)
+	uri := spotifyapi.URI(p.playableContext(ctx, contextURI))
 	opts := &spotifyapi.PlayOptions{
 		PlaybackContext: &uri,
 	}
@@ -197,6 +246,38 @@ func (p *PlayerSource) PlayTrack(ctx context.Context, contextURI string, trackUR
 		opts.PlaybackOffset = &spotifyapi.PlaybackOffset{URI: spotifyapi.URI(trackURI)}
 	}
 	return wrapPlayerError(p.client.PlayOpt(ctx, opts))
+}
+
+// offsetContext reports whether playback in context uri can start at a
+// given track (Spotify allows that for albums, playlists and the user's
+// collection only).
+func offsetContext(uri string) bool {
+	parts := strings.Split(uri, ":")
+	switch {
+	case len(parts) >= 3 && (parts[1] == "album" || parts[1] == "playlist"):
+		return true
+	case len(parts) == 4 && parts[1] == "user" && parts[3] == "collection":
+		return true
+	}
+	return false
+}
+
+// likedSongsURI is how waxon names Liked Songs (source.Playlist.URI).
+const likedSongsURI = "spotify:collection:tracks"
+
+// playableContext is contextURI as a playback request should name it. The
+// Spotify apps refuse Liked Songs as spotify:collection:tracks ("Restriction
+// violated"; librespot accepts it) but play it as the account's collection,
+// spotify:user:<id>:collection.
+func (p *PlayerSource) playableContext(ctx context.Context, contextURI string) string {
+	if contextURI != likedSongsURI {
+		return contextURI
+	}
+	id, err := p.currentUserID(ctx)
+	if err != nil || id == "" {
+		return contextURI
+	}
+	return "spotify:user:" + id + ":collection"
 }
 
 func (p *PlayerSource) PlayTrackDirect(ctx context.Context, trackURI string) error {

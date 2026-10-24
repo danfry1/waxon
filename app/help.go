@@ -96,6 +96,7 @@ func helpCategories(k KeyMap) []helpCategory {
 				hb(k.Filter, "filter view"),
 				hb(k.Search, "search Spotify"),
 				hb(k.Devices, "devices"),
+				hb(k.Mode, "play in waxon ⇄ control the Spotify app"),
 				hb(k.Command, "command mode"),
 				hb(k.NowPlaying, "now playing"),
 				hb(k.Help, "help"),
