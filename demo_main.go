@@ -23,6 +23,18 @@ func runDemo() {
 		os.Exit(r.Run(context.Background(), os.Args[2:]))
 	}
 
+	if len(os.Args) > 2 && os.Args[2] == "setup" {
+		// The guided setup, against stand-ins (see demo_setup.go).
+		deps, cleanup := demoSetupDeps()
+		defer cleanup()
+		s := app.NewSetup(deps, app.SetupFull)
+		if _, err := tea.NewProgram(s, tea.WithAltScreen()).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	fmt.Println("  Starting waxon in demo mode...")
 	fmt.Println("")
 

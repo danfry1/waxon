@@ -26,8 +26,9 @@ import (
 // Backend is the config value that turns the player on.
 const Backend = "librespot"
 
-// ErrNotInstalled means the librespot binary couldn't be found.
-var ErrNotInstalled = errors.New("librespot not found: install it (e.g. 'brew install librespot' or 'cargo install librespot'), or set player_path in config.json")
+// ErrNotInstalled means the librespot binary couldn't be found. Find wraps
+// it with how to install librespot here.
+var ErrNotInstalled = errors.New("librespot isn't installed")
 
 // ErrNoLogin means librespot hasn't been signed in yet.
 var ErrNoLogin = errors.New("the player isn't signed in: run 'waxon player login'")
@@ -63,10 +64,42 @@ func Find(path string) (string, error) {
 	}
 	bin, err := exec.LookPath(path)
 	if err != nil {
-		return "", ErrNotInstalled
+		return "", fmt.Errorf("%w: install it with '%s' (or set player_path in config.json)", ErrNotInstalled, InstallCommand())
 	}
 	return bin, nil
 }
+
+// Installer is how to install librespot with a package manager on this
+// machine. Args is nil when none was found; Command is then a manual hint.
+type Installer struct {
+	Manager string   // "Homebrew", "pacman", …
+	Args    []string // the command to run, e.g. ["brew", "install", "librespot"]
+	Command string   // Args as typed, or what to do by hand
+}
+
+// FindInstaller picks the first package manager found that ships librespot,
+// falling back to cargo (librespot is a Rust program).
+func FindInstaller() Installer {
+	for _, pm := range []Installer{
+		{Manager: "Homebrew", Args: []string{"brew", "install", "librespot"}},
+		{Manager: "pacman", Args: []string{"sudo", "pacman", "-S", "--needed", "librespot"}},
+		{Manager: "Nix", Args: []string{"nix", "profile", "install", "nixpkgs#librespot"}},
+		{Manager: "cargo", Args: []string{"cargo", "install", "librespot"}},
+	} {
+		bin := pm.Args[0]
+		if bin == "sudo" {
+			bin = pm.Args[1]
+		}
+		if _, err := exec.LookPath(bin); err == nil {
+			pm.Command = strings.Join(pm.Args, " ")
+			return pm
+		}
+	}
+	return Installer{Command: "install Rust (https://rustup.rs), then: cargo install librespot"}
+}
+
+// InstallCommand is FindInstaller's command, for messages.
+func InstallCommand() string { return FindInstaller().Command }
 
 // DeviceName is the Connect device name waxon's player uses on this
 // machine, so players on different machines can be told apart.
@@ -133,7 +166,23 @@ func signIn(ctx context.Context, bin, dir string, paste bool, in io.Reader, out 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // the user's own librespot
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, out
+	cmd.Stdout, cmd.Stderr = out, out
+	// Give librespot a real pipe and copy in into it ourselves: os/exec's
+	// own copy of a non-file Stdin is waited on by Wait, and in may be a
+	// pipe nothing is ever written to (the setup's paste field).
+	switch f, ok := in.(*os.File); {
+	case in == nil:
+	case ok:
+		cmd.Stdin = f
+	default:
+		r, w, err := os.Pipe()
+		if err != nil {
+			return err
+		}
+		cmd.Stdin = r
+		defer func() { _ = r.Close(); _ = w.Close() }()
+		go func() { _, _ = io.Copy(w, in) }()
+	}
 	if err := cmd.Start(); err != nil {
 		return err
 	}

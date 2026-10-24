@@ -28,6 +28,13 @@ func runPlayer(args []string) int {
 	cfg, _ := config.Load()
 	switch sub {
 	case "login":
+		if interactiveTerminal() {
+			if !runSetup(setupDeps("", ""), app.SetupPlayerOnly).Finished() {
+				return 1
+			}
+			fmt.Printf("waxon now plays through its own device, %q, whenever nothing else is playing.\n", player.DeviceName())
+			return 0
+		}
 		bin, err := player.Find(cfg.PlayerPath)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -62,11 +69,60 @@ func runPlayer(args []string) int {
 		}
 		fmt.Println("waxon's player is off; waxon controls your other Spotify devices only. ('waxon player login' turns it back on.)")
 		return 0
+	case "", "status":
+		printPlayerStatus(cfg)
+		return 0
 	default:
-		fmt.Fprintln(os.Stderr, `Usage:
-  waxon player login   Sign in librespot and play through waxon itself
-  waxon player off     Stop starting the player`)
+		fmt.Fprintln(os.Stderr, playerUsage)
 		return 2
+	}
+}
+
+const playerUsage = `Usage:
+  waxon player         Show the player's status
+  waxon player login   Sign librespot in and play through waxon itself
+  waxon player off     Stop starting the player`
+
+// printPlayerStatus says whether waxon's own player is set up and, if not,
+// the next step.
+func printPlayerStatus(cfg config.Config) {
+	bin, findErr := player.Find(cfg.PlayerPath)
+	loggedIn := player.LoggedIn(player.Dir())
+	on := cfg.Player == player.Backend
+
+	fmt.Println("waxon's player plays Spotify right here, through librespot, so no Spotify")
+	fmt.Println("app has to be open. It's optional: without it waxon controls your other")
+	fmt.Println("Spotify devices (phone, desktop app, speakers).")
+	fmt.Println()
+	mark := func(ok bool) string {
+		if ok {
+			return "✓"
+		}
+		return "✗"
+	}
+	if findErr == nil {
+		fmt.Printf("  %s librespot   %s\n", mark(true), bin)
+	} else {
+		fmt.Printf("  %s librespot   not installed\n", mark(false))
+	}
+	if loggedIn {
+		fmt.Printf("  %s signed in\n", mark(true))
+	} else {
+		fmt.Printf("  %s not signed in\n", mark(false))
+	}
+	if on {
+		fmt.Printf("  %s on          plays as %q\n", mark(true), player.DeviceName())
+	} else {
+		fmt.Printf("  %s off\n", mark(false))
+	}
+	fmt.Println()
+	switch {
+	case findErr != nil:
+		fmt.Printf("Next: install librespot with '%s', then run 'waxon player login'.\n", player.InstallCommand())
+	case !loggedIn || !on:
+		fmt.Println("Next: run 'waxon player login' to sign in and turn it on.")
+	default:
+		fmt.Println("All set. 'waxon player off' turns it off.")
 	}
 }
 
@@ -79,23 +135,22 @@ type playerRunner struct {
 	stopped bool
 }
 
-// newPlayerRunner returns a runner when the player is turned on in cfg,
-// warning (and returning nil) when it can't run.
-func newPlayerRunner(cfg config.Config) *playerRunner {
+// newPlayerRunner returns a runner when the player is turned on in cfg. When
+// it's on but can't run, it returns nil and a short problem-and-fix for the
+// TUI to show.
+func newPlayerRunner(cfg config.Config) (*playerRunner, string) {
 	if cfg.Player != player.Backend {
-		return nil
+		return nil, ""
 	}
 	bin, err := player.Find(cfg.PlayerPath)
-	if err == nil && !player.LoggedIn(player.Dir()) {
-		err = player.ErrNoLogin
-	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: waxon's player: %v\n", err)
-		time.Sleep(1500 * time.Millisecond) // the TUI is about to take over the screen
-		return nil
+		return nil, "librespot isn't installed: " + player.InstallCommand()
+	}
+	if !player.LoggedIn(player.Dir()) {
+		return nil, "Not signed in: run 'waxon player login'"
 	}
 	player.Secure(player.Dir())
-	return &playerRunner{bin: bin, dir: player.Dir(), name: player.DeviceName()}
+	return &playerRunner{bin: bin, dir: player.Dir(), name: player.DeviceName()}, ""
 }
 
 // start launches librespot in the background unless this machine's waxon

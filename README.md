@@ -62,49 +62,57 @@ SHA-256 checksums) for Linux, macOS and Windows on `amd64` and `arm64`.
 ## Quick Start
 
 ```bash
-waxon         # first run walks you through connecting Spotify
+waxon         # first run opens a guided setup
 ```
 
-Setup asks one question — use **your own** Spotify app (recommended: no rate
-limits, two minutes, waxon shows the exact clicks) or the **shared** one (zero
-setup, but Spotify throttles it for everyone).
+Setup takes about a minute, in two steps:
+
+1. **Connect Spotify.** Use **your own** Spotify app (recommended: no rate
+   limits, about two minutes; waxon lists the exact clicks, opens the
+   dashboard and checks the Client ID as you paste it) or the **shared** one
+   (zero setup, but Spotify throttles it for everyone). Then approve in your
+   browser.
+2. **Choose where music plays.** waxon shows the Spotify devices on your
+   account, and you pick:
+   - **Your Spotify apps** — your phone, the desktop app, speakers. waxon is
+     the remote; nothing to install.
+   - **Right here in waxon** — no Spotify app needed. waxon plays through
+     [librespot](https://github.com/librespot-org/librespot), offers to
+     install it with your package manager (Homebrew, pacman, Nix or cargo),
+     and signs it in. From then on it starts its own Spotify Connect device,
+     `waxon (<host>)`, in the background and plays through it whenever
+     nothing else is playing.
 
 <p align="center">
   <img src="demo/recordings/setup.gif" alt="guided setup" width="700">
 </p>
 
+Chose your Spotify apps and want waxon to play by itself later? Press `D`:
+the device picker has a **play here with waxon** row that runs the same
+player setup in place.
+
 Re-run or switch any time:
 
 ```bash
-waxon auth            # guided
+waxon auth            # guided setup again
 waxon auth --own      # set up / switch to your own app
 waxon auth --shared   # use the shared app
 waxon auth --client-id <ID>
-waxon logout          # forget the saved login
+waxon player          # is waxon's own player set up?
+waxon player login    # set it up (or sign it in again)
+waxon player off      # stop using it
+waxon logout          # forget the saved logins
 ```
 
-**Over SSH** (or whenever the browser is on another machine): open the printed
-URL anywhere, approve, and paste the address the browser lands on back into
-the terminal. That page won't load, which is expected; waxon only needs its URL.
+**Over SSH** (or whenever the browser is on another machine): open the link
+anywhere, approve, and paste the address the browser lands on into waxon.
+That page won't load, which is expected; waxon only needs its address.
 
 Requires a **Spotify Premium** account. True-colour terminals get the full look; 256-colour and `NO_COLOR` terminals are supported with graceful fallbacks.
 
-waxon is a remote control for Spotify Connect: it plays through whatever Spotify
-client is running (desktop app, phone, speaker). If nothing is active when you
-press play, waxon picks the only available device for you — or asks which one
-to use when there are several.
-
-**No Spotify app open?** waxon can be the player too. Install
-[librespot](https://github.com/librespot-org/librespot) (`brew install librespot`,
-`cargo install librespot`, or your distro's package), then once:
-
-```bash
-waxon player login    # sign librespot in (opens a browser; paste mode over SSH)
-```
-
-From then on waxon starts its own Spotify Connect device, `waxon (<host>)`,
-in the background and plays through it whenever nothing else is playing.
-`waxon player off` turns it off, and `waxon logout` forgets both logins.
+If nothing is playing when you press play, waxon picks a device for you:
+its own player when you've set it up, the only device when there's one, or
+it asks which one when there are several.
 
 > **About the player login.** Spotify only lets its own apps stream audio, so
 > librespot — an open-source, unofficial Spotify Connect client (it also powers

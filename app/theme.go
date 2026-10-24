@@ -263,6 +263,7 @@ func ApplyTheme(p Palette) {
 	StyleModeFilter = lipgloss.NewStyle().Foreground(ColorBg).Background(ColorModeFilter).Bold(true).Padding(0, 1)
 	StyleStatusBar = lipgloss.NewStyle().Background(ColorSurface).Foreground(ColorText)
 	StyleModeLine = lipgloss.NewStyle().Background(ColorBg).Foreground(ColorTextSec)
+	restyleSetup()
 }
 
 func init() {

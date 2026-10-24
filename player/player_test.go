@@ -216,3 +216,21 @@ func TestLoginKeepsCredentialsPrivate(t *testing.T) {
 		t.Errorf("dir mode = %v, want 0700", dirInfo.Mode().Perm())
 	}
 }
+
+// The setup passes a pipe for pasting; Login must still return once signed
+// in, though nothing is ever written to it (os/exec waits for its stdin copy).
+func TestLoginReturnsWithUnusedPipeStdin(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "librespot")
+	pr, pw := io.Pipe()
+	defer func() { _ = pw.Close() }()
+	done := make(chan error, 1)
+	go func() { done <- Login(context.Background(), fake(t, "login"), dir, false, pr, io.Discard) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Login hung waiting on its stdin pipe")
+	}
+}
