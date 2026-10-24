@@ -112,7 +112,17 @@ func Login(ctx context.Context, bin, dir string, paste bool, in io.Reader, out i
 	if err := signIn(ctx, bin, tmp, paste, in, out); err != nil {
 		return err
 	}
+	// librespot writes it world-readable; it's a reusable login, so keep it
+	// to the user like waxon's own token.
+	if err := os.Chmod(credentialsPath(tmp), 0o600); err != nil {
+		return err
+	}
 	return os.Rename(credentialsPath(tmp), credentialsPath(dir))
+}
+
+// Secure tightens a login cached before Login set its permissions.
+func Secure(dir string) {
+	_ = os.Chmod(credentialsPath(dir), 0o600)
 }
 
 func signIn(ctx context.Context, bin, dir string, paste bool, in io.Reader, out io.Writer) error {

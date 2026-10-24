@@ -14,7 +14,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
   [librespot](https://github.com/librespot-org/librespot) installed, run
   `waxon player login` once; waxon then starts its own Spotify Connect device
   in the background, plays through it when nothing else is active, and stops
-  it on quit. `waxon player off` turns it off.
+  it on quit. `waxon player off` turns it off. The player's login is kept
+  in `~/.config/waxon/librespot/`, readable only by you.
 
 ### Changed
 

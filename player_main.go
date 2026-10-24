@@ -94,6 +94,7 @@ func newPlayerRunner(cfg config.Config) *playerRunner {
 		time.Sleep(1500 * time.Millisecond) // the TUI is about to take over the screen
 		return nil
 	}
+	player.Secure(player.Dir())
 	return &playerRunner{bin: bin, dir: player.Dir(), name: player.DeviceName()}
 }
 

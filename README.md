@@ -104,9 +104,17 @@ waxon player login    # sign librespot in (opens a browser; paste mode over SSH)
 
 From then on waxon starts its own Spotify Connect device, `waxon (<host>)`,
 in the background and plays through it whenever nothing else is playing.
-librespot needs its own Spotify login: Spotify only lets its own apps stream
-audio, so waxon's login can't be reused. `waxon player off` turns it off, and
-`waxon logout` forgets both logins.
+`waxon player off` turns it off, and `waxon logout` forgets both logins.
+
+> **About the player login.** Spotify only lets its own apps stream audio, so
+> librespot — an open-source, unofficial Spotify Connect client (it also powers
+> spotifyd, raspotify and ncspot) — signs in as the Spotify desktop app, and
+> asks for the same broad permissions that app does. You approve on Spotify's
+> own sign-in page; your password never reaches waxon or librespot. The
+> resulting login token is saved only on your machine, in
+> `~/.config/waxon/librespot/` (readable by you alone), and is sent nowhere
+> but Spotify. Being unofficial, librespot could stop working if Spotify
+> changes something; the player is opt-in for that reason.
 
 <p align="center">
   <img src="demo/recordings/no-device.gif" alt="picking a device when none is active" width="800">
