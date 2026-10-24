@@ -21,13 +21,23 @@ const (
 	CmdTheme
 	CmdNewPlaylist
 	CmdNowPlaying // IntArg: the npView to open on
+	CmdControl    // StrArg: play, pause, toggle, next or prev
+	CmdSeek       // IntArg: seconds; StrArg: "+" / "-" for relative, "" for absolute
+	CmdLike       // StrArg: "on", "off" or "" (toggle), for the playing track
+	CmdMute
+	CmdHelp
 )
 
 // commandHelp is the user-facing list of : commands shown in the help overlay.
 // Keep in sync with ParseCommand.
 var commandHelp = []helpBinding{
-	{":vol N", "set volume 0-100"},
-	{":shuffle", "toggle shuffle"},
+	{":play / :pause", "resume / pause"},
+	{":next / :prev", "next / previous track"},
+	{":seek ±N / M:SS", "seek by N s, or to a time"},
+	{":vol N / ±N", "set or change volume"},
+	{":mute", "mute / unmute"},
+	{":like [on|off]", "like the playing track"},
+	{":shuffle [on|off]", "shuffle"},
 	{":repeat X", "off / all / one"},
 	{":device", "switch device"},
 	{":device -", "back to the previous device"},
@@ -41,7 +51,44 @@ var commandHelp = []helpBinding{
 	{":vinyl", "now playing: vinyl"},
 	{":theme NAME", "switch colour theme"},
 	{":playlist new NAME", "create a playlist"},
+	{":h", "help"},
 	{":q", "quit"},
+}
+
+// commandNames are the commands Tab completes, ParseCommand's spellings.
+var commandNames = []string{
+	"albums", "artists", "device", "help", "like", "lyrics", "mute", "next", "pause",
+	"play", "playlist new", "podcasts", "prev", "quit", "recent", "repeat", "search",
+	"seek", "shuffle", "theme", "toggle", "vinyl", "vol",
+}
+
+// completeCommand completes the command name being typed in input to the
+// longest prefix the matching commands share; input comes back unchanged
+// if nothing matches or an argument is already being typed.
+func completeCommand(input string) string {
+	if strings.Contains(strings.TrimLeft(input, " "), " ") {
+		return input
+	}
+	prefix := strings.TrimSpace(input)
+	var match []string
+	for _, n := range commandNames {
+		if strings.HasPrefix(n, prefix) {
+			match = append(match, n)
+		}
+	}
+	if len(match) == 0 {
+		return input
+	}
+	common := match[0]
+	for _, n := range match[1:] {
+		for !strings.HasPrefix(n, common) {
+			common = common[:len(common)-1]
+		}
+	}
+	if len(match) == 1 {
+		common += " "
+	}
+	return common
 }
 
 type Command struct {
@@ -66,17 +113,54 @@ func ParseCommand(input string) (Command, error) {
 
 	case "vol", "volume":
 		if len(args) != 1 {
-			return Command{}, errors.New("usage: vol <0-100>")
+			return Command{}, errors.New("usage: vol <0-100|+N|-N>")
 		}
-		v, err := strconv.Atoi(args[0])
-		if err != nil || v < 0 || v > 100 {
+		arg := args[0]
+		v, err := strconv.Atoi(strings.TrimPrefix(arg, "+"))
+		if err != nil {
+			return Command{}, errors.New("usage: vol <0-100|+N|-N>")
+		}
+		if strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-") {
+			return Command{Type: CmdVolume, IntArg: v, StrArg: "rel"}, nil
+		}
+		if v < 0 || v > 100 {
 			return Command{}, errors.New("volume must be 0-100")
 		}
 		return Command{Type: CmdVolume, IntArg: v}, nil
 
 	case "shuffle":
-		// Toggle — no arguments needed
-		return Command{Type: CmdShuffle}, nil
+		on, err := onOffArg(args, "shuffle [on|off]")
+		return Command{Type: CmdShuffle, StrArg: on}, err
+
+	case "play", "pause", "toggle", "next", "prev", "previous":
+		if cmd == "previous" {
+			cmd = "prev"
+		}
+		return Command{Type: CmdControl, StrArg: cmd}, nil
+
+	case "seek":
+		if len(args) != 1 {
+			return Command{}, errors.New("usage: seek <+N|-N|SECONDS|M:SS>")
+		}
+		sign := ""
+		if a := args[0]; strings.HasPrefix(a, "+") || strings.HasPrefix(a, "-") {
+			sign = a[:1]
+		}
+		secs, err := parseSeconds(strings.TrimLeft(args[0], "+-"))
+		if err != nil {
+			return Command{}, errors.New("usage: seek <+N|-N|SECONDS|M:SS>")
+		}
+		return Command{Type: CmdSeek, IntArg: secs, StrArg: sign}, nil
+
+	case "like":
+		on, err := onOffArg(args, "like [on|off]")
+		return Command{Type: CmdLike, StrArg: on}, err
+
+	case "mute":
+		return Command{Type: CmdMute}, nil
+
+	case "h", "help":
+		return Command{Type: CmdHelp}, nil
 
 	case "repeat":
 		if len(args) != 1 {
@@ -132,4 +216,32 @@ func ParseCommand(input string) (Command, error) {
 	default:
 		return Command{}, fmt.Errorf("unknown command: %s", cmd)
 	}
+}
+
+// onOffArg reads an optional on/off argument ("" when absent: toggle).
+func onOffArg(args []string, usage string) (string, error) {
+	switch {
+	case len(args) == 0:
+		return "", nil
+	case len(args) == 1 && (args[0] == "on" || args[0] == "off"):
+		return args[0], nil
+	}
+	return "", errors.New("usage: " + usage)
+}
+
+// parseSeconds reads SECONDS, M:SS or H:MM:SS.
+func parseSeconds(s string) (int, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) > 3 {
+		return 0, errors.New("bad time")
+	}
+	total := 0
+	for _, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return 0, errors.New("bad time")
+		}
+		total = total*60 + n
+	}
+	return total, nil
 }

@@ -216,3 +216,23 @@ func TestEscClearsFilter(t *testing.T) {
 		t.Errorf("filter after Esc = %q", got)
 	}
 }
+
+// Tab in search moves to the results, where a queues the selected track
+// instead of typing into the query.
+func TestSearchTabActsOnResults(t *testing.T) {
+	queued := ""
+	stub := &StubSource{AddToQueueFn: func(_ context.Context, id string) error { queued = id; return nil }}
+	m := newTestModel(stub)
+	s := NewSearch(80, 24)
+	s.results = &source.SearchResults{Tracks: []source.Track{{ID: "r1", Name: "Hit"}}}
+	m.search, m.mode = &s, ModeSearch
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	res, cmd := res.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if cmd != nil {
+		runCmdTree(cmd)
+	}
+	mm := res.(Model)
+	if queued != "r1" || mm.search.input.Value() != "" {
+		t.Errorf("queued %q, query %q; want the result queued and nothing typed", queued, mm.search.input.Value())
+	}
+}

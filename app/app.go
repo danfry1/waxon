@@ -1640,6 +1640,39 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// searchResultKey handles the keys that act on the selected search result
+// once Tab has moved to the results: they're the track list's keys.
+func (m Model) searchResultKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
+	switch {
+	case key.Matches(msg, m.keys.Down):
+		m.search.Move(1)
+		return m, nil, true
+	case key.Matches(msg, m.keys.Up):
+		m.search.Move(-1)
+		return m, nil, true
+	case msg.String() == "/":
+		m.search.ToggleResults() // back to typing
+		return m, nil, true
+	}
+	t := m.search.SelectedTrack()
+	if t == nil {
+		return m, nil, msg.Type == tea.KeyRunes // letters don't type here
+	}
+	switch {
+	case key.Matches(msg, m.keys.AddQueue):
+		return m, m.queueTrack(t.ID, t.Name), true
+	case key.Matches(msg, m.keys.Like):
+		return m, m.likeToggleCmd(t.ID), true
+	case key.Matches(msg, m.keys.Actions):
+		popup := NewTrackActions(t.Name, t.Artist, t.URI, searchPlayContext(*t), t.ArtistID, t.AlbumID, m.likedCache[t.ID], m.width, m.height)
+		m.actions = &popup
+		m.actionsReturn = ModeSearch
+		m.mode = ModeActions
+		return m, nil, true
+	}
+	return m, nil, msg.Type == tea.KeyRunes
+}
+
 // searchPlayContext is the context a search result plays in: its album, when
 // known. Without one Spotify plays the single track and then stops.
 func searchPlayContext(t source.Track) string {
@@ -1652,6 +1685,15 @@ func searchPlayContext(t source.Track) string {
 func (m Model) handleKeySearch(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.search == nil {
 		return m, nil
+	}
+	if msg.Type == tea.KeyTab {
+		m.search.ToggleResults()
+		return m, nil
+	}
+	if m.search.InResults() {
+		if nm, cmd, ok := m.searchResultKey(msg); ok {
+			return nm, cmd
+		}
 	}
 	if msg.Type == tea.KeyEscape {
 		m.search = nil
@@ -1824,6 +1866,9 @@ func (m Model) handleKeyCommand(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	case tea.KeySpace:
 		m.cmdInput += " "
+		return m, nil
+	case tea.KeyTab:
+		m.cmdInput = completeCommand(m.cmdInput)
 		return m, nil
 	case tea.KeyRunes:
 		m.cmdInput += string(msg.Runes)

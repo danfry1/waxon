@@ -30,6 +30,28 @@ type Search struct {
 	// resultsQuery is the query the current results answer. It lets the view
 	// distinguish "no results for what you typed" from "still searching".
 	resultsQuery string
+	// inResults: Tab moved from typing to the results, where keys act on
+	// the selected one as in the track list (j/k, a, f, o).
+	inResults bool
+}
+
+// ToggleResults moves between typing the query and acting on the results.
+func (s *Search) ToggleResults() {
+	s.inResults = !s.inResults && s.totalResults() > 0
+	if s.inResults {
+		s.input.Blur()
+	} else {
+		s.input.Focus()
+	}
+}
+
+// InResults reports whether keys act on the results rather than the query.
+func (s Search) InResults() bool { return s.inResults }
+
+// Move moves the results cursor by n.
+func (s *Search) Move(n int) {
+	s.cursor += n
+	s.clampCursor()
 }
 
 func NewSearch(width, height int) Search {
@@ -224,6 +246,11 @@ func (s Search) View() string {
 				}
 			}
 		}
+		hint := "  Tab: act on results"
+		if s.inResults {
+			hint = "  j/k move   a queue   f like   o menu   Enter play   Tab or / type"
+		}
+		content += "\n" + lipgloss.NewStyle().Foreground(ColorBorder).Render(hint) + "\n"
 	} else if q := s.input.Value(); q != "" && s.results != nil && s.resultsQuery == q {
 		content += "\n" + StyleDimText.Render("  No results for \""+q+"\"")
 	} else if q != "" && len(q) >= 2 {
@@ -234,7 +261,7 @@ func (s Search) View() string {
 		content += "\n"
 		content += StyleDimText.Render("  Type to search Spotify") + "\n\n"
 		content += StyleDimText.Render("  Results show tracks, artists, and albums.") + "\n\n"
-		content += lipgloss.NewStyle().Foreground(ColorBorder).Render("  ↑/↓ or C-n/C-p move   Enter select   Esc close") + "\n"
+		content += lipgloss.NewStyle().Foreground(ColorBorder).Render("  ↑/↓ move   Tab: act on results (a, f, o)   Enter select   Esc close") + "\n"
 	}
 
 	overlay := border.Render(content)

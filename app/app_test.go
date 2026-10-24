@@ -665,10 +665,11 @@ func TestParseCommandSearchNoArgs(t *testing.T) {
 	}
 }
 
+// A signed volume is a change, as in the CLI: vol -5 lowers it by 5.
 func TestParseCommandVolNegative(t *testing.T) {
-	_, err := ParseCommand("vol -5")
-	if err == nil {
-		t.Fatal("expected error for negative volume")
+	got, err := ParseCommand("vol -5")
+	if err != nil || got.IntArg != -5 || got.StrArg != "rel" {
+		t.Fatalf("vol -5 = %+v, %v; want a change of -5", got, err)
 	}
 }
 
