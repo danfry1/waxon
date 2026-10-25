@@ -19,3 +19,5 @@ waxon-demo
 .superpowers/
 docs/superpowers/
 result
+/site/media/
+/site/.vercel/
