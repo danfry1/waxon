@@ -327,8 +327,9 @@
     box-shadow: 0 3px 0 #453d5e; margin-bottom: 3px;
   }
   .keycaps button:hover { border-color: var(--lavender); box-shadow: 0 3px 0 var(--lavender); }
-  .keycaps b { font-weight: 600; }
-  .keycaps i { display: none; }
+  .keycaps button { height: 3rem; min-width: 3.1rem; display: grid; place-content: center; gap: 0.22rem; }
+  .keycaps b { font-weight: 600; line-height: 1; }
+  .keycaps i { display: block; font: 500 0.7rem/1 var(--display); color: var(--paper-2); font-style: normal; }
   .themes { margin-top: 0.9rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font: 0.82rem var(--mono); }
   .themes span { color: var(--paper-2); margin-right: 0.3rem; }
   .themes button {
@@ -359,11 +360,11 @@
       grid-template-areas: "k sp p n np m" "j en f l q esc";
     }
     .keycaps button {
-      height: 3.3rem; min-width: 0; padding: 0; display: grid; place-content: center; gap: 0.2rem;
+      height: 3.3rem; min-width: 0; padding: 0;
       touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
     }
-    .keycaps b { font-size: 1rem; line-height: 1; }
-    .keycaps i { display: block; font: 500 0.62rem/1 var(--display); color: var(--paper-2); font-style: normal; }
+    .keycaps b { font-size: 1rem; }
+    .keycaps i { font-size: 0.62rem; }
     .keycaps [data-key="k"] { grid-area: k; } .keycaps [data-key=" "] { grid-area: sp; }
     .keycaps [data-key="p"] { grid-area: p; } .keycaps [data-key="n"] { grid-area: n; }
     .keycaps [data-key="N"] { grid-area: np; } .keycaps [data-key="M"] { grid-area: m; }
