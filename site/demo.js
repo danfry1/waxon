@@ -113,14 +113,16 @@
 
   var s = {
     pane: "tracks", libCursor: 0, open: 0, cursor: 0, top: 0,
-    playing: { pl: 0, i: 0 }, paused: false, pos: 6,
+    playing: { pl: 0, i: 0, track: playlists[0].tracks[0] }, paused: false, pos: 6,
     vol: 65, muted: false, shuffle: false, liked: {}, mode: "waxon",
     view: "main", np: "art", help: false, toast: null, g: false,
     touched: false, hint: false,
   };
   playlists[0].tracks.forEach(function (tr) { s.liked[key(tr)] = true; });
   function key(tr) { return tr.name + "|" + tr.artist; }
-  function current() { return s.playing && playlists[s.playing.pl].tracks[s.playing.i]; }
+  // What's playing is held by track, not by row: liking and unliking change
+  // Liked Songs' rows under it. i is its row, for n and p.
+  function current() { return s.playing && s.playing.track; }
 
   var toastTimer;
   function toast(html) {
@@ -130,13 +132,14 @@
   }
 
   function play(pl, i) {
-    s.playing = { pl: pl, i: i }; s.pos = 0; s.paused = false;
+    s.playing = { pl: pl, i: i, track: playlists[pl].tracks[i] }; s.pos = 0; s.paused = false;
     loadArt(current().art, syncRecord);
   }
   function skip(d) {
     if (!s.playing) return;
     var list = playlists[s.playing.pl].tracks, i = s.playing.i;
     if (d < 0 && s.pos > 3) { s.pos = 0; return; }
+    if (!list.length) return;
     i = s.shuffle && d > 0 ? Math.floor(Math.random() * list.length) : (i + d + list.length) % list.length;
     play(s.playing.pl, i);
   }
@@ -193,20 +196,41 @@
         else if (k === "l" || k === "ArrowRight") s.pane = "tracks";
         else if (k === "Enter") {
           if (s.pane === "lib") { s.open = s.libCursor; s.cursor = 0; s.top = 0; s.pane = "tracks"; }
-          else play(s.open, s.cursor);
+          else if (playlists[s.open].tracks.length) play(s.open, s.cursor);
         } else if (k === "Backspace" || k === "b") s.pane = "lib";
         else return false;
     }
     render();
     return true;
   }
+  // f likes the selection (the playing track in Now Playing): it goes to the
+  // top of Liked Songs, or out of it, as in waxon.
   function like() {
-    var tr = s.view === "np" ? current() : playlists[s.open].tracks[s.cursor];
-    if (s.pane === "lib" && s.view !== "np") tr = current();
+    var tr = s.view === "np" || s.pane === "lib" ? current() : playlists[s.open].tracks[s.cursor];
     if (!tr) return;
-    var k = key(tr);
+    var k = key(tr), liked = playlists[0].tracks, at = indexIn(liked, k);
     s.liked[k] = !s.liked[k];
+    if (s.liked[k]) {
+      if (at < 0) {
+        liked.unshift(tr);
+        if (s.open === 0) s.cursor++; // stay on the same track
+      }
+    } else if (at >= 0) {
+      liked.splice(at, 1);
+      if (s.open === 0 && s.cursor > at) s.cursor--;
+    }
+    if (s.open === 0) moveCursor(s.cursor);
+    if (s.playing && s.playing.pl === 0) {
+      var now = indexIn(liked, key(s.playing.track));
+      // Unliked while playing from Liked Songs: it plays on, and n goes to
+      // the track that followed it.
+      s.playing.i = now >= 0 ? now : at - 1;
+    }
     toast(s.liked[k] ? "♥ Added to Liked Songs" : "Removed from Liked Songs");
+  }
+  function indexIn(list, k) {
+    for (var i = 0; i < list.length; i++) if (key(list[i]) === k) return i;
+    return -1;
   }
   function meter() {
     var v = s.muted ? 0 : s.vol, n = Math.round(v / 10);
@@ -233,7 +257,7 @@
   var onScreen = false;
   document.addEventListener("keydown", function (e) {
     if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (!onScreen || document.activeElement === term) return;
+    if (!onScreen || document.activeElement === term || term.contains(e.target)) return;
     var el = document.activeElement;
     if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
     if (e.key !== "Escape" && (e.key.length !== 1 || pageKeys.indexOf(e.key) < 0)) return;
@@ -286,7 +310,7 @@
     var pl = playlists[s.open], now = current();
     var rows = pl.tracks.slice(s.top, s.top + visibleRows).map(function (tr, j) {
       var i = s.top + j;
-      var isNow = s.playing && s.playing.pl === s.open && s.playing.i === i;
+      var isNow = s.playing && s.playing.pl === s.open && key(tr) === key(s.playing.track);
       var cls = "trow" + (i === s.cursor && s.pane === "tracks" ? " sel" : "") + (isNow ? " now" : "");
       return '<div class="' + cls + '"><span class="c-mark">' + (isNow ? (s.paused ? "‖" : "▶") : "") +
         '</span><span class="c-n">' + (i + 1) + '</span><span class="c-title">' + esc(tr.name) +
