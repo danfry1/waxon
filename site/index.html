@@ -321,9 +321,12 @@
     min-width: 2.4rem; height: 2.4rem; padding: 0 0.65rem; cursor: pointer;
     font: 600 0.9rem/1 var(--mono); color: var(--paper);
     background: linear-gradient(#332c48, #29233b);
-    border: 1px solid #453d5e; border-bottom-width: 4px; border-radius: 8px;
+    /* The key's depth is a shadow and a press moves it with a transform,
+       so pressing never changes its size or moves anything around it. */
+    border: 1px solid #453d5e; border-radius: 8px;
+    box-shadow: 0 3px 0 #453d5e; margin-bottom: 3px;
   }
-  .keycaps button:hover { border-color: var(--lavender); }
+  .keycaps button:hover { border-color: var(--lavender); box-shadow: 0 3px 0 var(--lavender); }
   .themes { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font: 0.82rem var(--mono); }
   .themes span { color: var(--paper-2); margin-right: 0.3rem; }
   .themes button {
@@ -335,7 +338,7 @@
   .themes button:hover { color: var(--paper); border-color: var(--paper-2); }
   .themes button[aria-pressed="true"] { color: var(--paper); border-color: var(--mint); }
   .keycaps button.hit { animation: press .22s ease-out; }
-  @keyframes press { 40% { transform: translateY(2px); border-bottom-width: 2px; background: #3d3557; } }
+  @keyframes press { 40% { transform: translateY(2px); box-shadow: 0 1px 0 #453d5e; background: #3d3557; } }
   @media (prefers-reduced-motion: reduce) {
     .np-record, .np-record::after { animation: none; }
     .keycaps button.hit { animation: none; }
@@ -371,7 +374,8 @@
     width: 4.75rem; height: 4.75rem; cursor: pointer;
     font: 600 1.9rem/1 var(--mono); color: var(--paper);
     background: linear-gradient(#3a3252, #2b253e);
-    border: 1px solid #554a73; border-bottom-width: 6px; border-radius: 12px;
+    border: 1px solid #554a73; border-radius: 12px;
+    box-shadow: 0 5px 0 #554a73;
   }
   .big-key:hover { border-color: var(--lavender); }
   .big-key.hit { animation: press .22s ease-out; }
