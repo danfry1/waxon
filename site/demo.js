@@ -374,7 +374,7 @@
       '<div class="np-sub">' + esc(tr.artist) + " — " + esc(tr.album) + "</div>" +
       '<div class="np-bar">' + bar(s.pos / tr.dur, 40, color) + "</div>" +
       '<div class="np-time">' + mmss(s.pos) + " / " + mmss(tr.dur) + "</div>" +
-      '<div class="np-hints dim">space play · n/p skip · f like · l lyrics · v vinyl · N close</div></div>';
+      '<div class="np-hints dim">space play · n/p skip · f like · l lyrics · N close</div></div>';
   }
 
   function help() {
@@ -382,7 +382,7 @@
       ["j / k", "move down / up"], ["gg / G", "top / bottom"], ["h / l", "library / tracks"],
       ["Enter", "open / play"], ["Space", "play / pause"], ["n / p", "next / previous"],
       ["+ / -", "volume"], ["f", "like"], ["S", "shuffle"], ["N", "Now Playing"],
-      ["v / l", "vinyl / lyrics, in Now Playing"], ["Esc", "back from Now Playing or help"],
+      ["l", "lyrics, in Now Playing"], ["Esc", "back from Now Playing or help"],
       ["M", "play in waxon ⇄ control the Spotify app"], ["?", "close help"],
     ];
     return '<div class="help"><div class="help-box"><div class="accent strong">Keys in this demo</div>' +
