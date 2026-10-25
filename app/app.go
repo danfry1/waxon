@@ -523,14 +523,10 @@ func (m Model) WithOptions(opts Options) Model {
 // setTheme applies a named theme (plus the configured colour overrides) to the
 // live UI and reports the outcome as a toast.
 func (m *Model) setTheme(name string) tea.Cmd {
-	p, err := ResolveTheme(name, m.opts.ColorOverrides)
-	if err != nil {
+	if err := m.applyTheme(name); err != nil {
 		m.toast.Show(err.Error(), "", ToastError)
 		return scheduleAutoDismiss()
 	}
-	ApplyTheme(p)
-	m.tracklist.Restyle()
-	m.sidebar.Restyle()
 	detail := ""
 	if m.opts.SaveTheme != nil {
 		if err := m.opts.SaveTheme(name); err != nil {
@@ -2359,6 +2355,12 @@ func (m Model) scrollOverlay(dir tea.KeyType) Model {
 					m.playlistPick.MoveDown()
 				}
 			}
+		case ModeSettings:
+			if dir == tea.KeyUp {
+				m.settingsCursor = max(0, m.settingsCursor-1)
+			} else {
+				m.settingsCursor = min(len(m.settingRows())-1, m.settingsCursor+1)
+			}
 		case ModeHelp:
 			if dir == tea.KeyUp {
 				m.helpScroll--
@@ -2388,7 +2390,7 @@ func (m Model) closeOverlay() (Model, tea.Cmd) {
 	case ModePlaylistPick:
 		m.playlistPick = nil
 		m.mode = m.pickReturn
-	case ModeHelp:
+	case ModeHelp, ModeSettings:
 		m.leaveOverlay()
 	case ModeNowPlaying:
 		m.mode = ModeNormal

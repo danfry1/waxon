@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // The settings overlay (, or :settings): what's in config.json, changed in
@@ -19,11 +21,14 @@ import (
 // Settings is what the settings overlay shows, read from the config at
 // startup and updated as it's changed.
 type Settings struct {
-	Theme      string
-	Art        string // blocks, kitty or auto
-	MediaKeys  bool
-	CustomKeys int    // keybindings remapped in the config
-	Path       string // the config file
+	Theme        string
+	Art          string // blocks, kitty or auto
+	MediaKeysOff bool
+	CustomKeys   int    // keybindings remapped in the config
+	Path         string // the config file
+	// ArtNote and MediaKeysNote, when set, say why what's in effect isn't
+	// the setting (WAXON_ART set, no media keys over SSH).
+	ArtNote, MediaKeysNote string
 }
 
 // withDefaults fills what the config left unset with what waxon uses then.
@@ -79,17 +84,27 @@ func (m Model) settingRows() []settingRow {
 		{"Theme", s.Theme, "", func(m *Model, dir int) tea.Cmd {
 			return m.changeTheme(cycle(ThemeNames(), m.opts.Settings.Theme, dir))
 		}},
-		{"Album art", s.Art, "after a restart", func(m *Model, dir int) tea.Cmd {
+		{"Album art", s.Art, cmp.Or(s.ArtNote, "after a restart"), func(m *Model, dir int) tea.Cmd {
 			v := cycle(artChoices, m.opts.Settings.Art, dir)
-			return m.saveSetting("art", v, func() { m.opts.Settings.Art = v })
+			m.opts.Settings.Art = v
+			return m.saveSetting("art", v)
 		}},
-		{"Media keys", onOff(s.MediaKeys), "after a restart", func(m *Model, _ int) tea.Cmd {
-			v := !m.opts.Settings.MediaKeys
-			return m.saveSetting("media_keys", onOff(v), func() { m.opts.Settings.MediaKeys = v })
+		{"Media keys", onOff(!s.MediaKeysOff), cmp.Or(s.MediaKeysNote, "after a restart"), func(m *Model, _ int) tea.Cmd {
+			m.opts.Settings.MediaKeysOff = !m.opts.Settings.MediaKeysOff
+			return m.saveSetting("media_keys", onOff(!m.opts.Settings.MediaKeysOff))
 		}},
 		{"Lyrics", onOff(!m.opts.LyricsOff), "", func(m *Model, _ int) tea.Cmd {
-			off := !m.opts.LyricsOff
-			return m.saveSetting("lyrics", onOff(!off), func() { m.opts.LyricsOff = off })
+			m.opts.LyricsOff = !m.opts.LyricsOff
+			save := m.saveSetting("lyrics", onOff(!m.opts.LyricsOff))
+			if m.opts.LyricsOff {
+				return save
+			}
+			// While off, the playing track was settled as having none: look
+			// it up now.
+			if m.lyrics == nil && !m.lyricsLoading {
+				m.lyricsTrackID = ""
+			}
+			return tea.Batch(save, m.ensureLyrics())
 		}},
 		{"Plays in", player, playerNote, nil},
 		{"Spotify app", spotifyApp, appNote, nil},
@@ -97,32 +112,42 @@ func (m Model) settingRows() []settingRow {
 	}
 }
 
-// saveSetting saves name=value and, once saved, applies it with apply.
-func (m *Model) saveSetting(name, value string, apply func()) tea.Cmd {
-	if m.opts.SaveSetting != nil {
-		if err := m.opts.SaveSetting(name, value); err != nil {
-			m.toast.Show("Not saved", err.Error(), ToastError)
-			return scheduleAutoDismiss()
-		}
+// saveSetting saves a setting already applied. A setting that can't be
+// saved (a config.json that doesn't parse) still holds for this session, as
+// :theme does, and the toast says why it wasn't saved.
+func (m *Model) saveSetting(name, value string) tea.Cmd {
+	if m.opts.SaveSetting == nil {
+		return nil
 	}
-	apply()
+	if err := m.opts.SaveSetting(name, value); err != nil {
+		m.toast.Show("Changed for now, not saved", err.Error(), ToastError)
+		return scheduleAutoDismiss()
+	}
 	return nil
 }
 
 // changeTheme applies and saves a theme from the settings overlay, which
 // shows it, so there's no toast.
 func (m *Model) changeTheme(name string) tea.Cmd {
-	p, err := ResolveTheme(name, m.opts.ColorOverrides)
-	if err != nil {
+	if err := m.applyTheme(name); err != nil {
 		m.toast.Show(err.Error(), "", ToastError)
 		return scheduleAutoDismiss()
 	}
-	return m.saveSetting("theme", name, func() {
-		ApplyTheme(p)
-		m.tracklist.Restyle()
-		m.sidebar.Restyle()
-		m.opts.Settings.Theme = name
-	})
+	return m.saveSetting("theme", name)
+}
+
+// applyTheme switches to the named theme and records it, for :theme and
+// the settings overlay.
+func (m *Model) applyTheme(name string) error {
+	p, err := ResolveTheme(name, m.opts.ColorOverrides)
+	if err != nil {
+		return err
+	}
+	ApplyTheme(p)
+	m.tracklist.Restyle()
+	m.sidebar.Restyle()
+	m.opts.Settings.Theme = name
+	return nil
 }
 
 func (m Model) handleKeySettings(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -186,31 +211,46 @@ func (m Model) viewSettings() string {
 		lines = append(lines, strings.TrimRight(line, " "))
 	}
 
-	path := m.opts.Settings.Path
-	if path == "" {
-		path = "config.json"
+	header := title.Render("Settings") + "  " + dim.Render("demo: nothing is saved")
+	if m.opts.SaveSetting != nil {
+		header = title.Render("Settings") + "  " + dim.Render("saved to "+cmp.Or(m.opts.Settings.Path, "config.json"))
 	}
-	header := title.Render("Settings") + "  " + dim.Render("saved to "+path)
 	footer := dim.Render("j/k move · h/l or Enter change · Esc close")
-	body := header + "\n\n" + strings.Join(lines, "\n") + "\n\n" + footer
+
+	// Fit the terminal: every line is cut (never wrapped) to the width
+	// inside the border, and a short terminal loses the spacing and footer.
+	room := max(10, m.width-6)
+	pad, gap := 2, "\n\n"
+	if m.height < len(rows)+8 {
+		pad, gap, footer = 1, "\n", ""
+	}
+	all := append([]string{header, ""}, lines...)
+	for i, l := range all {
+		all[i] = ansi.Truncate(l, room-2*(pad-1), "…")
+	}
+	body := all[0] + gap + strings.Join(all[2:], "\n")
+	if footer != "" {
+		body += gap + ansi.Truncate(footer, room, "…")
+	}
 
 	w := 0
 	for _, l := range strings.Split(body, "\n") {
 		w = max(w, lipgloss.Width(l))
 	}
+	vpad := 1
+	if footer == "" {
+		vpad = 0
+	}
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorAccent).
-		Padding(1, 2).
-		Width(min(w+4, max(20, m.width-2))).
-		Render(body)
+		Padding(vpad, pad).
+		Render(lipgloss.NewStyle().Width(w).Render(body))
 
 	// The panel floats over the screen it was opened from, so a theme
 	// change shows on the app behind it as you move through them.
-	under := m
-	under.mode = ModeNormal
-	if m.overlayReturn == ModeNowPlaying {
-		under.mode = ModeNowPlaying
+	if under := m.underOverlay(); under != "" {
+		return overlayCentered(under, box, m.width, m.height)
 	}
-	return overlayCentered(under.screen(), box, m.width, m.height)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box, overlayBackdrop())
 }

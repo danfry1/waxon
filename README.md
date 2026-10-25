@@ -367,9 +367,9 @@ Enter command mode by pressing `:`, then type a command. As you type, the likeli
 
 ## Configuration
 
-waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on Windows, `$XDG_CONFIG_HOME/waxon` when that's set; `waxon config` prints the path. Everything is optional:
+Press `,` (or `:settings`) to change the theme, album art, media keys and lyrics from inside waxon; each change is saved to the config file as you make it.
 
-Press `,` (or `:settings`) to change the theme, album art, media keys and lyrics from inside waxon; each change is saved to the file as you make it.
+waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on Windows, `$XDG_CONFIG_HOME/waxon` when that's set; `waxon config` prints the path. Everything is optional:
 
 ```json
 {
