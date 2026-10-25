@@ -278,13 +278,27 @@
   document.querySelectorAll("[data-key]").forEach(function (b) {
     // Pressing a key with a mouse or finger leaves focus on the demo, so it
     // stays live (and keeps its keys) through the press.
-    b.addEventListener("pointerdown", function (e) { e.preventDefault(); });
-    b.addEventListener("mousedown", function (e) { e.preventDefault(); });
-    b.addEventListener("click", function () {
+    var k = b.dataset.key, repeat, byPointer = 0;
+    function press() {
       touch();
-      var k = b.dataset.key;
       if (k === "gg") { handle("g"); handle("g"); } else handle(k);
       flashKey(k);
+    }
+    function stop() { clearTimeout(repeat); clearInterval(repeat); }
+    // A touch acts the moment it lands (no tap delay); j and k repeat while
+    // held, like a held key.
+    b.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      if (e.pointerType === "mouse") return;
+      byPointer = Date.now();
+      press();
+      if (k === "j" || k === "k") repeat = setTimeout(function () { repeat = setInterval(press, 90); }, 380);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(function (t) { b.addEventListener(t, stop); });
+    b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    b.addEventListener("click", function () {
+      if (Date.now() - byPointer < 800) return; // the touch already pressed it
+      press();
       if (!touchOnly) focusDemo(); // so the next key typed reaches the demo too
     });
   });
