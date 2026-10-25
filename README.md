@@ -27,7 +27,7 @@ Browse your library, search, queue and play without leaving the home row.
   `M` switches between the two, carrying on from the same point.
 - **Vim all the way down:** `j`/`k`, counts, `gg`/`G`, visual mode, `:`
   commands, `/` to filter anything.
-- **Now Playing** with full-screen album art, a spinning vinyl view and
+- **Now Playing** with full-screen album art and
   time-synced lyrics.
 - **Media keys** and the system's Now Playing (Control Center, MPRIS).
 - **Scriptable:** every action is also a subcommand, for tmux, waybar and
@@ -174,7 +174,7 @@ Below 80 columns waxon shows one pane at a time — `h`/`l`/`Tab` switch between
 
 ### Now Playing
 
-Full-screen album art rendered with Unicode half-blocks over a gradient drawn from the cover. Press `v` for vinyl: the record turns at 33⅓ with the cover on its label, light catching the grooves, and a tonearm that moves across the record as the track plays.
+Full-screen album art rendered with Unicode half-blocks over a gradient drawn from the cover, with synced lyrics a key away. (Try `v`, too.)
 
 <p align="center">
   <img src="demo/recordings/nowplaying.gif" alt="now playing view" width="800">
