@@ -1154,7 +1154,7 @@ func TestHelpListsEveryBoundKey(t *testing.T) {
 	km := DefaultKeyMap()
 	rendered := ""
 	for p := range helpPages(km) {
-		rendered += viewHelp(km, 200, 80, 0, p)
+		rendered += viewHelp(km, 200, 80, 0, p, "")
 	}
 	check := func(label string) {
 		t.Helper()
@@ -1214,7 +1214,7 @@ func TestHelpPages(t *testing.T) {
 func TestHelpRowsInFull(t *testing.T) {
 	km := DefaultKeyMap()
 	for p := range helpPages(km) {
-		if got := viewHelp(km, 200, 80, 0, p); strings.Contains(got, "…") {
+		if got := viewHelp(km, 200, 80, 0, p, ""); strings.Contains(got, "…") {
 			t.Errorf("page %d truncates a row on a 200-column terminal", p)
 		}
 	}
@@ -6400,5 +6400,28 @@ func TestOpeningRestrictedPlaylistFocusesNoticeAndNeverAutoPlays(t *testing.T) {
 	cmd()
 	if plays != 1 {
 		t.Errorf("Enter on the notice should play once, got %d", plays)
+	}
+}
+
+// Every help page draws the same size of panel, so switching pages doesn't
+// move its edges.
+func TestHelpPagesSameSize(t *testing.T) {
+	km := DefaultKeyMap()
+	size := func(p int) (w, h int) {
+		for _, l := range strings.Split(viewHelp(km, 160, 60, 0, p, ""), "\n") {
+			if strings.Contains(l, "╭") || strings.Contains(l, "│") || strings.Contains(l, "╰") {
+				h++
+				if strings.Contains(l, "╭") {
+					w = strings.Count(l, "─")
+				}
+			}
+		}
+		return w, h
+	}
+	w0, h0 := size(0)
+	for p := 1; p < len(helpPages(km)); p++ {
+		if w, h := size(p); w != w0 || h != h0 {
+			t.Errorf("page %d is %dx%d, page 0 %dx%d", p, w, h, w0, h0)
+		}
 	}
 }

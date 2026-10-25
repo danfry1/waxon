@@ -2732,9 +2732,14 @@ func (m Model) screen() string {
 		return m.playlistPick.View()
 	}
 
-	// Help overlay replaces everything
+	// Help floats over the screen it was opened from
 	if m.mode == ModeHelp {
-		return viewHelp(m.keys, m.width, m.height, m.helpScroll, m.helpPage)
+		under := m
+		under.mode = ModeNormal
+		if m.overlayReturn == ModeNowPlaying {
+			under.mode = ModeNowPlaying
+		}
+		return viewHelp(m.keys, m.width, m.height, m.helpScroll, m.helpPage, under.screen())
 	}
 
 	// Now Playing overlay replaces everything

@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // helpCategory groups keybindings by purpose.
@@ -273,7 +274,7 @@ func splitColumns(cats []helpCategory, n int) [][]helpCategory {
 // ViewHelp renders the help overlay's first page as a centered floating
 // panel.
 func ViewHelp(width, height int) string {
-	return viewHelp(DefaultKeyMap(), width, height, 0, 0)
+	return viewHelp(DefaultKeyMap(), width, height, 0, 0, "")
 }
 
 // helpBody is a help page's columns as lines, and the overlay's width. It
@@ -352,12 +353,23 @@ func helpMaxScroll(k KeyMap, width, height, page int) int {
 	return max(0, len(lines)-helpRows(height))
 }
 
-func viewHelp(k KeyMap, width, height, scroll, page int) string {
+// viewHelp draws the help page over base (the screen it was opened from),
+// or on its own backdrop when base is "". The panel is sized to the largest
+// page, so moving between pages doesn't resize it.
+func viewHelp(k KeyMap, width, height, scroll, page int, base string) string {
 	accent := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 	dim := lipgloss.NewStyle().Foreground(ColorTextDim)
-	lines, overlayW := helpBody(k, width, page)
+	lines, _ := helpBody(k, width, page)
 
 	pages := helpPages(k)
+	overlayW, tallest := 0, 0
+	for p := range pages {
+		l, w := helpBody(k, width, p)
+		overlayW, tallest = max(overlayW, w), max(tallest, len(l))
+	}
+	for len(lines) < min(tallest, helpRows(height)) {
+		lines = append(lines, "")
+	}
 	tabs := make([]string, len(pages))
 	for i, p := range pages {
 		if i == page {
@@ -389,11 +401,39 @@ func viewHelp(k KeyMap, width, height, scroll, page int) string {
 
 	border := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder).
+		BorderForeground(ColorAccent).
 		Width(overlayW+4).
 		Padding(1, 2)
 
 	overlay := border.Render(content)
+	if base != "" {
+		return overlayCentered(base, overlay, width, height)
+	}
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, overlay,
 		overlayBackdrop())
+}
+
+// overlayCentered draws box over the middle of base, replacing the cells
+// under it and keeping the rest of each line.
+func overlayCentered(base, box string, width, height int) string {
+	lines := strings.Split(base, "\n")
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	boxLines := strings.Split(box, "\n")
+	boxW := lipgloss.Width(boxLines[0])
+	top := max(0, (height-len(boxLines))/2)
+	left := max(0, (width-boxW)/2)
+	for i, bl := range boxLines {
+		row := top + i
+		if row >= len(lines) {
+			break
+		}
+		l := ansi.Truncate(lines[row], left, "")
+		if w := lipgloss.Width(l); w < left {
+			l += strings.Repeat(" ", left-w)
+		}
+		lines[row] = l + "\033[0m" + bl + "\033[0m" + stripLeft(lines[row], left+boxW)
+	}
+	return strings.Join(lines, "\n")
 }
