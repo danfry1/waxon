@@ -49,6 +49,7 @@
   a:hover { color: var(--paper); }
   :focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; border-radius: 4px; }
   img { max-width: 100%; display: block; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .wrap { width: min(72rem, 100% - 2rem); margin-inline: auto; }
 
   /* Top bar */
@@ -73,29 +74,60 @@
     max-width: 11ch;
   }
   .lede { margin: 1.5rem 0 0; max-width: var(--measure); font-size: 1.2rem; color: var(--paper-2); }
-  .install-hero { margin-top: 2rem; display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.5rem; }
-  .install-hero .cmd { min-width: 0; }
-  .install-hero p { margin: 0; font-size: 0.95rem; color: var(--paper-2); }
+  /* Install: one widget, with every panel in the same footprint so
+     switching tabs or copying never moves anything */
+  .installer { margin-top: 2rem; max-width: 40rem; scroll-margin-top: 2rem; }
+  .tabs { display: flex; gap: 0.25rem; margin: 0 0 0.6rem -0.7rem; overflow-x: auto; scrollbar-width: none; }
+  .tabs button {
+    flex: none; position: relative; cursor: pointer;
+    font: 600 0.92rem/1 var(--display); color: var(--paper-2);
+    background: transparent; border: 0; border-radius: 6px; padding: 0.55rem 0.7rem;
+  }
+  .tabs button:hover { color: var(--paper); background: rgba(255,255,255,.04); }
+  .tabs button[aria-selected="true"] { color: var(--paper); }
+  .tabs button[aria-selected="true"]::after {
+    content: ""; position: absolute; left: 0.7rem; right: 0.7rem; bottom: 0.1rem; height: 2px; border-radius: 1px; background: var(--mint);
+  }
+  .panels { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .panel { grid-area: 1 / 1; }
+  .panel[hidden] { display: block; visibility: hidden; }
+  .panel > p { margin: 0.65rem 0 0 0.2rem; color: var(--paper-2); font-size: 0.9rem; }
+  .premium { margin: 0.9rem 0 0 0.2rem; color: var(--paper-2); font-size: 0.9rem; }
 
   .cmd {
-    display: flex; align-items: flex-start; gap: 1rem;
+    position: relative;
+    display: flex; align-items: center; gap: 1rem;
+    min-height: 5.1rem;
     background: var(--sleeve);
     border: 1px solid var(--rule);
     border-radius: 10px;
-    padding: 0.85rem 0.85rem 0.85rem 1.1rem;
+    padding: 0.75rem 0.75rem 0.75rem 1.1rem;
     font: 400 0.9rem/1.7 var(--mono);
     max-width: 100%;
   }
+  .cmd-text p { margin: 0; font: 400 0.95rem/1.55 var(--display); color: var(--paper-2); }
   .cmd pre { margin: 0; overflow-x: auto; flex: 1; min-width: 0; font: inherit; }
   .cmd .p { color: var(--mint); user-select: none; }
   .cmd .c { color: #7d7596; }
   .copy {
-    flex: none;
-    font: 600 0.8rem/1 var(--display);
-    color: var(--vinyl); background: var(--mint);
-    border: 0; border-radius: 6px; padding: 0.55rem 0.8rem; cursor: pointer;
+    flex: none; position: relative; align-self: flex-start;
+    width: 2.25rem; height: 2.25rem; display: grid; place-items: center; cursor: pointer;
+    color: var(--paper-2); background: rgba(255,255,255,.05);
+    border: 1px solid var(--rule); border-radius: 8px;
   }
-  .copy:hover { background: var(--paper); }
+  .copy:hover { color: var(--paper); border-color: var(--paper-2); }
+  .copy svg { grid-area: 1 / 1; width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .copy .i-done { opacity: 0; stroke: var(--mint); stroke-width: 2; }
+  .copy.done { border-color: var(--mint); }
+  .copy.done .i-copy { opacity: 0; }
+  .copy.done .i-done { opacity: 1; }
+  .copied {
+    position: absolute; right: 0; bottom: calc(100% + 0.4rem);
+    font: 600 0.75rem/1 var(--display); color: var(--vinyl); background: var(--mint);
+    padding: 0.3rem 0.45rem; border-radius: 4px; white-space: nowrap;
+    opacity: 0; transform: translateY(3px); transition: opacity .15s, transform .15s; pointer-events: none;
+  }
+  .copy.done .copied { opacity: 1; transform: none; }
 
   /* The record in its sleeve: the terminal is the sleeve */
   .deck { margin-top: 3.5rem; margin-right: clamp(0px, 8vw, 7rem); }
@@ -372,18 +404,8 @@
   .section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem 2rem; margin-bottom: 1.75rem; }
   .section-head h2 { margin: 0; }
   .section-head p { margin: 0; color: var(--paper-2); }
-  .tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
-  .tabs button {
-    font: 600 0.95rem/1 var(--display);
-    color: var(--paper-2); background: transparent;
-    border: 1px solid var(--rule); border-radius: 999px;
-    padding: 0.6rem 1rem; cursor: pointer;
-  }
-  .tabs button:hover { color: var(--paper); border-color: var(--paper-2); }
-  .tabs button[aria-selected="true"] { color: var(--vinyl); background: var(--mint); border-color: var(--mint); }
-  .panel[hidden] { display: none; }
-  .panel > p { margin: 0.9rem 0 0; color: var(--paper-2); font-size: 0.95rem; max-width: 44rem; }
-  .after { margin-top: 2.5rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.5rem 3rem; }
+  .install h2 { margin-bottom: 0; }
+  .after { margin-top: 1.75rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.5rem 3rem; }
   .after h3 { margin: 0 0 0.35rem; font-size: 1.1rem; font-weight: 700; }
   .after p { margin: 0; color: var(--paper-2); font-size: 0.98rem; }
 
@@ -416,7 +438,7 @@
   @media (max-width: 30rem) {
     .top nav a.hide-sm { display: none; }
     .hero { padding-top: 48vw; }
-    .cmd { font-size: 0.78rem; gap: 0.6rem; }
+    .cmd { font-size: 0.78rem; gap: 0.6rem; padding-left: 0.9rem; }
   }
 </style>
 </head>
@@ -436,12 +458,39 @@
     <div class="record" aria-hidden="true"><div class="label"></div></div>
     <h1>Spotify, from the home row.</h1>
     <p class="lede">waxon is a Spotify client for the terminal with vim keys. It plays music by itself or drives the Spotify app, with album art, a spinning record and synced lyrics.</p>
-    <div class="install-hero">
-      <div class="cmd">
-        <pre><span class="p">$ </span>brew install danfry1/tap/waxon</pre>
-        <button class="copy" type="button" data-copy="brew trust danfry1/tap && brew install danfry1/tap/waxon">Copy</button>
+    <div class="installer" id="install">
+      <div class="tabs" role="tablist" aria-label="Install with">
+        <button role="tab" id="t-brew" aria-controls="p-brew" aria-selected="true">Homebrew</button>
+        <button role="tab" id="t-nix" aria-controls="p-nix" aria-selected="false" tabindex="-1">Nix</button>
+        <button role="tab" id="t-scoop" aria-controls="p-scoop" aria-selected="false" tabindex="-1">Scoop</button>
+        <button role="tab" id="t-go" aria-controls="p-go" aria-selected="false" tabindex="-1">Go</button>
+        <button role="tab" id="t-pkg" aria-controls="p-pkg" aria-selected="false" tabindex="-1">Packages</button>
       </div>
-      <p>Needs Spotify Premium. <a href="#install">Other ways to install</a></p>
+      <div class="panels">
+        <div class="panel" role="tabpanel" id="p-brew" aria-labelledby="t-brew">
+          <div class="cmd"><pre><span class="p" aria-hidden="true">$ </span>brew trust danfry1/tap
+<span class="p" aria-hidden="true">$ </span>brew install danfry1/tap/waxon</pre><button class="copy" type="button" aria-label="Copy"><svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg><svg class="i-done" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg><span class="copied" aria-hidden="true">Copied</span></button></div>
+          <p>macOS and Linux. Homebrew asks you to trust a third-party tap once.</p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-nix" aria-labelledby="t-nix" hidden>
+          <div class="cmd"><pre><span class="p" aria-hidden="true">$ </span>nix profile install github:danfry1/waxon</pre><button class="copy" type="button" aria-label="Copy"><svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg><svg class="i-done" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg><span class="copied" aria-hidden="true">Copied</span></button></div>
+          <p>Flakes. To try it without installing: <code>nix run github:danfry1/waxon</code></p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-scoop" aria-labelledby="t-scoop" hidden>
+          <div class="cmd"><pre><span class="p" aria-hidden="true">&gt; </span>scoop bucket add danfry1 https://github.com/danfry1/scoop-bucket
+<span class="p" aria-hidden="true">&gt; </span>scoop install waxon</pre><button class="copy" type="button" aria-label="Copy"><svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg><svg class="i-done" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg><span class="copied" aria-hidden="true">Copied</span></button></div>
+          <p>Windows, in PowerShell.</p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-go" aria-labelledby="t-go" hidden>
+          <div class="cmd"><pre><span class="p" aria-hidden="true">$ </span>go install github.com/danfry1/waxon@latest</pre><button class="copy" type="button" aria-label="Copy"><svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg><svg class="i-done" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg><span class="copied" aria-hidden="true">Copied</span></button></div>
+          <p>Any platform with Go installed.</p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-pkg" aria-labelledby="t-pkg" hidden>
+          <div class="cmd cmd-text"><p>Every <a href="https://github.com/danfry1/waxon/releases/latest">release</a> has <code>.deb</code>, <code>.rpm</code> and <code>.apk</code> packages, and archives for Linux, macOS and Windows on amd64 and arm64.</p></div>
+          <p>Each comes with SHA-256 checksums.</p>
+        </div>
+      </div>
+      <p class="premium">Needs Spotify Premium.</p>
     </div>
 
     <div class="deck">
@@ -561,52 +610,8 @@
     </div>
   </section>
 
-  <section class="wrap install" id="install">
-    <div class="section-head">
-      <h2>Install</h2>
-      <p>macOS, Linux and Windows. Needs Spotify Premium.</p>
-    </div>
-
-    <div class="tabs" role="tablist" aria-label="Install with">
-      <button role="tab" id="t-brew" aria-controls="p-brew" aria-selected="true">Homebrew</button>
-      <button role="tab" id="t-nix" aria-controls="p-nix" aria-selected="false" tabindex="-1">Nix</button>
-      <button role="tab" id="t-scoop" aria-controls="p-scoop" aria-selected="false" tabindex="-1">Scoop</button>
-      <button role="tab" id="t-go" aria-controls="p-go" aria-selected="false" tabindex="-1">Go</button>
-      <button role="tab" id="t-pkg" aria-controls="p-pkg" aria-selected="false" tabindex="-1">Linux packages</button>
-    </div>
-
-    <div class="panel" role="tabpanel" id="p-brew" aria-labelledby="t-brew">
-      <div class="cmd">
-        <pre><span class="p">$ </span>brew trust danfry1/tap
-<span class="p">$ </span>brew install danfry1/tap/waxon</pre>
-        <button class="copy" type="button" data-copy="brew trust danfry1/tap && brew install danfry1/tap/waxon">Copy</button>
-      </div>
-      <p>Homebrew asks you to trust a third-party tap once before installing from it. Works on macOS and Linux.</p>
-    </div>
-    <div class="panel" role="tabpanel" id="p-nix" aria-labelledby="t-nix" hidden>
-      <div class="cmd">
-        <pre><span class="p">$ </span>nix run github:danfry1/waxon            <span class="c"># try it without installing</span>
-<span class="p">$ </span>nix profile install github:danfry1/waxon</pre>
-        <button class="copy" type="button" data-copy="nix profile install github:danfry1/waxon">Copy</button>
-      </div>
-    </div>
-    <div class="panel" role="tabpanel" id="p-scoop" aria-labelledby="t-scoop" hidden>
-      <div class="cmd">
-        <pre><span class="p">&gt; </span>scoop bucket add danfry1 https://github.com/danfry1/scoop-bucket
-<span class="p">&gt; </span>scoop install waxon</pre>
-        <button class="copy" type="button" data-copy="scoop bucket add danfry1 https://github.com/danfry1/scoop-bucket; scoop install waxon">Copy</button>
-      </div>
-    </div>
-    <div class="panel" role="tabpanel" id="p-go" aria-labelledby="t-go" hidden>
-      <div class="cmd">
-        <pre><span class="p">$ </span>go install github.com/danfry1/waxon@latest</pre>
-        <button class="copy" type="button" data-copy="go install github.com/danfry1/waxon@latest">Copy</button>
-      </div>
-    </div>
-    <div class="panel" role="tabpanel" id="p-pkg" aria-labelledby="t-pkg" hidden>
-      <p style="margin-top:0">Every <a href="https://github.com/danfry1/waxon/releases/latest">release</a> has <code>.deb</code>, <code>.rpm</code> and <code>.apk</code> packages, plus archives for Linux, macOS and Windows on amd64 and arm64, with SHA-256 checksums.</p>
-    </div>
-
+  <section class="wrap install" aria-labelledby="start-title">
+    <h2 id="start-title">After installing</h2>
     <div class="after">
       <div>
         <h3>Run <code>waxon</code></h3>
@@ -648,13 +653,20 @@
   </div>
 </footer>
 
+<p id="copy-status" class="sr-only" aria-live="polite"></p>
 <script>
-  // Copy buttons
+  // Copy buttons copy exactly the commands shown, without the prompts
+  var status = document.getElementById("copy-status");
   document.querySelectorAll(".copy").forEach(function (b) {
+    var timer;
     b.addEventListener("click", function () {
-      navigator.clipboard.writeText(b.dataset.copy).then(function () {
-        b.textContent = "Copied";
-        setTimeout(function () { b.textContent = "Copy"; }, 1600);
+      var pre = b.parentNode.querySelector("pre").cloneNode(true);
+      pre.querySelectorAll(".p").forEach(function (p) { p.remove(); });
+      navigator.clipboard.writeText(pre.textContent.trim()).then(function () {
+        b.classList.add("done");
+        status.textContent = "Copied";
+        clearTimeout(timer);
+        timer = setTimeout(function () { b.classList.remove("done"); status.textContent = ""; }, 1600);
       });
     });
   });
@@ -668,7 +680,7 @@
       t.tabIndex = on ? 0 : -1;
       document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
     });
-    tab.focus();
+    tab.focus({ preventScroll: true });
   }
   tabs.forEach(function (t, i) {
     t.addEventListener("click", function () { select(t); });
