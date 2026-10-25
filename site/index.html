@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>waxon: Spotify from the home row</title>
+<meta name="description" content="waxon is a Spotify client for the terminal with vim keys. It plays music by itself or drives the Spotify app, with album art, a spinning record and synced lyrics.">
+<meta name="theme-color" content="#1b1726">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://waxon.danfry.dev/">
+<meta property="og:title" content="waxon: Spotify from the home row">
+<meta property="og:description" content="A Spotify client for the terminal with vim keys, album art, a spinning record and synced lyrics.">
+<meta property="og:image" content="https://waxon.danfry.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://waxon.danfry.dev/og.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --vinyl: #1b1726;
+    --sleeve: #252036;
+    --groove: #2f2943;
+    --rule: #3a3350;
+    --paper: #efebf7;
+    --paper-2: #b4accb;
+    --mint: #93d6ac;
+    --lavender: #b7a3ea;
+    --rose: #e6a9c4;
+    --term: #1f2430; /* the demo recordings' background */
+    --display: "Bricolage Grotesque", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    --measure: 34rem;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  html, body { overflow-x: hidden; overflow-x: clip; }
+  body {
+    margin: 0;
+    background: var(--vinyl);
+    color: var(--paper);
+    font: 400 1.0625rem/1.6 var(--display);
+    font-variation-settings: "opsz" 14;
+  }
+  a { color: var(--mint); text-underline-offset: 0.2em; }
+  a:hover { color: var(--paper); }
+  :focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; border-radius: 4px; }
+  img { max-width: 100%; display: block; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .wrap { width: min(72rem, 100% - 2rem); margin-inline: auto; }
+
+  /* Top bar */
+  .top { display: flex; align-items: center; justify-content: space-between; padding-block: 1.25rem; }
+  .brand { display: flex; align-items: center; gap: 0.6rem; color: var(--paper); text-decoration: none;
+    font-weight: 700; font-size: 1.25rem; letter-spacing: -0.01em; }
+  .brand img { width: 2rem; height: 2rem; }
+  .top nav { display: flex; gap: 1.5rem; font-size: 0.95rem; }
+  .top nav a { color: var(--paper-2); text-decoration: none; }
+  .top nav a:hover { color: var(--paper); }
+
+  /* Hero */
+  .hero { position: relative; padding-block: 3.5rem 2rem; }
+  .hero > :not(.record) { position: relative; z-index: 1; }
+  h1 {
+    margin: 0;
+    font-size: clamp(2.75rem, 8vw, 6.25rem);
+    line-height: 0.95;
+    font-weight: 800;
+    font-variation-settings: "opsz" 96, "wdth" 84;
+    letter-spacing: -0.012em;
+    max-width: 11ch;
+  }
+  .lede { margin: 1.5rem 0 0; max-width: var(--measure); font-size: 1.2rem; color: var(--paper-2); }
+  /* Install: one widget, with every panel in the same footprint so
+     switching tabs or copying never moves anything */
+  .installer { margin-top: 2rem; max-width: 40rem; scroll-margin-top: 2rem; }
+  .tabs { display: flex; gap: 0.25rem; margin: 0 0 0.6rem -0.7rem; overflow-x: auto; scrollbar-width: none; }
+  .tabs button {
+    flex: none; position: relative; cursor: pointer;
+    font: 600 0.92rem/1 var(--display); color: var(--paper-2);
+    background: transparent; border: 0; border-radius: 6px; padding: 0.55rem 0.7rem;
+  }
+  .tabs button:hover { color: var(--paper); background: rgba(255,255,255,.04); }
+  .tabs button[aria-selected="true"] { color: var(--paper); }
+  .tabs button[aria-selected="true"]::after {
+    content: ""; position: absolute; left: 0.7rem; right: 0.7rem; bottom: 0.1rem; height: 2px; border-radius: 1px; background: var(--mint);
+  }
+  .panels { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .panel { grid-area: 1 / 1; }
+  .panel[hidden] { display: block; visibility: hidden; }
+  .panel > p { margin: 0.65rem 0 0 0.2rem; color: var(--paper-2); font-size: 0.9rem; }
+  .premium { margin: 0.9rem 0 0 0.2rem; color: var(--paper-2); font-size: 0.9rem; }
+
+  .cmd {
+    position: relative;
+    display: flex; align-items: center; gap: 1rem;
+    min-height: 5.1rem;
+    background: var(--sleeve);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 0.75rem 0.75rem 0.75rem 1.1rem;
+    font: 400 0.9rem/1.7 var(--mono);
+    max-width: 100%;
+  }
+  .cmd-text p { margin: 0; font: 400 0.95rem/1.55 var(--display); color: var(--paper-2); }
+  .cmd pre { margin: 0; overflow-x: auto; flex: 1; min-width: 0; font: inherit; }
+  .cmd .p { color: var(--mint); user-select: none; }
+  .cmd .c { color: #7d7596; }
+  .copy {
+    flex: none; position: relative; align-self: flex-start;
+    width: 2.25rem; height: 2.25rem; display: grid; place-items: center; cursor: pointer;
+    color: var(--paper-2); background: rgba(255,255,255,.05);
+    border: 1px solid var(--rule); border-radius: 8px;
+  }
+  .copy:hover { color: var(--paper); border-color: var(--paper-2); }
+  .copy svg { grid-area: 1 / 1; width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .copy .i-done { opacity: 0; stroke: var(--mint); stroke-width: 2; }
+  .copy.done { border-color: var(--mint); }
+  .copy.done .i-copy { opacity: 0; }
+  .copy.done .i-done { opacity: 1; }
+  .copied {
+    position: absolute; right: 0; bottom: calc(100% + 0.4rem);
+    font: 600 0.75rem/1 var(--display); color: var(--vinyl); background: var(--mint);
+    padding: 0.3rem 0.45rem; border-radius: 4px; white-space: nowrap;
+    opacity: 0; transform: translateY(3px); transition: opacity .15s, transform .15s; pointer-events: none;
+  }
+  .copy.done .copied { opacity: 1; transform: none; }
+
+  /* The record in its sleeve: the terminal is the sleeve */
+  .deck { margin-top: 3.5rem; margin-right: clamp(0px, 8vw, 7rem); }
+  .record {
+    position: absolute; z-index: 0;
+    right: 0; top: 1.5rem;
+    width: min(42vw, 36rem); aspect-ratio: 1;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle, transparent 0 31%, rgba(0,0,0,.35) 31.4%, transparent 32.4%),
+      repeating-radial-gradient(circle, #1d1929 0 1.5px, #262036 1.5px 3px);
+    box-shadow: 0 30px 80px rgba(0,0,0,.45), inset 0 0 0 2px #2c2640;
+  }
+  /* The light stays where it is while the record turns under it */
+  .record::after {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: conic-gradient(from 200deg, transparent 0 8%, rgba(183,163,234,.16) 14%, transparent 22%,
+      transparent 58%, rgba(147,214,172,.12) 64%, transparent 72%);
+    pointer-events: none;
+  }
+  .label {
+    position: absolute; inset: 34%; border-radius: 50%;
+    background: var(--cover, none) center / cover,
+      conic-gradient(from 0deg, var(--mint), var(--lavender), var(--rose), var(--lavender), var(--mint));
+    image-rendering: pixelated;
+    box-shadow: 0 0 0 0.5rem rgba(183,163,234,.18);
+    animation: spin 1.8s linear infinite; /* 33⅓ rpm */
+  }
+  .record.stopped .label { animation-play-state: paused; }
+  .label::after {
+    content: ""; position: absolute; inset: 46%; border-radius: 50%; background: var(--vinyl);
+  }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  @media (prefers-reduced-motion: reduce) { .label { animation: none; } }
+
+  .window {
+    position: relative; z-index: 1;
+    background: var(--term);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 40px 100px rgba(0,0,0,.5);
+  }
+  .window-bar {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.55rem 0.9rem;
+    font: 400 0.78rem/1 var(--mono); color: #7d7596;
+    border-bottom: 1px solid #2a3040;
+  }
+  .window-bar i { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: #3a4050; }
+  .window-bar span { margin-left: 0.4rem; white-space: nowrap; }
+  .window img { width: 100%; height: auto; aspect-ratio: 1400 / 800; }
+
+
+  /* The demo: a small waxon, drawn as waxon's default theme draws it */
+  .window-bar .live-hint { margin-left: auto; color: var(--mint); opacity: 0; transition: opacity .2s; }
+  .window:has(.demo.live) .live-hint { opacity: 1; }
+  .window-bar .demo-tag { margin-left: 0.75rem; color: var(--vinyl); background: var(--mint); padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600; }
+  .window:has(.demo.live) .demo-tag { display: none; }
+  .invite-hint {
+    position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+    background: var(--d-bg); color: var(--d-text); border: 1px solid var(--d-accent); border-radius: 6px;
+    padding: 8px 14px; white-space: nowrap; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+    max-width: calc(100% - 24px);
+  }
+  .invite-hint b { color: var(--d-accent); }
+  .invite-hint kbd { min-width: 0; height: auto; padding: 0 6px; font-size: 12px; border-width: 1px 1px 2px; border-radius: 4px; display: inline-block; }
+  .window:has(.demo.invite) { animation: invite 2.4s ease-out 2; }
+  @keyframes invite { 0% { box-shadow: 0 0 0 0 rgba(147,214,172,.55), 0 40px 100px rgba(0,0,0,.5); } 70%, 100% { box-shadow: 0 0 0 18px rgba(147,214,172,0), 0 40px 100px rgba(0,0,0,.5); } }
+  @media (prefers-reduced-motion: reduce) { .window:has(.demo.invite) { animation: none; outline: 2px solid var(--mint); } }
+  .window:has(.demo.live) { border-color: #4a6b58; }
+  .demo {
+    --d-bg: #1f2430; --d-accent: #1db954; --d-text: #e8e8e8; --d-sec: #a9adb7; --d-dim: #5d6472; --d-border: #363c4a;
+    --d-sel: rgba(255,255,255,.06); --d-ink: #10141c;
+    position: relative; height: clamp(26rem, 44vw, 36rem);
+    background: var(--d-bg); color: var(--d-text);
+    font: 400 13px/1.45 var(--mono);
+    outline: none; cursor: default; overflow: hidden;
+  }
+  .demo.light { --d-sel: rgba(0,0,0,.06); }
+  .demo:focus-visible { box-shadow: inset 0 0 0 2px var(--mint); }
+  .demo-screen { position: absolute; inset: 0; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+  .demo .dim { color: var(--d-dim); }
+  .demo .sec { color: var(--d-sec); }
+  .demo .accent { color: var(--d-accent); }
+  .demo .strong { font-weight: 600; }
+  .demo .art { display: block; image-rendering: pixelated; flex: none; }
+  .demo .art-empty { background: var(--d-border); }
+  .demo .tiny { width: 26px; height: 16px; }
+  .demo .head { width: 52px; height: 52px; }
+  .demo .big { width: 120px; height: 120px; }
+  .panes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(170px, 26%) 1fr; gap: 8px; }
+  .pane { border: 1px solid var(--d-border); border-radius: 4px; padding: 8px 10px; min-width: 0; overflow: hidden; }
+  .pane.focus { border-color: var(--d-accent); }
+  .pane-title { font-size: 11px; letter-spacing: .08em; margin: 0 0 8px 8px; }
+  .lib-row { display: flex; gap: 8px; align-items: flex-start; padding: 3px 6px; margin-bottom: 6px; border-left: 2px solid transparent; }
+  .lib-row .art { margin-top: 2px; }
+  .lib-row.open > div > div:first-child { color: var(--d-accent); }
+  .pane.lib.focus .lib-row.sel { border-left-color: var(--d-accent); background: var(--d-sel); }
+  .tl-head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; }
+  .trow { display: grid; grid-template-columns: 16px 28px minmax(0, 1fr) minmax(0, 34%) 68px; gap: 0 8px; padding: 0 4px; white-space: nowrap; }
+  .trow > span { overflow: hidden; text-overflow: ellipsis; }
+  .trow.th { border-bottom: 1px solid var(--d-border); padding-bottom: 4px; margin-bottom: 4px; }
+  .trow .c-dur { text-align: right; }
+  .trow.now { color: var(--d-accent); }
+  .trow .heart { color: var(--d-accent); }
+  .pane.tracks.focus .trow.sel { background: var(--d-sel); }
+  .pane.tracks .trow.sel .c-title { font-weight: 600; }
+  .nowbar { display: flex; gap: 18px; align-items: flex-start; }
+  .nb-text { flex: 1; min-width: 0; }
+  .nb-text > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nb-bar { margin: 8px 0 2px; max-width: 34rem; }
+  .bar { position: relative; display: block; height: 9px; }
+  .bar::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--d-border); }
+  .bar b { position: absolute; left: 0; top: 3px; height: 3px; background: var(--c); border-radius: 2px; }
+  .bar em { position: absolute; top: 0; width: 9px; height: 9px; margin-left: -4px; border-radius: 50%; background: var(--c); }
+  .mode { display: inline-block; background: var(--d-accent); color: var(--d-bg); font-weight: 700; padding: 0 6px; margin-top: 4px; }
+  .np { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; text-align: center;
+    background: radial-gradient(ellipse at 50% 35%, color-mix(in srgb, var(--np) 22%, transparent), transparent 65%), #08080c;
+    margin: -14px -18px; padding: 18px; }
+  .np-art, .np-vinyl, .np-lyrics { flex: 1; min-height: 0; display: grid; place-items: center; width: 100%; }
+  .np .huge { height: min(100%, 15rem); width: auto; aspect-ratio: 1; }
+  .np-title { font-weight: 700; margin-top: 10px; }
+  .np-sub { color: var(--d-text); }
+  .np-bar { width: min(28rem, 80%); margin: 10px 0 2px; }
+  .np-time { color: var(--d-sec); }
+  .np-hints { margin-top: 10px; font-size: 12px; }
+  .np-vinyl { position: relative; }
+  .np-record { width: min(15rem, 46vw); aspect-ratio: 1; border-radius: 50%; position: relative;
+    background: repeating-radial-gradient(circle, #121216 0 2px, #1c1c22 2px 4px);
+    box-shadow: 0 0 0 1px #2a2a32; animation: spin 1.8s linear var(--spin, 0s) infinite; }
+  .np-record::after { content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: conic-gradient(from 210deg, transparent 0 10%, rgba(255,255,255,.10) 16%, transparent 24%, transparent 60%, rgba(255,255,255,.07) 66%, transparent 74%);
+    animation: spin 1.8s linear var(--spin, 0s) infinite reverse; }
+  .np-record.stopped, .np-record.stopped::after { animation-play-state: paused; }
+  .np-label { position: absolute; inset: 32%; border-radius: 50%; overflow: hidden; }
+  .np-label img { width: 100%; height: 100%; image-rendering: pixelated; }
+  .np-arm { position: absolute; left: calc(50% + min(7.5rem, 23vw) + 0.5rem); top: 8%; width: 6px; height: 62%;
+    background: linear-gradient(#cfcfd6, #8d8d96); border-radius: 3px; transform-origin: 50% 4%;
+    transform: rotate(calc(16deg + var(--p) * 12deg)); }
+  .np-arm::before { content: ""; position: absolute; top: -6px; left: -6px; width: 18px; height: 18px; background: #bdbdc6; border-radius: 3px; }
+  .np-lyrics { align-content: center; gap: 2px; }
+  .ly { color: var(--d-text); }
+  .ly.on { color: var(--np); font-weight: 700; }
+  .toast { position: absolute; top: 18px; right: 22px; background: var(--d-bg); color: var(--d-text); border: 1px solid var(--d-border); box-shadow: 0 6px 20px rgba(0,0,0,.35); padding: 6px 12px; border-radius: 4px; }
+  .toast .meter { color: var(--d-accent); letter-spacing: -1px; }
+  .toast .meter i { font-style: normal; color: var(--d-border); }
+  .help { position: absolute; inset: 0; background: color-mix(in srgb, var(--d-bg) 70%, transparent); display: grid; place-items: center; }
+  .help-box { background: var(--d-bg); border: 1px solid var(--d-accent); border-radius: 4px; padding: 14px 20px; min-width: 22rem; }
+  .help-row { display: grid; grid-template-columns: 7rem 1fr; }
+  .help-box > .accent { margin-bottom: 8px; }
+  .help-more { margin-top: 10px; max-width: 24rem; }
+
+  /* Narrow terminals show one pane at a time, as waxon does under 80 columns */
+  @container demo (max-width: 640px) {
+    .panes { grid-template-columns: 1fr; }
+    .demo-screen[data-pane="tracks"] .pane.lib, .demo-screen[data-pane="lib"] .pane.tracks { display: none; }
+    .trow { grid-template-columns: 14px 24px minmax(0, 1fr) 44px; }
+    .trow .c-artist { display: none; }
+    .demo .big { width: 72px; height: 72px; }
+    .nowbar { gap: 12px; }
+    .nb-text > div:nth-child(5) { display: none; }
+    .np-hints { display: none; }
+  }
+  .demo { container: demo / inline-size; }
+  @media (max-width: 30rem) {
+    .demo { font-size: 12px; height: 28.5rem; }
+    .window-bar > span:first-of-type, .window-bar i { display: none; }
+    .window-bar .demo-tag { margin-left: 0; }
+    .invite-hint { white-space: normal; text-align: center; bottom: auto; top: 45%; transform: translate(-50%, -50%); width: max-content; }
+    .keystrip .themes { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.4rem; scrollbar-width: none; }
+    .themes button { flex: none; }
+  }
+
+  .keystrip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; margin-top: 1.1rem; }
+  .keystrip p { margin: 0; color: var(--paper-2); font-size: 0.95rem; }
+  .keycaps { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .keycaps button {
+    min-width: 2.4rem; height: 2.4rem; padding: 0 0.65rem; cursor: pointer;
+    font: 600 0.9rem/1 var(--mono); color: var(--paper);
+    background: linear-gradient(#332c48, #29233b);
+    border: 1px solid #453d5e; border-bottom-width: 4px; border-radius: 8px;
+  }
+  .keycaps button:hover { border-color: var(--lavender); }
+  .themes { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font: 0.82rem var(--mono); }
+  .themes span { color: var(--paper-2); margin-right: 0.3rem; }
+  .themes button {
+    display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer;
+    font: inherit; color: var(--paper-2); background: transparent;
+    border: 1px solid var(--rule); border-radius: 999px; padding: 0.25rem 0.6rem 0.25rem 0.35rem;
+  }
+  .themes button::before { content: ""; width: 0.85rem; height: 0.85rem; border-radius: 50%; background: linear-gradient(135deg, var(--a) 50%, var(--b) 50%); box-shadow: 0 0 0 1px rgba(255,255,255,.15); }
+  .themes button:hover { color: var(--paper); border-color: var(--paper-2); }
+  .themes button[aria-pressed="true"] { color: var(--paper); border-color: var(--mint); }
+  .keycaps button.hit { animation: press .22s ease-out; }
+  @keyframes press { 40% { transform: translateY(2px); border-bottom-width: 2px; background: #3d3557; } }
+  @media (prefers-reduced-motion: reduce) {
+    .np-record, .np-record::after { animation: none; }
+    .keycaps button.hit { animation: none; }
+  }
+
+  /* Features */
+  h2 {
+    margin: 0 0 0.75rem;
+    font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+    line-height: 1.05; font-weight: 750;
+    font-variation-settings: "opsz" 60, "wdth" 85;
+    letter-spacing: -0.015em;
+  }
+  h3 { margin: 0 0 0.4rem; font-size: 1.15rem; font-weight: 700; }
+  .text p, .modes p, .more p { margin: 0 0 0.9rem; color: var(--paper-2); max-width: var(--measure); }
+  .text p:last-child, .more p { margin-bottom: 0; }
+  main code { font: 0.88em var(--mono); color: var(--paper); }
+  .keys { display: flex; gap: 0.4rem; margin-bottom: 1.25rem; }
+  kbd {
+    display: inline-grid; place-items: center;
+    min-width: 2.6rem; height: 2.6rem; padding: 0 0.7rem;
+    font: 600 1.05rem/1 var(--mono); color: var(--paper);
+    background: linear-gradient(#332c48, #29233b);
+    border: 1px solid #453d5e; border-bottom-width: 4px;
+    border-radius: 8px;
+  }
+
+  .modes { padding-block: 7rem 1rem; }
+  .modes > h2 { font-size: clamp(2.25rem, 5vw, 3.75rem); margin-bottom: 2.5rem; }
+  .modes-split { display: grid; grid-template-columns: 1fr auto 1fr; gap: 2rem 3rem; align-items: start; }
+  .modes-key { display: grid; justify-items: center; gap: 0.5rem; color: var(--lavender); font-size: 1.5rem; padding-top: 2.5rem; }
+  .big-key {
+    width: 4.75rem; height: 4.75rem; cursor: pointer;
+    font: 600 1.9rem/1 var(--mono); color: var(--paper);
+    background: linear-gradient(#3a3252, #2b253e);
+    border: 1px solid #554a73; border-bottom-width: 6px; border-radius: 12px;
+  }
+  .big-key:hover { border-color: var(--lavender); }
+  .big-key.hit { animation: press .22s ease-out; }
+  .device { border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; margin-bottom: 1.5rem; background: #15121f;
+    transition: border-color .3s, opacity .3s, box-shadow .3s; opacity: .55; }
+  .device-bar { padding: 0.45rem 0.8rem; font: 600 0.78rem/1 var(--mono); color: var(--paper-2); border-bottom: 1px solid var(--groove); }
+  .device-body { padding: 1rem 1rem 1.1rem; min-height: 6.25rem; display: grid; align-content: center; gap: 0.35rem; }
+  .device-body.mono { font: 0.9rem/1.5 var(--mono); }
+  .device.app .device-body { font-size: 1rem; }
+  .device .playing { font-weight: 600; color: var(--paper); display: none; }
+  .device .idle { color: #6e6788; font: 0.88rem var(--mono); }
+  .device .dim-line, .device .controls { color: var(--paper-2); font-size: 0.85rem; visibility: hidden; }
+  .device .controls b { color: var(--paper); font-weight: 400; }
+  .side-waxon .dot { color: var(--mint); }
+  .modes[data-mode="waxon"] .side-waxon .device, .modes[data-mode="app"] .side-app .device {
+    opacity: 1; border-color: var(--mint); box-shadow: 0 0 0 4px rgba(147,214,172,.12);
+  }
+  .modes[data-mode="waxon"] .side-waxon .playing, .modes[data-mode="app"] .side-app .playing { display: block; }
+  .modes[data-mode="waxon"] .side-waxon .idle, .modes[data-mode="app"] .side-app .idle { display: none; }
+  .modes[data-mode="waxon"] .side-waxon :is(.dim-line, .controls), .modes[data-mode="app"] .side-app :is(.dim-line, .controls) { visibility: visible; }
+  .modes-foot { margin-top: 2.5rem !important; padding-top: 1.5rem; border-top: 1px solid var(--groove); max-width: 46rem !important; }
+
+  .queue, .scripting { padding-block: 6rem 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 3rem; align-items: center; }
+  .scripting { grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); }
+  .queue { display: block; }
+  .queue-head { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 1rem 3rem; align-items: end; margin-bottom: 2rem; }
+  .queue-head p { margin: 0; color: var(--paper-2); max-width: var(--measure); }
+  .queue-head h2 { margin: 0; }
+  .queue .window { margin: 0; }
+  .queue video { display: block; width: 100%; height: auto; aspect-ratio: 1400 / 800; }
+
+  .shell { background: #12101a; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+  .shell pre { margin: 0; padding: 1.25rem 1.4rem; font: 0.85rem/1.75 var(--mono); color: var(--paper-2); overflow-x: auto; }
+  .shell .p { color: var(--mint); }
+  .tmux { display: flex; justify-content: space-between; gap: 1rem; padding: 0.3rem 0.8rem; background: var(--mint); color: var(--vinyl); font: 600 0.8rem/1.4 var(--mono); white-space: nowrap; overflow: hidden; }
+
+  .more { padding-block: 6rem 1rem; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2rem; }
+  .more > div { border-top: 1px solid var(--rule); padding-top: 1rem; }
+
+  /* Install */
+  .install { padding-block: 5rem 3rem; }
+  .section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem 2rem; margin-bottom: 1.75rem; }
+  .section-head h2 { margin: 0; }
+  .section-head p { margin: 0; color: var(--paper-2); }
+  .install h2 { margin-bottom: 0; }
+  .after { margin-top: 1.75rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.5rem 3rem; }
+  .after h3 { margin: 0 0 0.35rem; font-size: 1.1rem; font-weight: 700; }
+  .after p { margin: 0; color: var(--paper-2); font-size: 0.98rem; }
+
+  /* Privacy */
+  .privacy { padding-block: 4rem; border-top: 1px solid var(--groove); }
+  .privacy-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 3rem; }
+  .privacy p { margin: 0 0 0.9rem; color: var(--paper-2); max-width: var(--measure); }
+  .hosts { list-style: none; margin: 0; padding: 0; }
+  .hosts li { display: grid; grid-template-columns: 13rem 1fr; gap: 1rem; padding: 0.8rem 0; border-bottom: 1px solid var(--groove); }
+  .hosts li:first-child { border-top: 1px solid var(--groove); }
+  .hosts code { color: var(--paper); font: 0.88rem/1.6 var(--mono); }
+  .hosts span { color: var(--paper-2); }
+
+  body > footer { padding-block: 2.5rem 3rem; border-top: 1px solid var(--groove); color: var(--paper-2); font-size: 0.92rem; }
+  body > footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem 2rem; }
+  body > footer p { margin: 0; }
+
+  @media (max-width: 52rem) {
+    .privacy-grid, .queue, .scripting, .modes-split { grid-template-columns: 1fr; gap: 1.75rem; }
+    .modes-key { justify-items: start; grid-auto-flow: column; align-items: center; justify-content: start; gap: 1rem; padding-top: 0; }
+    .queue-head { grid-template-columns: 1fr; }
+    .modes { padding-top: 4.5rem; }
+    .queue, .scripting { padding-top: 4.5rem; }
+    .more { grid-template-columns: 1fr 1fr; }
+    .deck { margin-right: 0; }
+    .record { width: 52vw; top: 0.5rem; right: 0; }
+    .hero { padding-top: 46vw; }
+    .hosts li { grid-template-columns: 1fr; gap: 0.15rem; }
+  }
+  @media (max-width: 30rem) {
+    .top nav a.hide-sm { display: none; }
+    .hero { padding-top: 48vw; }
+    .cmd { font-size: 0.78rem; gap: 0.6rem; padding-left: 0.9rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="wrap top">
+  <a class="brand" href="/"><img src="mark.svg" alt="">waxon</a>
+  <nav aria-label="Site">
+    <a class="hide-sm" href="#install">Install</a>
+    <a class="hide-sm" href="https://github.com/danfry1/waxon#keybindings">Docs</a>
+    <a href="https://github.com/danfry1/waxon">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <section class="wrap hero">
+    <div class="record" aria-hidden="true"><div class="label"></div></div>
+    <h1>Spotify, from the home row.</h1>
+    <p class="lede">waxon is a Spotify client for the terminal with vim keys. It plays music by itself or drives the Spotify app, with album art, a spinning record and synced lyrics.</p>
+    <div class="installer" id="install">
+      <div class="tabs" role="tablist" aria-label="Install with">
+        <button role="tab" id="t-brew" aria-controls="p-brew" aria-selected="true">Homebrew</button>
+        <button role="tab" id="t-nix" aria-controls="p-nix" aria-selected="false" tabindex="-1">Nix</button>
+        <button role="tab" id="t-scoop" aria-controls="p-scoop" aria-selected="false" tabindex="-1">Scoop</button>
+        <button role="tab" id="t-go" aria-controls="p-go" aria-selected="false" tabindex="-1">Go</button>
+        <button role="tab" id="t-pkg" aria-controls="p-pkg" aria-selected="false" tabindex="-1">Packages</button>
+      </div>
+      <div class="panels">
+        <div class="panel" role="tabpanel" id="p-brew" aria-labelledby="t-brew">
+          <div class="cmd"><pre><span class="p" aria-hidden="true">$ </span>brew trust danfry1/tap
+<span class="p" aria-hidden="true">$ </span>brew install danfry1/tap/waxon</pre><button class="copy" type="button" aria-label="Copy"><svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg><svg class="i-done" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg><span class="copied" aria-hidden="true">Copied</span></button></div>
+          <p>macOS and Linux. Homebrew asks you to trust a third-party tap once.</p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-nix" aria-labelledby="t-nix" hidden>
+          <div class="cmd"><pre><span class="p" aria-hidden="true">$ </span>nix profile install github:danfry1/waxon</pre><button class="copy" type="button" aria-label="Copy"><svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg><svg class="i-done" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg><span class="copied" aria-hidden="true">Copied</span></button></div>
+          <p>Flakes. To try it without installing: <code>nix run github:danfry1/waxon</code></p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-scoop" aria-labelledby="t-scoop" hidden>
+          <div class="cmd"><pre><span class="p" aria-hidden="true">&gt; </span>scoop bucket add danfry1 https://github.com/danfry1/scoop-bucket
+<span class="p" aria-hidden="true">&gt; </span>scoop install waxon</pre><button class="copy" type="button" aria-label="Copy"><svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg><svg class="i-done" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg><span class="copied" aria-hidden="true">Copied</span></button></div>
+          <p>Windows, in PowerShell.</p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-go" aria-labelledby="t-go" hidden>
+          <div class="cmd"><pre><span class="p" aria-hidden="true">$ </span>go install github.com/danfry1/waxon@latest</pre><button class="copy" type="button" aria-label="Copy"><svg class="i-copy" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg><svg class="i-done" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg><span class="copied" aria-hidden="true">Copied</span></button></div>
+          <p>Any platform with Go installed.</p>
+        </div>
+        <div class="panel" role="tabpanel" id="p-pkg" aria-labelledby="t-pkg" hidden>
+          <div class="cmd cmd-text"><p>Every <a href="https://github.com/danfry1/waxon/releases/latest">release</a> has <code>.deb</code>, <code>.rpm</code> and <code>.apk</code> packages, and archives for Linux, macOS and Windows on amd64 and arm64.</p></div>
+          <p>Each comes with SHA-256 checksums.</p>
+        </div>
+      </div>
+      <p class="premium">Needs Spotify Premium.</p>
+    </div>
+
+    <div class="deck">
+      <div class="window">
+        <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>~ waxon</span><span class="demo-tag">live demo, try the keys</span><span class="live-hint">keys go to waxon</span></div>
+        <div id="demo" class="demo" tabindex="0" role="application" aria-label="waxon demo: click, then use j, k, Enter, Space, n and p">
+          <div id="demo-screen" class="demo-screen"></div>
+        </div>
+      </div>
+      <div class="keystrip">
+        <p>Type while it's on screen, or tap the keys.</p>
+        <div class="keycaps">
+          <button type="button" data-key="j">j</button><button type="button" data-key="k">k</button>
+          <button type="button" data-key="Enter">Enter</button><button type="button" data-key=" ">Space</button>
+          <button type="button" data-key="n">n</button><button type="button" data-key="p">p</button>
+          <button type="button" data-key="f">f</button><button type="button" data-key="N">N</button>
+          <button type="button" data-key="v">v</button><button type="button" data-key="l">l</button>
+          <button type="button" data-key="M">M</button>
+          <button type="button" data-key="?">?</button>
+          <button type="button" data-key="Escape">Esc</button>
+        </div>
+        <div class="themes" role="group" aria-label="Theme">
+          <span>:theme</span>
+          <button type="button" data-theme="spotify" aria-pressed="true" style="--a:#1db954;--b:#1f2430">spotify</button>
+          <button type="button" data-theme="catppuccin-mocha" style="--a:#a6e3a1;--b:#1e1e2e">catppuccin-mocha</button>
+          <button type="button" data-theme="catppuccin-latte" style="--a:#40a02b;--b:#eff1f5">catppuccin-latte</button>
+          <button type="button" data-theme="gruvbox" style="--a:#b8bb26;--b:#282828">gruvbox</button>
+          <button type="button" data-theme="tokyonight" style="--a:#9ece6a;--b:#1a1b26">tokyonight</button>
+          <button type="button" data-theme="nord" style="--a:#a3be8c;--b:#2e3440">nord</button>
+          <button type="button" data-theme="dracula" style="--a:#50fa7b;--b:#282a36">dracula</button>
+          <button type="button" data-theme="rose-pine" style="--a:#9ccfd8;--b:#191724">rose-pine</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap modes" data-mode="waxon" aria-labelledby="modes-title">
+    <h2 id="modes-title">Two ways to play.</h2>
+    <div class="modes-split">
+      <div class="side side-waxon">
+        <div class="device" aria-hidden="true">
+          <div class="device-bar">waxon</div>
+          <div class="device-body mono">
+            <div class="playing"><span class="dot">▶</span> <span data-np-title>Let It Happen</span></div>
+            <div class="idle">nothing here</div>
+            <div class="dim-line"><span data-np-time>0:00</span> · waxon (this Mac)</div>
+          </div>
+        </div>
+        <h3>In waxon</h3>
+        <p>waxon is the player. It runs its own Spotify Connect device, so there's no Spotify app to keep open. Setup installs and signs in the player for you.</p>
+      </div>
+      <div class="modes-key">
+        <button type="button" class="big-key" data-key="M" aria-label="Press M: switch where the demo plays">M</button>
+        <span aria-hidden="true">⇄</span>
+      </div>
+      <div class="side side-app">
+        <div class="device app" aria-hidden="true">
+          <div class="device-bar">Spotify app</div>
+          <div class="device-body">
+            <div class="playing"><span data-np-title>Let It Happen</span></div>
+            <div class="idle">nothing here</div>
+            <div class="controls">⏮ <b>⏯</b> ⏭ <span data-np-time>0:00</span></div>
+          </div>
+        </div>
+        <h3>As a remote</h3>
+        <p>waxon drives the Spotify app on this computer, or your phone, or a speaker. If the app is closed, <code>M</code> opens it and hands the music over.</p>
+      </div>
+    </div>
+    <p class="modes-foot"><code>M</code> switches between them and carries on from the same second; press it here or in the demo. Your keyboard's media keys and the system's Now Playing work either way.</p>
+  </section>
+
+  <section class="wrap queue" aria-labelledby="queue-title">
+    <div class="queue-head">
+      <div><div class="keys"><kbd>g</kbd><kbd>q</kbd></div><h2 id="queue-title">The queue, as you'd expect it.</h2></div>
+      <p>What's playing, what you've queued, then what's next from the playlist. Enter skips straight to a track and keeps the rest of the queue.</p>
+    </div>
+    <figure class="window">
+      <video src="video/queue.mp4" poster="video/queue.jpg" width="1400" height="800" autoplay muted loop playsinline preload="none" aria-label="The queue view, skipping ahead to a track"></video>
+    </figure>
+  </section>
+
+  <section class="wrap scripting" aria-labelledby="scripting-title">
+    <div class="text">
+      <h2 id="scripting-title">Scripts and status bars.</h2>
+      <p>Every action is also a command, so waxon fits into tmux, waybar, hotkey daemons and shell scripts without opening the app.</p>
+      <p><code>waxon status</code> prints what's playing in any format you like, or as JSON.</p>
+    </div>
+    <div class="shell">
+      <pre><span class="p">$</span> waxon status
+▶ Let It Happen — Tame Impala
+<span class="p">$</span> waxon play daft punk get lucky
+<span class="p">$</span> waxon vol +5
+<span class="p">$</span> waxon status --format '{icon} {title} [{position}/{duration}]'
+▶ Get Lucky [0:41/6:09]
+<span class="p">$</span> waxon status --json | jq .device
+"waxon (studio)"</pre>
+      <div class="tmux" aria-label="A tmux status line showing the playing track"><span class="tmux-l">0:main*</span><span class="tmux-r">▶ Get Lucky — Daft Punk │ 21:14</span></div>
+    </div>
+  </section>
+
+  <section class="wrap more" aria-label="More features">
+    <div>
+      <h3>Search and artist pages</h3>
+      <p><code>s</code> searches Spotify. Artist pages open with Play and Shuffle, then the popular tracks and albums.</p>
+    </div>
+    <div>
+      <h3>Playlists</h3>
+      <p><code>o</code> on a track adds it to a playlist or removes it, and visual mode does a run of tracks at once.</p>
+    </div>
+    <div>
+      <h3>Small terminals</h3>
+      <p>Under 80 columns waxon shows one pane at a time, so it fits a tmux side pane.</p>
+    </div>
+    <div>
+      <h3>Your keys</h3>
+      <p>Every key can be remapped in <code>config.json</code>, and <code>?</code> always shows the ones you have.</p>
+    </div>
+  </section>
+
+  <section class="wrap install" aria-labelledby="start-title">
+    <h2 id="start-title">After installing</h2>
+    <div class="after">
+      <div>
+        <h3>Run <code>waxon</code></h3>
+        <p>The first run is a guided setup of about a minute: sign in to Spotify in your browser, then choose where music plays.</p>
+      </div>
+      <div>
+        <h3>Press <code>?</code></h3>
+        <p>Help lists every key, including the ones you've remapped. The <a href="https://github.com/danfry1/waxon#readme">README</a> covers the rest.</p>
+      </div>
+      <div>
+        <h3>Stuck?</h3>
+        <p><code>waxon doctor</code> checks your login, devices, network and terminal, and says what to fix.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="privacy" aria-labelledby="privacy-title">
+    <div class="wrap privacy-grid">
+      <div>
+        <h2 id="privacy-title">It talks to Spotify, and that's it.</h2>
+        <p>waxon has no telemetry, analytics or update checks. Sign-in uses PKCE, so there's no client secret, and your password only ever goes to Spotify's own sign-in page.</p>
+        <p>On a work network it uses your proxy settings, and <code>"lyrics": false</code> keeps it to Spotify alone.</p>
+      </div>
+      <ul class="hosts" aria-label="Everything waxon connects to">
+        <li><code>accounts.spotify.com</code><span>Signing in</span></li>
+        <li><code>api.spotify.com</code><span>Your library, search and playback</span></li>
+        <li><code>*.scdn.co</code><span>Album and playlist covers</span></li>
+        <li><code>lrclib.net</code><span>Lyrics, looked up by the track's title, artist, album and length</span></li>
+        <li><code>Spotify's audio servers</code><span>Only when waxon is the player</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Free and open source under the <a href="https://github.com/danfry1/waxon/blob/main/LICENSE">GPL-3.0</a>. Made by <a href="https://danfry.dev">Dan Fry</a>.</p>
+    <p>Not affiliated with Spotify.</p>
+  </div>
+</footer>
+
+<p id="copy-status" class="sr-only" aria-live="polite"></p>
+<script>
+  // Copy buttons copy exactly the commands shown, without the prompts
+  var status = document.getElementById("copy-status");
+  document.querySelectorAll(".copy").forEach(function (b) {
+    var timer;
+    b.addEventListener("click", function () {
+      var pre = b.parentNode.querySelector("pre").cloneNode(true);
+      pre.querySelectorAll(".p").forEach(function (p) { p.remove(); });
+      navigator.clipboard.writeText(pre.textContent.trim()).then(function () {
+        b.classList.add("done");
+        status.textContent = "Copied";
+        clearTimeout(timer);
+        timer = setTimeout(function () { b.classList.remove("done"); status.textContent = ""; }, 1600);
+      });
+    });
+  });
+
+  // Install tabs, with arrow keys between them
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute("aria-selected", on);
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    });
+    tab.focus({ preventScroll: true });
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { select(t); });
+    t.addEventListener("keydown", function (e) {
+      var d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (d) { e.preventDefault(); select(tabs[(i + d + tabs.length) % tabs.length]); }
+    });
+  });
+</script>
+<script src="demo.js"></script>
+</body>
+</html>
