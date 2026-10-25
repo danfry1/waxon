@@ -259,6 +259,21 @@
   term.addEventListener("focus", function () { if (keys && !touchOnly) keys.focus({ preventScroll: true }); });
   if (keys) keys.addEventListener("input", function () { keys.value = ""; });
 
+  // Vimium and similar extensions take Esc to leave a text box, which would
+  // drop the demo's focus. Esc is a demo key, so losing focus with no click,
+  // Tab or tab switch behind it is taken as Esc, and the demo keeps focus.
+  var lastPointer = 0, lastEsc = 0;
+  document.addEventListener("pointerdown", function () { lastPointer = Date.now(); }, true);
+  term.addEventListener("keydown", function (e) { if (e.key === "Escape") lastEsc = Date.now(); }, true);
+  if (keys) keys.addEventListener("blur", function () {
+    setTimeout(function () {
+      if (!document.hasFocus() || Date.now() - lastPointer < 400) return;
+      if (document.activeElement && document.activeElement !== document.body) return;
+      if (Date.now() - lastEsc > 200) { handle("Escape"); flashKey("Escape"); }
+      focusDemo();
+    }, 0);
+  });
+
   // While the demo is on screen, its keys work from anywhere on the page
   // (not Space, which scrolls), so you can just start typing.
   var pageKeys = "jkgGhlnpfNvlMS?+-m";
@@ -278,13 +293,31 @@
   document.querySelectorAll("[data-key]").forEach(function (b) {
     // Pressing a key with a mouse or finger leaves focus on the demo, so it
     // stays live (and keeps its keys) through the press.
-    b.addEventListener("pointerdown", function (e) { e.preventDefault(); });
+    var k = b.dataset.key, repeat, byPointer = 0;
+    function press() {
+      touch();
+      if (k === "gg") { handle("g"); handle("g"); }
+      // The lyrics button is :lyrics, which opens them from anywhere; the l
+      // key outside Now Playing moves between panes, as in waxon.
+      else if (k === "l" && s.view !== "np") { s.view = "np"; s.np = "lyrics"; s.help = false; render(); }
+      else handle(k);
+      flashKey(k);
+    }
+    function stop() { clearTimeout(repeat); clearInterval(repeat); }
+    // A touch acts the moment it lands (no tap delay); j and k repeat while
+    // held, like a held key.
+    b.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      if (e.pointerType === "mouse") return;
+      byPointer = Date.now();
+      press();
+      if (k === "j" || k === "k") repeat = setTimeout(function () { repeat = setInterval(press, 90); }, 380);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(function (t) { b.addEventListener(t, stop); });
     b.addEventListener("mousedown", function (e) { e.preventDefault(); });
     b.addEventListener("click", function () {
-      touch();
-      var k = b.dataset.key;
-      if (k === "gg") { handle("g"); handle("g"); } else handle(k);
-      flashKey(k);
+      if (Date.now() - byPointer < 800) return; // the touch already pressed it
+      press();
       if (!touchOnly) focusDemo(); // so the next key typed reaches the demo too
     });
   });
@@ -382,7 +415,7 @@
       ["j / k", "move down / up"], ["gg / G", "top / bottom"], ["h / l", "library / tracks"],
       ["Enter", "open / play"], ["Space", "play / pause"], ["n / p", "next / previous"],
       ["+ / -", "volume"], ["f", "like"], ["S", "shuffle"], ["N", "Now Playing"],
-      ["l", "lyrics, in Now Playing"], ["Esc", "back from Now Playing or help"],
+      ["l", "lyrics, in Now Playing (:lyrics from anywhere)"], ["Esc", "back from Now Playing or help"],
       ["M", "play in waxon ⇄ control the Spotify app"], ["?", "close help"],
     ];
     return '<div class="help"><div class="help-box"><div class="accent strong">Keys in this demo</div>' +

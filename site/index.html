@@ -310,7 +310,7 @@
     .window-bar .demo-tag { margin-left: 0; }
     .window-bar .live-hint { display: none; }
     .invite-hint { white-space: normal; text-align: center; bottom: auto; top: 45%; transform: translate(-50%, -50%); width: max-content; }
-    .keystrip .themes { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.4rem; scrollbar-width: none; }
+    .deck .themes { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.4rem; scrollbar-width: none; }
     .themes button { flex: none; }
   }
 
@@ -327,7 +327,10 @@
     box-shadow: 0 3px 0 #453d5e; margin-bottom: 3px;
   }
   .keycaps button:hover { border-color: var(--lavender); box-shadow: 0 3px 0 var(--lavender); }
-  .themes { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font: 0.82rem var(--mono); }
+  .keycaps button { height: 3rem; min-width: 3.1rem; display: grid; place-content: center; gap: 0.22rem; }
+  .keycaps b { font-weight: 600; line-height: 1; }
+  .keycaps i { display: block; font: 500 0.7rem/1 var(--display); color: var(--paper-2); font-style: normal; }
+  .themes { margin-top: 0.9rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font: 0.82rem var(--mono); }
   .themes span { color: var(--paper-2); margin-right: 0.3rem; }
   .themes button {
     display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer;
@@ -339,6 +342,37 @@
   .themes button[aria-pressed="true"] { color: var(--paper); border-color: var(--mint); }
   .keycaps button.hit { animation: press .22s ease-out; }
   @keyframes press { 40% { transform: translateY(2px); box-shadow: 0 1px 0 #453d5e; background: #3d3557; } }
+  /* Phones and tablets: the keys become a controller stuck to the bottom of
+     the screen while the demo is on it (sticky within .deck, so it leaves
+     with the demo), big enough to tap, each saying what
+     it does. */
+  @media (max-width: 52rem) {
+    .keystrip {
+      position: sticky; bottom: 0; z-index: 5;
+      margin: 0.75rem -1rem 0; padding: 0.6rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom));
+      background: rgba(27,23,38,.88); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-top: 1px solid var(--rule);
+    }
+    .keystrip p { display: none; }
+    .keycaps {
+      width: 100%; display: grid; gap: 0.4rem;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-areas: "k sp p n np m" "j en f l q esc";
+    }
+    .keycaps button {
+      height: 3.3rem; min-width: 0; padding: 0;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+    }
+    .keycaps b { font-size: 1rem; }
+    .keycaps i { font-size: 0.62rem; }
+    .keycaps [data-key="k"] { grid-area: k; } .keycaps [data-key=" "] { grid-area: sp; }
+    .keycaps [data-key="p"] { grid-area: p; } .keycaps [data-key="n"] { grid-area: n; }
+    .keycaps [data-key="N"] { grid-area: np; } .keycaps [data-key="M"] { grid-area: m; }
+    .keycaps [data-key="j"] { grid-area: j; } .keycaps [data-key="Enter"] { grid-area: en; }
+    .keycaps [data-key="f"] { grid-area: f; } .keycaps [data-key="l"] { grid-area: l; }
+    .keycaps [data-key="?"] { grid-area: q; } .keycaps [data-key="Escape"] { grid-area: esc; }
+    .keycaps [data-key="Enter"] b, .keycaps [data-key=" "] b { font-size: 0.82rem; }
+  }
   @media (prefers-reduced-motion: reduce) {
     .np-record, .np-record::after { animation: none; }
     .keycaps button.hit { animation: none; }
@@ -543,26 +577,30 @@
       <div class="keystrip">
         <p>Click the terminal and type, or tap the keys.</p>
         <div class="keycaps">
-          <button type="button" data-key="j">j</button><button type="button" data-key="k">k</button>
-          <button type="button" data-key="Enter">Enter</button><button type="button" data-key=" ">Space</button>
-          <button type="button" data-key="n">n</button><button type="button" data-key="p">p</button>
-          <button type="button" data-key="f">f</button><button type="button" data-key="N">N</button>
-          <button type="button" data-key="l">l</button>
-          <button type="button" data-key="M">M</button>
-          <button type="button" data-key="?">?</button>
-          <button type="button" data-key="Escape">Esc</button>
+          <button type="button" data-key="j"><b>j</b><i>down</i></button>
+          <button type="button" data-key="k"><b>k</b><i>up</i></button>
+          <button type="button" data-key="Enter"><b>Enter</b><i>play</i></button>
+          <button type="button" data-key=" "><b>Space</b><i>pause</i></button>
+          <button type="button" data-key="n"><b>n</b><i>next</i></button>
+          <button type="button" data-key="p"><b>p</b><i>prev</i></button>
+          <button type="button" data-key="f"><b>f</b><i>like</i></button>
+          <button type="button" data-key="N"><b>N</b><i>now</i></button>
+          <button type="button" data-key="l"><b>l</b><i>lyrics</i></button>
+          <button type="button" data-key="M"><b>M</b><i>mode</i></button>
+          <button type="button" data-key="?"><b>?</b><i>help</i></button>
+          <button type="button" data-key="Escape"><b>Esc</b><i>back</i></button>
         </div>
-        <div class="themes" role="group" aria-label="Theme">
-          <span>:theme</span>
-          <button type="button" data-theme="spotify" aria-pressed="true" style="--a:#1db954;--b:#1f2430">spotify</button>
-          <button type="button" data-theme="catppuccin-mocha" style="--a:#a6e3a1;--b:#1e1e2e">catppuccin-mocha</button>
-          <button type="button" data-theme="catppuccin-latte" style="--a:#40a02b;--b:#eff1f5">catppuccin-latte</button>
-          <button type="button" data-theme="gruvbox" style="--a:#b8bb26;--b:#282828">gruvbox</button>
-          <button type="button" data-theme="tokyonight" style="--a:#9ece6a;--b:#1a1b26">tokyonight</button>
-          <button type="button" data-theme="nord" style="--a:#a3be8c;--b:#2e3440">nord</button>
-          <button type="button" data-theme="dracula" style="--a:#50fa7b;--b:#282a36">dracula</button>
-          <button type="button" data-theme="rose-pine" style="--a:#9ccfd8;--b:#191724">rose-pine</button>
-        </div>
+      </div>
+      <div class="themes" role="group" aria-label="Theme">
+        <span>:theme</span>
+        <button type="button" data-theme="spotify" aria-pressed="true" style="--a:#1db954;--b:#1f2430">spotify</button>
+        <button type="button" data-theme="catppuccin-mocha" style="--a:#a6e3a1;--b:#1e1e2e">catppuccin-mocha</button>
+        <button type="button" data-theme="catppuccin-latte" style="--a:#40a02b;--b:#eff1f5">catppuccin-latte</button>
+        <button type="button" data-theme="gruvbox" style="--a:#b8bb26;--b:#282828">gruvbox</button>
+        <button type="button" data-theme="tokyonight" style="--a:#9ece6a;--b:#1a1b26">tokyonight</button>
+        <button type="button" data-theme="nord" style="--a:#a3be8c;--b:#2e3440">nord</button>
+        <button type="button" data-theme="dracula" style="--a:#50fa7b;--b:#282a36">dracula</button>
+        <button type="button" data-theme="rose-pine" style="--a:#9ccfd8;--b:#191724">rose-pine</button>
       </div>
     </div>
   </section>
