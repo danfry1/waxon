@@ -37,7 +37,7 @@
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  body { overflow-x: clip; }
+  html, body { overflow-x: clip; }
   body {
     margin: 0;
     background: var(--vinyl);
@@ -101,7 +101,7 @@
   .deck { margin-top: 3.5rem; margin-right: clamp(0px, 8vw, 7rem); }
   .record {
     position: absolute; z-index: 0;
-    right: -2rem; top: 1.5rem;
+    right: 0; top: 1.5rem;
     width: min(42vw, 36rem); aspect-ratio: 1;
     border-radius: 50%;
     background:
@@ -406,7 +406,7 @@
     .queue, .scripting { padding-top: 4.5rem; }
     .more { grid-template-columns: 1fr 1fr; }
     .deck { margin-right: 0; }
-    .record { width: 54vw; top: 0.5rem; right: -12vw; }
+    .record { width: 52vw; top: 0.5rem; right: 0; }
     .hero { padding-top: 46vw; }
     .hosts li { grid-template-columns: 1fr; gap: 0.15rem; }
   }
