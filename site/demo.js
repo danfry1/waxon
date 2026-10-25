@@ -146,12 +146,11 @@
 
   // ---- Keys ---------------------------------------------------------------
 
-  // A narrow demo (a phone) shows fewer rows, as a short terminal would.
+  // The track list shows as many rows as its pane has room for (measured
+  // after drawing, in fitRows), as a terminal's height decides.
   var visibleRows = 12;
   var touchOnly = window.matchMedia("(hover: none)").matches;
-  function fitRows() { visibleRows = term.offsetWidth < 640 ? 8 : 12; }
-  fitRows();
-  window.addEventListener("resize", function () { fitRows(); moveCursor(cur()); render(); });
+  window.addEventListener("resize", render);
   function moveCursor(to) {
     if (s.pane === "lib") { s.libCursor = clamp(to, 0, playlists.length - 1); return; }
     var n = playlists[s.open].tracks.length;
@@ -387,6 +386,19 @@
     return "-" + Math.round(ms % 1800) + "ms";
   }
 
+  function fitRows() {
+    var pane = screen.querySelector(".pane.tracks"), th = pane && pane.querySelector(".trow.th");
+    var row = pane && pane.querySelector(".trow:not(.th)");
+    if (!th || !row || !pane.offsetParent) return;
+    var bottom = pane.getBoundingClientRect().bottom - 8; // the pane's padding and border
+    var rows = Math.max(3, Math.floor((bottom - th.getBoundingClientRect().bottom - 4) / row.offsetHeight));
+    if (rows === visibleRows) return;
+    visibleRows = rows;
+    var n = playlists[s.open].tracks.length;
+    s.top = clamp(Math.min(s.top, s.cursor), Math.max(0, s.cursor - rows + 1), Math.max(0, n - rows));
+    render();
+  }
+
   function render() {
     var main = s.view === "np" ? nowPlaying()
       : '<div class="panes">' + libraryPane() + tracksPane() + "</div>" + nowBar();
@@ -396,6 +408,7 @@
         : "Press <kbd>j</kbd> <kbd>k</kbd> <kbd>Enter</kbd>, or <kbd>?</kbd> for every key.") + "</div>" : "");
     screen.dataset.view = s.view;
     syncModes();
+    fitRows();
     screen.dataset.pane = s.pane;
   }
 
