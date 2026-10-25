@@ -8,6 +8,12 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- The help overlay (`?`) opens on a short page of essential keys; `Tab`
+  (or `1`–`3`) moves to every key and to every command. Columns size to
+  their content and balance evenly, so rows no longer wrap or get cut off.
+
 ## [1.12.0] - 2026-10-25
 
 ### Added

@@ -1152,7 +1152,10 @@ func TestHelpListsEveryBoundKey(t *testing.T) {
 	// The help overlay must mention every key in the default KeyMap, plus the
 	// keys that are handled outside KeyMap (g-motions, Now Playing, help close).
 	km := DefaultKeyMap()
-	rendered := ViewHelp(200, 80)
+	rendered := ""
+	for p := range helpPages(km) {
+		rendered += viewHelp(km, 200, 80, 0, p)
+	}
 	check := func(label string) {
 		t.Helper()
 		if !strings.Contains(rendered, label) {
@@ -1176,6 +1179,44 @@ func TestHelpListsEveryBoundKey(t *testing.T) {
 	// Direction labels must match the bindings: j is down, k is up.
 	if !strings.Contains(rendered, "j / k") || !strings.Contains(rendered, "down / up") {
 		t.Error("j/k row should read 'j / k  down / up'")
+	}
+}
+
+// Tab and the number keys move between the help pages; closing returns to
+// the first.
+func TestHelpPages(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.width, m.height, m.mode = 160, 60, ModeHelp
+	if !strings.Contains(m.View(), "MOVE") {
+		t.Fatal("help should open on the essentials")
+	}
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = res.(Model)
+	if m.helpPage != 1 || !strings.Contains(m.View(), "NAVIGATION") {
+		t.Error("Tab should go to the second page (every key)")
+	}
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = res.(Model)
+	if m.helpPage != 2 || !strings.Contains(m.View(), ":playlist new NAME") {
+		t.Error("3 should go to the commands page")
+	}
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if res.(Model).helpPage != 0 {
+		t.Error("Tab on the last page should wrap to the first")
+	}
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if res.(Model).helpPage != 0 {
+		t.Error("closing help should reset it to the first page")
+	}
+}
+
+// On a wide terminal no help row is cut short.
+func TestHelpRowsInFull(t *testing.T) {
+	km := DefaultKeyMap()
+	for p := range helpPages(km) {
+		if got := viewHelp(km, 200, 80, 0, p); strings.Contains(got, "…") {
+			t.Errorf("page %d truncates a row on a 200-column terminal", p)
+		}
 	}
 }
 
@@ -1228,8 +1269,8 @@ func TestViewHelp(t *testing.T) {
 	if got == "" {
 		t.Fatal("ViewHelp should return non-empty string")
 	}
-	if !strings.Contains(got, "Keybindings") {
-		t.Error("ViewHelp output should contain 'Keybindings'")
+	if !strings.Contains(got, "Essentials") {
+		t.Error("ViewHelp output should open on the 'Essentials' page")
 	}
 }
 
@@ -1242,8 +1283,8 @@ func TestViewModeHelp(t *testing.T) {
 	if got == "" {
 		t.Fatal("View() in ModeHelp should be non-empty")
 	}
-	if !strings.Contains(got, "Keybindings") {
-		t.Error("View() in ModeHelp should contain 'Keybindings'")
+	if !strings.Contains(got, "Essentials") {
+		t.Error("View() in ModeHelp should contain the 'Essentials' tab")
 	}
 }
 
