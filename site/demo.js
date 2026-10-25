@@ -6,6 +6,7 @@
 
   var screen = document.getElementById("demo-screen");
   var term = document.getElementById("demo");
+  var keys = document.getElementById("demo-keys");
   if (!screen || !term) return;
 
   // ---- The demo library (demo/data.go) ------------------------------------
@@ -250,18 +251,26 @@
   });
   term.addEventListener("pointerdown", touch);
 
+  // Keys come in through a hidden text box (see .demo-keys), except on touch
+  // screens, where focusing it would open the on-screen keyboard.
+  function focusDemo() { (keys && !touchOnly ? keys : term).focus({ preventScroll: true }); }
+  function focused() { return term.contains(document.activeElement); }
+  term.addEventListener("click", focusDemo);
+  term.addEventListener("focus", function () { if (keys && !touchOnly) keys.focus({ preventScroll: true }); });
+  if (keys) keys.addEventListener("input", function () { keys.value = ""; });
+
   // While the demo is on screen, its keys work from anywhere on the page
   // (not Space, which scrolls), so you can just start typing.
   var pageKeys = "jkgGhlnpfNvlMS?+-m";
   var onScreen = false;
   document.addEventListener("keydown", function (e) {
     if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (!onScreen || document.activeElement === term || term.contains(e.target)) return;
+    if (!onScreen || focused() || term.contains(e.target)) return;
     var el = document.activeElement;
     if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
     if (e.key !== "Escape" && (e.key.length !== 1 || pageKeys.indexOf(e.key) < 0)) return;
     e.preventDefault();
-    term.focus({ preventScroll: true });
+    focusDemo();
     touch();
     handle(e.key);
     flashKey(e.key);
@@ -272,6 +281,7 @@
       var k = b.dataset.key;
       if (k === "gg") { handle("g"); handle("g"); } else handle(k);
       flashKey(k);
+      if (!touchOnly) focusDemo(); // so the next key typed reaches the demo too
     });
   });
   function flashKey(k) {
@@ -280,8 +290,10 @@
       b.classList.remove("hit"); void b.offsetWidth; b.classList.add("hit");
     });
   }
-  term.addEventListener("focus", function () { term.classList.add("live"); });
-  term.addEventListener("blur", function () { term.classList.remove("live"); });
+  term.addEventListener("focusin", function () { term.classList.add("live"); });
+  term.addEventListener("focusout", function (e) {
+    if (!term.contains(e.relatedTarget)) term.classList.remove("live");
+  });
 
   // ---- Drawing ------------------------------------------------------------
 
@@ -405,7 +417,7 @@
     screen.innerHTML = main + (s.help ? help() : "") + (s.toast ? '<div class="toast">' + s.toast + "</div>" : "") +
       (s.hint ? '<div class="invite-hint"><b>Your turn.</b> ' + (touchOnly
         ? "Tap the keys below."
-        : "Press <kbd>j</kbd> <kbd>k</kbd> <kbd>Enter</kbd>, or <kbd>?</kbd> for every key.") + "</div>" : "");
+        : "Click here, then press <kbd>j</kbd> <kbd>k</kbd> <kbd>Enter</kbd>, or <kbd>?</kbd> for every key.") + "</div>" : "");
     screen.dataset.view = s.view;
     syncModes();
     fitRows();
