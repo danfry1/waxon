@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // The settings overlay (, or :settings): what's in config.json, changed in
@@ -200,9 +201,42 @@ func (m Model) viewSettings() string {
 	}
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder).
+		BorderForeground(ColorAccent).
 		Padding(1, 2).
 		Width(min(w+4, max(20, m.width-2))).
 		Render(body)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box, overlayBackdrop())
+
+	// The panel floats over the screen it was opened from, so a theme
+	// change shows on the app behind it as you move through them.
+	under := m
+	under.mode = ModeNormal
+	if m.overlayReturn == ModeNowPlaying {
+		under.mode = ModeNowPlaying
+	}
+	return overlayCentered(under.screen(), box, m.width, m.height)
+}
+
+// overlayCentered draws box over the middle of base, replacing the cells
+// under it and keeping the rest of each line.
+func overlayCentered(base, box string, width, height int) string {
+	lines := strings.Split(base, "\n")
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	boxLines := strings.Split(box, "\n")
+	boxW := lipgloss.Width(boxLines[0])
+	top := max(0, (height-len(boxLines))/2)
+	left := max(0, (width-boxW)/2)
+	for i, bl := range boxLines {
+		row := top + i
+		if row >= len(lines) {
+			break
+		}
+		l := ansi.Truncate(lines[row], left, "")
+		if w := lipgloss.Width(l); w < left {
+			l += strings.Repeat(" ", left-w)
+		}
+		lines[row] = l + "\033[0m" + bl + "\033[0m" + stripLeft(lines[row], left+boxW)
+	}
+	return strings.Join(lines, "\n")
 }
