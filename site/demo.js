@@ -281,7 +281,11 @@
     var k = b.dataset.key, repeat, byPointer = 0;
     function press() {
       touch();
-      if (k === "gg") { handle("g"); handle("g"); } else handle(k);
+      if (k === "gg") { handle("g"); handle("g"); }
+      // The lyrics button is :lyrics, which opens them from anywhere; the l
+      // key outside Now Playing moves between panes, as in waxon.
+      else if (k === "l" && s.view !== "np") { s.view = "np"; s.np = "lyrics"; s.help = false; render(); }
+      else handle(k);
       flashKey(k);
     }
     function stop() { clearTimeout(repeat); clearInterval(repeat); }
@@ -396,7 +400,7 @@
       ["j / k", "move down / up"], ["gg / G", "top / bottom"], ["h / l", "library / tracks"],
       ["Enter", "open / play"], ["Space", "play / pause"], ["n / p", "next / previous"],
       ["+ / -", "volume"], ["f", "like"], ["S", "shuffle"], ["N", "Now Playing"],
-      ["l", "lyrics, in Now Playing"], ["Esc", "back from Now Playing or help"],
+      ["l", "lyrics, in Now Playing (:lyrics from anywhere)"], ["Esc", "back from Now Playing or help"],
       ["M", "play in waxon ⇄ control the Spotify app"], ["?", "close help"],
     ];
     return '<div class="help"><div class="help-box"><div class="accent strong">Keys in this demo</div>' +
