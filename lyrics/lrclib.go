@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -32,6 +33,19 @@ const (
 // or a proxy or firewall blocking it), rather than a passing failure: it's
 // not worth asking again until the user does.
 var ErrUnreachable = errors.New("lrclib.net unreachable")
+
+// passing reports whether a request error is the kind a network has now
+// and then (a timeout, a name that didn't resolve just after waking from
+// sleep), rather than one that says lrclib is being kept out (a refused
+// connection, a proxy or TLS interception turning it away).
+func passing(err error) bool {
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return dns.IsTimeout || dns.IsTemporary || !dns.IsNotFound
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
 
 // Client fetches and caches lyrics. The zero value is not usable; call New.
 type Client struct {
@@ -134,8 +148,8 @@ func (c *Client) fetch(ctx context.Context, track source.Track) (*source.Lyrics,
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, err // cancelled: not lrclib's doing
+		if ctx.Err() != nil || passing(err) {
+			return nil, fmt.Errorf("lrclib request: %w", err)
 		}
 		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
 	}

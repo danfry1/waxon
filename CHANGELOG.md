@@ -19,9 +19,10 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ### Fixed
 
-- When lrclib.net can't be reached (a proxy or firewall blocking it, or
-  its "blocked" page in place of lyrics), waxon stops asking for the rest
-  of the session instead of trying again on every track; `l` retries.
+- When a proxy or firewall blocks lrclib.net (refusing it, or serving its
+  own page in place of lyrics), waxon leaves it alone for ten minutes
+  instead of asking on every track; `l` tries again sooner. `waxon doctor`
+  now spots the same block instead of calling lrclib reachable.
 - The Now Playing hint says `v` for vinyl, the key since 1.11.0.
 
 ## [1.11.0] - 2026-10-24

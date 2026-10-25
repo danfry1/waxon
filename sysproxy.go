@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
@@ -21,35 +22,42 @@ type systemProxy struct {
 	pac     string   // the PAC script's URL, when one is set
 }
 
-// parseScutilProxy reads `scutil --proxy` output.
+// parseScutilProxy reads `scutil --proxy` output: the top-level settings
+// only, not the per-interface copies under __SCOPED__, which would
+// otherwise overwrite them.
 func parseScutilProxy(out string) systemProxy {
 	var p systemProxy
 	vals := map[string]string{}
-	inExceptions := false
+	depth := 0         // 1 is the top-level dictionary
+	exceptionsAt := -1 // the depth of the top-level ExceptionsList, while in it
 	sc := bufio.NewScanner(strings.NewReader(out))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
+		k, v, kv := strings.Cut(line, " : ")
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
 		switch {
-		case strings.HasPrefix(line, "ExceptionsList"):
-			inExceptions = true
-		case inExceptions && line == "}":
-			inExceptions = false
-		case inExceptions:
-			if _, v, ok := strings.Cut(line, " : "); ok {
-				if host := noProxyEntry(strings.TrimSpace(v)); host != "" {
-					p.noProxy = append(p.noProxy, host)
-				}
+		case strings.HasSuffix(line, "{"):
+			depth++
+			if depth == 2 && kv && k == "ExceptionsList" {
+				exceptionsAt = depth
 			}
-		default:
-			if k, v, ok := strings.Cut(line, " : "); ok {
-				vals[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		case line == "}":
+			if depth == exceptionsAt {
+				exceptionsAt = -1
 			}
+			depth--
+		case depth == exceptionsAt && kv:
+			if host := noProxyEntry(v); host != "" {
+				p.noProxy = append(p.noProxy, host)
+			}
+		case depth == 1 && kv:
+			vals[k] = v
 		}
 	}
 	if vals["HTTPSEnable"] == "1" && vals["HTTPSProxy"] != "" {
 		p.https = vals["HTTPSProxy"]
 		if port := vals["HTTPSPort"]; port != "" {
-			p.https += ":" + port
+			p.https = net.JoinHostPort(p.https, port)
 		}
 	}
 	if vals["ProxyAutoConfigEnable"] == "1" {
@@ -58,12 +66,15 @@ func parseScutilProxy(out string) systemProxy {
 	return p
 }
 
-// noProxyEntry turns a macOS exception ("*.example.com", "10.0.0.0/8") into
-// a NO_PROXY entry, or "" for the abbreviated network forms ("169.254/16")
-// NO_PROXY can't express.
+// noProxyEntry turns a macOS exception ("*.example.com", "10.0.0.0/8",
+// "fd00::/8") into a NO_PROXY entry, or "" for the abbreviated network
+// forms ("169.254/16") NO_PROXY can't express.
 func noProxyEntry(v string) string {
-	if strings.Contains(v, "/") && strings.Count(strings.SplitN(v, "/", 2)[0], ".") != 3 {
-		return ""
+	if strings.Contains(v, "/") {
+		if _, _, err := net.ParseCIDR(v); err != nil {
+			return ""
+		}
+		return v
 	}
 	return strings.TrimPrefix(v, "*")
 }
@@ -83,7 +94,7 @@ func readSystemProxy() systemProxy {
 // useSystemProxy sets HTTPS_PROXY (and NO_PROXY) from macOS's settings,
 // unless the environment already names a proxy, which wins.
 func useSystemProxy() {
-	if proxyFromEnv() != "" {
+	if proxyEnvSet() {
 		return
 	}
 	p := readSystemProxy()
@@ -104,4 +115,15 @@ func proxyFromEnv() string {
 		}
 	}
 	return ""
+}
+
+// proxyEnvSet reports whether the environment says anything about a proxy,
+// HTTPS_PROXY= (empty: none) included, which then wins over macOS's.
+func proxyEnvSet() bool {
+	for _, k := range []string{"HTTPS_PROXY", "https_proxy"} {
+		if _, ok := os.LookupEnv(k); ok {
+			return true
+		}
+	}
+	return false
 }

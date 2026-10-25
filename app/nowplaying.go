@@ -369,7 +369,7 @@ func renderLyricsBlock(lyr npLyrics, w, h int, accent lipgloss.Color, dim lipglo
 	case lyr.off:
 		return centeredMessageBlock(`Lyrics are off ("lyrics": false in config)`, w, h, dim)
 	case lyr.blocked:
-		return centeredMessageBlock("Can't reach lrclib.net for lyrics (blocked, or offline) · l to try again", w, h, dim)
+		return centeredMessageBlock("lrclib.net is blocked here, so no lyrics · l to try again", w, h, dim)
 	case lyr.loading:
 		return centeredMessageBlock("Loading lyrics…", w, h, dim)
 	case lyr.err:

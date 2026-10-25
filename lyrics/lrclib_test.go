@@ -193,3 +193,19 @@ func TestUnreachable(t *testing.T) {
 		t.Errorf("no connection: err = %v, want ErrUnreachable", err)
 	}
 }
+
+// A timeout is the kind of failure a network has now and then: it's not
+// taken for a block, so the next track asks again.
+func TestTimeoutIsNotABlock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+	}))
+	defer srv.Close()
+	c := New()
+	c.baseURL = srv.URL
+	c.http.Timeout = 20 * time.Millisecond
+	_, err := c.Get(context.Background(), source.Track{ID: "slow", Name: "Song", Artist: "A"})
+	if err == nil || errors.Is(err, ErrUnreachable) {
+		t.Errorf("err = %v; a timeout shouldn't count as unreachable", err)
+	}
+}

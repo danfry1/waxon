@@ -70,3 +70,54 @@ func TestDoctorProxyAndLyricsOff(t *testing.T) {
 		t.Errorf("lyrics off: pinged lrclib %v\n%s", pinged, out)
 	}
 }
+
+// Per-interface settings (__SCOPED__, as with a VPN) don't override the
+// top-level ones; IPv6 networks are kept; an IPv6 proxy is bracketed.
+func TestParseScutilScopedAndIPv6(t *testing.T) {
+	out := `<dictionary> {
+  ExceptionsList : <array> {
+    0 : *.local
+    1 : fd00::/8
+  }
+  HTTPSEnable : 1
+  HTTPSPort : 8080
+  HTTPSProxy : proxy.corp
+  __SCOPED__ : <dictionary> {
+    en7 : <dictionary> {
+      ExceptionsList : <array> {
+        0 : *.local
+      }
+      HTTPSEnable : 0
+      HTTPSProxy : old.proxy
+    }
+  }
+}`
+	p := parseScutilProxy(out)
+	if p.https != "proxy.corp:8080" {
+		t.Errorf("https = %q: the scoped copy overrode it", p.https)
+	}
+	if got := strings.Join(p.noProxy, ","); got != ".local,fd00::/8" {
+		t.Errorf("noProxy = %q", got)
+	}
+	v6 := parseScutilProxy("<dictionary> {\n  HTTPSEnable : 1\n  HTTPSPort : 3128\n  HTTPSProxy : fd00::1\n}")
+	if v6.https != "[fd00::1]:3128" {
+		t.Errorf("IPv6 proxy = %q", v6.https)
+	}
+}
+
+// HTTPS_PROXY= (empty) opts out of the system proxy.
+func TestEmptyEnvProxyOptsOut(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "")
+	if !proxyEnvSet() {
+		t.Error("an empty HTTPS_PROXY should count as set")
+	}
+}
+
+func TestRedactProxy(t *testing.T) {
+	if got := redactProxy("http://dan:secret@proxy.corp:8080"); strings.Contains(got, "secret") {
+		t.Errorf("redacted = %q, still has the password", got)
+	}
+	if got := redactProxy("http://proxy.corp:8080"); got != "http://proxy.corp:8080" {
+		t.Errorf("redacted = %q", got)
+	}
+}
