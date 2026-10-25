@@ -27,6 +27,7 @@ var version = "dev"
 func main() {
 	cleanup := initLogging()
 	defer cleanup()
+	useSystemProxy() // before anything goes on the network: Go reads it once
 	if err := config.MigrateDir(); err != nil {
 		slog.Warn("config stays in its old place", "error", err)
 	}
@@ -122,6 +123,7 @@ func main() {
 	}
 	opts.PlayerProblem = problem
 	opts.OpenSpotifyApp = spotifyAppLauncher()
+	opts.LyricsOff = cfg.Lyrics != nil && !*cfg.Lyrics
 	opts.ThisComputer = thisComputerNames()
 	var p *tea.Program
 	deps := setupDeps("", "")

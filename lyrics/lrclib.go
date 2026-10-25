@@ -6,7 +6,9 @@ package lyrics
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -26,6 +28,24 @@ const (
 	maxCacheSize  = 100
 	requestExpiry = 10 * time.Second
 )
+
+// ErrUnreachable means lrclib.net couldn't be reached at all (no network,
+// or a proxy or firewall blocking it), rather than a passing failure: it's
+// not worth asking again until the user does.
+var ErrUnreachable = errors.New("lrclib.net unreachable")
+
+// passing reports whether a request error is the kind a network has now
+// and then (a timeout, a name that didn't resolve just after waking from
+// sleep), rather than one that says lrclib is being kept out (a refused
+// connection, a proxy or TLS interception turning it away).
+func passing(err error) bool {
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return dns.IsTimeout || dns.IsTemporary || !dns.IsNotFound
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
 
 // Client fetches and caches lyrics. The zero value is not usable; call New.
 type Client struct {
@@ -128,7 +148,10 @@ func (c *Client) fetch(ctx context.Context, track source.Track) (*source.Lyrics,
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("lrclib request: %w", err)
+		if ctx.Err() != nil || passing(err) {
+			return nil, fmt.Errorf("lrclib request: %w", err)
+		}
+		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
 	}
 	defer resp.Body.Close()
 
@@ -136,13 +159,18 @@ func (c *Client) fetch(ctx context.Context, track source.Track) (*source.Lyrics,
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
-	if resp.StatusCode != http.StatusOK {
+	switch {
+	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusProxyAuthRequired:
+		// lrclib itself doesn't answer these: a proxy or firewall in the way.
+		return nil, fmt.Errorf("%w: lrclib status %d", ErrUnreachable, resp.StatusCode)
+	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("lrclib status %d", resp.StatusCode)
 	}
 
 	var body lrclibResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("lrclib decode: %w", err)
+		// Not lrclib's JSON: often a proxy's "blocked" page, served as 200.
+		return nil, fmt.Errorf("%w: lrclib decode: %w", ErrUnreachable, err)
 	}
 	return fromResponse(body), nil
 }

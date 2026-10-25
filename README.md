@@ -372,6 +372,10 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
 
 **Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
 
+**Lyrics** — synced lyrics come from [lrclib.net](https://lrclib.net), the one service besides Spotify that waxon contacts. `"lyrics": false` turns them off, so waxon talks only to Spotify (useful on a work network). If a proxy or firewall blocks lrclib, waxon leaves it alone for ten minutes instead of asking on every track; `l` tries again sooner. A timeout or a moment offline is just retried on the next track.
+
+**Proxy** — waxon uses `HTTPS_PROXY` / `NO_PROXY` when they're set; on macOS it otherwise picks up the HTTPS proxy from System Settings. A proxy chosen by a PAC script can't be followed: set `HTTPS_PROXY` yourself (`waxon doctor` says when that's needed), or `HTTPS_PROXY=` (empty) to ignore macOS's. waxon's own player (librespot) doesn't use these settings.
+
 **Media keys** — on by default on macOS and Linux; `"media_keys": false` turns them and the Now Playing entry off.
 
 **Art** — `"art": "kitty"` draws the status-bar and Now Playing covers as real images using the kitty graphics protocol (kitty, Ghostty); `"auto"` does that only when the terminal is detected as supporting it (not inside tmux), and `"blocks"` (the default) keeps the Unicode half-block art. `WAXON_ART` overrides the setting for one run, e.g. `WAXON_ART=kitty waxon`. Experimental: please report terminals where it misbehaves.

@@ -8,6 +8,23 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+
+- `"lyrics": false` in config turns lyrics off, so waxon contacts only
+  Spotify (lrclib.net is the one other service it uses).
+- On macOS, waxon uses the HTTPS proxy set in System Settings when
+  `HTTPS_PROXY` isn't set, so it reaches Spotify through a corporate proxy
+  as other apps do. `waxon doctor` shows the proxy in use, and says what to
+  do when macOS picks one with a PAC script, which waxon can't follow.
+
+### Fixed
+
+- When a proxy or firewall blocks lrclib.net (refusing it, or serving its
+  own page in place of lyrics), waxon leaves it alone for ten minutes
+  instead of asking on every track; `l` tries again sooner. `waxon doctor`
+  now spots the same block instead of calling lrclib reachable.
+- The Now Playing hint says `v` for vinyl, the key since 1.11.0.
+
 ## [1.11.0] - 2026-10-24
 
 ### Keys changed

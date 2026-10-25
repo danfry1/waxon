@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/danfry1/waxon/lyrics"
 	"github.com/danfry1/waxon/media"
 	"github.com/danfry1/waxon/source"
 	spotifyapi "github.com/zmb3/spotify/v2"
@@ -370,7 +371,10 @@ type Model struct {
 	lyricsTrackID string         // track the current lyrics state belongs to
 	lyricsLoading bool           // true while a lyrics fetch is in flight
 	lyricsErr     error          // non-nil when the last lyrics fetch failed
-	lyricsLine    int            // active synced-lyric line index
+	// lyricsBlockedUntil: lrclib.net was kept out (a proxy or firewall), so
+	// lyrics aren't asked for again until then, or until the user asks (l).
+	lyricsBlockedUntil time.Time
+	lyricsLine         int // active synced-lyric line index
 
 	// Progress interpolation state
 	lastPollTime time.Time     // when we last received a track update
@@ -478,6 +482,8 @@ type Options struct {
 	// PlayerName is the Connect device waxon's own player (librespot) runs
 	// as; "" when it's off. Playback with no active device prefers it.
 	PlayerName string
+	// LyricsOff: the config turned lyrics off; lrclib.net is never asked.
+	LyricsOff bool
 	// KeysProblem says which of the config's custom keys weren't applied or
 	// clash; shown once at startup.
 	KeysProblem string
@@ -1069,6 +1075,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// for the life of the track. (A successful "no lyrics found"
 			// result keeps its marker and stays cached — only errors retry.)
 			m.lyricsTrackID = ""
+			if errors.Is(msg.err, lyrics.ErrUnreachable) {
+				// Don't keep knocking on a blocked host; try again later.
+				m.lyricsBlockedUntil = time.Now().Add(lyricsBlockedFor)
+				m.lyricsTrackID = m.track.ID
+			}
 			slog.Warn("lyrics fetch failed", "track", msg.trackID, "error", msg.err)
 		}
 		return m, nil
@@ -1514,6 +1525,14 @@ func (m Model) reportKeysProblem() tea.Cmd {
 	return tea.Tick(toastDuration, func(time.Time) tea.Msg { return keysProblemMsg{p} })
 }
 
+// lyricsBlockedFor is how long lyrics wait after lrclib.net was kept out
+// before they're asked for again (a network that changes, a VPN that
+// drops, gets them back without a restart).
+const lyricsBlockedFor = 10 * time.Minute
+
+// lyricsBlocked reports whether lrclib.net is being left alone for now.
+func (m Model) lyricsBlocked() bool { return time.Now().Before(m.lyricsBlockedUntil) }
+
 // quit saves where the user was and ends the program.
 func (m Model) quit() (Model, tea.Cmd) {
 	m.saveSnapshotOnQuit()
@@ -1555,6 +1574,11 @@ func (m *Model) ensureLyrics() tea.Cmd {
 	}
 	if m.lyricsTrackID == m.track.ID {
 		return nil // already loaded/attempted/in-flight for this track
+	}
+	if m.opts.LyricsOff || m.lyricsBlocked() {
+		// Settled without asking: off, or known not to answer.
+		m.lyricsTrackID, m.lyrics, m.lyricsLoading = m.track.ID, nil, false
+		return nil
 	}
 	if m.track.IsEpisode {
 		// Podcasts have no lyrics; settle on "none" without a lookup.
@@ -1629,9 +1653,17 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.renderNPArt()
 		return m, nil
 	case msg.String() == "l":
+		if m.lyricsView && m.lyricsBlocked() {
+			// "l to try again": ask lrclib now, staying on the lyrics.
+			m.lyricsBlockedUntil, m.lyricsTrackID = time.Time{}, ""
+			return m, m.ensureLyrics()
+		}
 		m.lyricsView = !m.lyricsView
 		if m.lyricsView {
 			m.vinylMode = false
+			if m.lyricsBlocked() {
+				m.lyricsBlockedUntil, m.lyricsTrackID = time.Time{}, "" // asked for: try now
+			}
 			return m, m.ensureLyrics()
 		}
 		return m, nil
@@ -2707,6 +2739,8 @@ func (m Model) screen() string {
 			line:    m.lyricsLine,
 			loading: m.lyricsLoading,
 			err:     m.lyricsErr != nil,
+			off:     m.opts.LyricsOff,
+			blocked: m.lyricsBlocked(),
 		}
 		return RenderNowPlaying(m.track, artBlock, m.npSourceImg, m.vinylMode, m.vinylAngle, m.liked, lyr, m.width, m.height)
 	}

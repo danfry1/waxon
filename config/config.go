@@ -38,6 +38,9 @@ type Config struct {
 	// MediaKeys, when false, stops waxon answering the keyboard's media keys
 	// and showing in the system's Now Playing (default on).
 	MediaKeys *bool `json:"media_keys,omitempty"`
+	// Lyrics, when false, stops waxon fetching lyrics, so it contacts
+	// nothing but Spotify (lrclib.net is the one other service it uses).
+	Lyrics *bool `json:"lyrics,omitempty"`
 }
 
 // Dir returns the waxon config directory: $XDG_CONFIG_HOME/waxon when set,
@@ -229,6 +232,9 @@ func merge(existing, updates Config) Config {
 	}
 	if updates.PlayerPath != "" {
 		result.PlayerPath = updates.PlayerPath
+	}
+	if updates.Lyrics != nil {
+		result.Lyrics = updates.Lyrics
 	}
 	if updates.MediaKeys != nil {
 		result.MediaKeys = updates.MediaKeys

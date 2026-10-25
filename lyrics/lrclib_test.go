@@ -3,6 +3,7 @@ package lyrics
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -157,5 +158,54 @@ func TestClientGetNotFound(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("404 should yield nil lyrics, got %+v", got)
+	}
+}
+
+// A proxy or firewall in the way (a refusal, its own "blocked" page, or no
+// connection) is ErrUnreachable; lrclib's own failures aren't.
+func TestUnreachable(t *testing.T) {
+	for name, tc := range map[string]struct {
+		handler     http.HandlerFunc
+		unreachable bool
+	}{
+		"proxy refuses":              {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }, true},
+		"proxy wants auth":           {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusProxyAuthRequired) }, true},
+		"proxy block page":           {func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<html>Blocked by policy</html>")) }, true},
+		"lrclib having a bad moment": {func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(tc.handler)
+			defer srv.Close()
+			c := New()
+			c.baseURL = srv.URL
+			_, err := c.Get(context.Background(), source.Track{ID: name, Name: "Song", Artist: "A", Duration: 3 * time.Minute})
+			if got := errors.Is(err, ErrUnreachable); got != tc.unreachable {
+				t.Errorf("err = %v; unreachable %v, want %v", err, got, tc.unreachable)
+			}
+		})
+	}
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close() // nothing listening: no connection
+	c := New()
+	c.baseURL = url
+	if _, err := c.Get(context.Background(), source.Track{ID: "x", Name: "Song", Artist: "A"}); !errors.Is(err, ErrUnreachable) {
+		t.Errorf("no connection: err = %v, want ErrUnreachable", err)
+	}
+}
+
+// A timeout is the kind of failure a network has now and then: it's not
+// taken for a block, so the next track asks again.
+func TestTimeoutIsNotABlock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+	}))
+	defer srv.Close()
+	c := New()
+	c.baseURL = srv.URL
+	c.http.Timeout = 20 * time.Millisecond
+	_, err := c.Get(context.Background(), source.Track{ID: "slow", Name: "Song", Artist: "A"})
+	if err == nil || errors.Is(err, ErrUnreachable) {
+		t.Errorf("err = %v; a timeout shouldn't count as unreachable", err)
 	}
 }
