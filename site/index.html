@@ -208,6 +208,11 @@
     outline: none; cursor: default; overflow: hidden;
   }
   .demo.light { --d-sel: rgba(0,0,0,.06); }
+  /* Keys arrive through a hidden text box: browser extensions with vim keys
+     (Vimium, Surfingkeys, Tridactyl) leave keys alone while a text box has
+     focus, so the demo gets them without the site being excluded. */
+  .demo-keys { position: absolute; top: 0; left: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; pointer-events: none; caret-color: transparent; }
+  .demo:has(.demo-keys:focus-visible) { box-shadow: inset 0 0 0 2px var(--mint); }
   .demo:focus-visible { box-shadow: inset 0 0 0 2px var(--mint); }
   .demo-screen { position: absolute; inset: 0; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
   .demo .dim { color: var(--d-dim); }
@@ -497,11 +502,12 @@
       <div class="window">
         <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>~ waxon</span><span class="demo-tag">live demo, try the keys</span><span class="live-hint">keys go to waxon</span></div>
         <div id="demo" class="demo" tabindex="0" role="application" aria-label="waxon demo: click, then use j, k, Enter, Space, n and p">
+          <textarea id="demo-keys" class="demo-keys" tabindex="-1" aria-label="waxon demo keys" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
           <div id="demo-screen" class="demo-screen"></div>
         </div>
       </div>
       <div class="keystrip">
-        <p>Type while it's on screen, or tap the keys.</p>
+        <p>Click the terminal and type, or tap the keys.</p>
         <div class="keycaps">
           <button type="button" data-key="j">j</button><button type="button" data-key="k">k</button>
           <button type="button" data-key="Enter">Enter</button><button type="button" data-key=" ">Space</button>
