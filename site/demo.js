@@ -431,12 +431,52 @@
   // ---- The "Two ways to play" section shows where the demo is playing -----
 
   var modes = document.querySelector(".modes");
+  var shownMode = "waxon";
   function syncModes() {
     if (!modes) return;
     var tr = current();
+    if (s.mode !== shownMode) transfer(shownMode, s.mode, tr);
+    shownMode = s.mode;
     modes.dataset.mode = s.mode;
     modes.querySelectorAll("[data-np-title]").forEach(function (el) { el.textContent = tr ? tr.name : ""; });
     modes.querySelectorAll("[data-np-time]").forEach(function (el) { el.textContent = mmss(s.pos); });
+  }
+
+  // M moves the music: a card with the song lifts out of one device, travels
+  // to the other and settles there, which then lights up. Reduced motion
+  // just switches.
+  function transfer(from, to, tr) {
+    if (!tr || window.matchMedia("(prefers-reduced-motion: reduce)").matches || !modes.animate) return;
+    var src = modes.querySelector(".side-" + from + " .playing");
+    var box = modes.getBoundingClientRect();
+    var a = src.getBoundingClientRect();
+    if (!a.width) return;
+    modes.dataset.mode = to; // lay out the destination to measure it
+    var dst = modes.querySelector(".side-" + to + " .playing");
+    var b = dst.getBoundingClientRect();
+    modes.classList.add("transferring");
+    var card = document.createElement("div");
+    card.className = "transfer-card";
+    card.setAttribute("aria-hidden", "true");
+    card.textContent = "▶ " + tr.name;
+    card.style.left = a.left - box.left + "px";
+    card.style.top = a.top - box.top + "px";
+    modes.appendChild(card);
+    var dx = b.left - a.left, dy = b.top - a.top;
+    // Across on a wide screen, down on a narrow one, rising a little on the way.
+    var lift = Math.abs(dx) > Math.abs(dy) ? "0px, -18px" : "-10px, 0px";
+    var anim = card.animate([
+      { transform: "translate(0, 0) scale(1)", opacity: 0.9 },
+      { transform: "translate(0, -6px) scale(1.06)", opacity: 1, offset: 0.15 },
+      { transform: "translate(calc(" + dx / 2 + "px + " + lift.split(", ")[0] + "), calc(" + dy / 2 + "px + " + lift.split(", ")[1] + ")) scale(1.06)", offset: 0.55 },
+      { transform: "translate(" + dx + "px, " + dy + "px) scale(1)", opacity: 1 },
+    ], { duration: 620, easing: "cubic-bezier(.45,0,.2,1)" });
+    anim.onfinish = function () {
+      card.remove();
+      modes.classList.remove("transferring");
+      var dev = modes.querySelector(".side-" + to + " .device");
+      dev.classList.remove("landed"); void dev.offsetWidth; dev.classList.add("landed");
+    };
   }
 
   // ---- The big record beside the headline follows what's playing ---------

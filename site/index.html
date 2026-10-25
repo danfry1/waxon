@@ -396,6 +396,17 @@
   .modes[data-mode="waxon"] .side-waxon .playing, .modes[data-mode="app"] .side-app .playing { display: block; }
   .modes[data-mode="waxon"] .side-waxon .idle, .modes[data-mode="app"] .side-app .idle { display: none; }
   .modes[data-mode="waxon"] .side-waxon :is(.dim-line, .controls), .modes[data-mode="app"] .side-app :is(.dim-line, .controls) { visibility: visible; }
+  .modes { position: relative; }
+  .transfer-card {
+    position: absolute; z-index: 2; pointer-events: none; white-space: nowrap;
+    padding: 0.4rem 0.75rem; margin: -0.4rem 0 0 -0.75rem; border-radius: 8px;
+    font: 600 0.9rem/1.5 var(--mono); color: var(--paper);
+    background: #221d33; border: 1px solid var(--mint);
+    box-shadow: 0 12px 30px rgba(0,0,0,.45), 0 0 18px rgba(147,214,172,.25);
+  }
+  .modes.transferring .playing, .modes.transferring :is(.dim-line, .controls) { visibility: hidden !important; }
+  .device.landed { animation: landed .5s ease-out; }
+  @keyframes landed { 0% { box-shadow: 0 0 0 0 rgba(147,214,172,.55); } 100% { box-shadow: 0 0 0 14px rgba(147,214,172,0), 0 0 0 4px rgba(147,214,172,.12); } }
   .modes-foot { margin-top: 2.5rem !important; padding-top: 1.5rem; border-top: 1px solid var(--groove); max-width: 46rem !important; }
 
   .queue, .scripting { padding-block: 6rem 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 3rem; align-items: center; }
@@ -443,6 +454,18 @@
     .privacy-grid, .queue, .scripting, .modes-split { grid-template-columns: 1fr; gap: 1.75rem; }
     .modes-key { justify-items: start; grid-auto-flow: column; align-items: center; justify-content: start; gap: 1rem; padding-top: 0; }
     .queue-head { grid-template-columns: 1fr; }
+    .modes-arrow { transform: rotate(90deg); }
+    /* The two devices sit together with M between them, descriptions below,
+       so M's card makes one short hop. */
+    .modes-split { gap: 0; }
+    .modes-split .side { display: contents; }
+    .side-waxon .device { order: 1; margin-bottom: 0.75rem; }
+    .modes-key { order: 2; justify-content: center; margin-bottom: 0.75rem; }
+    .side-app .device { order: 3; margin-bottom: 2rem; }
+    .side-waxon h3 { order: 4; }
+    .side-waxon p { order: 5; margin-bottom: 1.5rem; }
+    .side-app h3 { order: 6; }
+    .side-app p { order: 7; }
     .modes { padding-top: 4.5rem; }
     .queue, .scripting { padding-top: 4.5rem; }
     .more { grid-template-columns: 1fr 1fr; }
@@ -561,7 +584,7 @@
       </div>
       <div class="modes-key">
         <button type="button" class="big-key" data-key="M" aria-label="Press M: switch where the demo plays">M</button>
-        <span aria-hidden="true">⇄</span>
+        <span class="modes-arrow" aria-hidden="true">⇄</span>
       </div>
       <div class="side side-app">
         <div class="device app" aria-hidden="true">
