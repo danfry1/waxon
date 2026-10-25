@@ -58,6 +58,7 @@ type KeyMap struct {
 	Command    key.Binding
 	Help       key.Binding
 	NowPlaying key.Binding
+	Settings   key.Binding
 	Quit       key.Binding
 	Escape     key.Binding
 
@@ -106,6 +107,7 @@ func DefaultKeyMap() KeyMap {
 		Command:    key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "command")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		NowPlaying: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "now playing")),
+		Settings:   key.NewBinding(key.WithKeys(","), key.WithHelp(",", "settings")),
 		Quit:       key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 		Escape:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close/cancel")),
 	}
@@ -226,7 +228,7 @@ func (k *KeyMap) keyBindingFields() map[string]*key.Binding {
 		"visual": &k.Visual, "add_queue": &k.AddQueue, "like": &k.Like, "actions": &k.Actions, "devices": &k.Devices, "mode": &k.Mode,
 		"like_playing": &k.LikePlaying, "actions_playing": &k.ActionsPlaying, "mute": &k.Mute,
 		"back": &k.Back, "filter": &k.Filter, "search": &k.Search, "command": &k.Command,
-		"help": &k.Help, "now_playing": &k.NowPlaying, "quit": &k.Quit,
+		"help": &k.Help, "now_playing": &k.NowPlaying, "settings": &k.Settings, "quit": &k.Quit,
 	}
 }
 

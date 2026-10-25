@@ -887,6 +887,9 @@ func (m *Model) runCommand(cmd Command) tea.Cmd {
 	case CmdHelp:
 		m.mode, m.helpPage, m.helpScroll = ModeHelp, 0, 0
 		return nil
+	case CmdSettings:
+		m.mode, m.settingsCursor = ModeSettings, 0
+		return nil
 	case CmdRecent:
 		m.mode = ModeNormal // it opens in the track list
 		m.pushNav()
