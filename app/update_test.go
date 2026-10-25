@@ -1152,7 +1152,10 @@ func TestHelpListsEveryBoundKey(t *testing.T) {
 	// The help overlay must mention every key in the default KeyMap, plus the
 	// keys that are handled outside KeyMap (g-motions, Now Playing, help close).
 	km := DefaultKeyMap()
-	rendered := ViewHelp(200, 80)
+	rendered := ""
+	for p := range helpPages(km) {
+		rendered += viewHelp(km, 200, 80, 0, p, "")
+	}
 	check := func(label string) {
 		t.Helper()
 		if !strings.Contains(rendered, label) {
@@ -1176,6 +1179,46 @@ func TestHelpListsEveryBoundKey(t *testing.T) {
 	// Direction labels must match the bindings: j is down, k is up.
 	if !strings.Contains(rendered, "j / k") || !strings.Contains(rendered, "down / up") {
 		t.Error("j/k row should read 'j / k  down / up'")
+	}
+}
+
+// Tab and the number keys move between the help pages; help always opens
+// on the first.
+func TestHelpPages(t *testing.T) {
+	m := newTestModel(&StubSource{})
+	m.width, m.height, m.mode = 160, 60, ModeHelp
+	if !strings.Contains(m.View(), "MOVE") {
+		t.Fatal("help should open on the essentials")
+	}
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = res.(Model)
+	if m.helpPage != 1 || !strings.Contains(m.View(), "NAVIGATION") {
+		t.Error("Tab should go to the second page (every key)")
+	}
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = res.(Model)
+	if m.helpPage != 2 || !strings.Contains(m.View(), ":playlist new NAME") {
+		t.Error("3 should go to the commands page")
+	}
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if res.(Model).helpPage != 0 {
+		t.Error("Tab on the last page should wrap to the first")
+	}
+	m.helpPage = 2
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	res, _ = res.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	if res.(Model).helpPage != 0 {
+		t.Error("help should reopen on the first page, however it was closed")
+	}
+}
+
+// On a wide terminal no help row is cut short.
+func TestHelpRowsInFull(t *testing.T) {
+	km := DefaultKeyMap()
+	for p := range helpPages(km) {
+		if got := viewHelp(km, 200, 80, 0, p, ""); strings.Contains(got, "…") {
+			t.Errorf("page %d truncates a row on a 200-column terminal", p)
+		}
 	}
 }
 
@@ -1203,7 +1246,7 @@ func TestHelpScrollsOnShortTerminal(t *testing.T) {
 }
 
 func TestHelpFitsWidth(t *testing.T) {
-	for _, w := range []int{60, 80, 100, 140} {
+	for _, w := range []int{40, 60, 80, 100, 140} {
 		got := ViewHelp(w, 60)
 		for _, line := range strings.Split(got, "\n") {
 			if lw := lipgloss.Width(line); lw > w {
@@ -1228,8 +1271,8 @@ func TestViewHelp(t *testing.T) {
 	if got == "" {
 		t.Fatal("ViewHelp should return non-empty string")
 	}
-	if !strings.Contains(got, "Keybindings") {
-		t.Error("ViewHelp output should contain 'Keybindings'")
+	if !strings.Contains(got, "Essentials") {
+		t.Error("ViewHelp output should open on the 'Essentials' page")
 	}
 }
 
@@ -1242,8 +1285,8 @@ func TestViewModeHelp(t *testing.T) {
 	if got == "" {
 		t.Fatal("View() in ModeHelp should be non-empty")
 	}
-	if !strings.Contains(got, "Keybindings") {
-		t.Error("View() in ModeHelp should contain 'Keybindings'")
+	if !strings.Contains(got, "Essentials") {
+		t.Error("View() in ModeHelp should contain the 'Essentials' tab")
 	}
 }
 
@@ -6359,5 +6402,28 @@ func TestOpeningRestrictedPlaylistFocusesNoticeAndNeverAutoPlays(t *testing.T) {
 	cmd()
 	if plays != 1 {
 		t.Errorf("Enter on the notice should play once, got %d", plays)
+	}
+}
+
+// Every help page draws the same size of panel, so switching pages doesn't
+// move its edges.
+func TestHelpPagesSameSize(t *testing.T) {
+	km := DefaultKeyMap()
+	size := func(p int) (w, h int) {
+		for _, l := range strings.Split(viewHelp(km, 160, 60, 0, p, ""), "\n") {
+			if strings.Contains(l, "╭") || strings.Contains(l, "│") || strings.Contains(l, "╰") {
+				h++
+				if strings.Contains(l, "╭") {
+					w = strings.Count(l, "─")
+				}
+			}
+		}
+		return w, h
+	}
+	w0, h0 := size(0)
+	for p := 1; p < len(helpPages(km)); p++ {
+		if w, h := size(p); w != w0 || h != h0 {
+			t.Errorf("page %d is %dx%d, page 0 %dx%d", p, w, h, w0, h0)
+		}
 	}
 }

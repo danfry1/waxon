@@ -349,6 +349,7 @@ type Model struct {
 	mediaArtFor string // the artwork URL mediaArt is for
 	setup       *Setup // open in ModeSetup (setting up the player in place)
 	helpScroll  int    // first row of the help overlay shown
+	helpPage    int    // the help overlay's page (helpPages)
 	// overlayReturn is where search, help, the command line or the device
 	// picker returns to when closed: Now Playing if it was opened there.
 	// Set whenever one opens (Update), so it's never left over.
@@ -1544,11 +1545,19 @@ func (m Model) quit() (Model, tea.Cmd) {
 func (m Model) handleKeyHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if msg.Type == tea.KeyEscape || key.Matches(msg, m.keys.Help) || msg.String() == "q" {
 		m.leaveOverlay()
-		m.helpScroll = 0
 		return m, nil
 	}
 	half := max(1, helpRows(m.height)/2)
+	pages := len(helpPages(m.keys))
 	switch {
+	case msg.String() == "tab", key.Matches(msg, m.keys.FocusRight):
+		m.helpPage, m.helpScroll = (m.helpPage+1)%pages, 0
+	case msg.String() == "shift+tab", key.Matches(msg, m.keys.FocusLeft):
+		m.helpPage, m.helpScroll = (m.helpPage+pages-1)%pages, 0
+	case len(msg.String()) == 1 && msg.String() >= "1" && msg.String() <= "9":
+		if p := int(msg.String()[0] - '1'); p < pages {
+			m.helpPage, m.helpScroll = p, 0
+		}
 	case key.Matches(msg, m.keys.Down):
 		m.helpScroll++
 	case key.Matches(msg, m.keys.Up):
@@ -1558,11 +1567,11 @@ func (m Model) handleKeyHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.HalfUp):
 		m.helpScroll -= half
 	case key.Matches(msg, m.keys.Bottom):
-		m.helpScroll = helpMaxScroll(m.keys, m.width, m.height)
+		m.helpScroll = helpMaxScroll(m.keys, m.width, m.height, m.helpPage)
 	case msg.String() == "g":
 		m.helpScroll = 0
 	}
-	m.helpScroll = max(0, min(m.helpScroll, helpMaxScroll(m.keys, m.width, m.height)))
+	m.helpScroll = max(0, min(m.helpScroll, helpMaxScroll(m.keys, m.width, m.height, m.helpPage)))
 	return m, nil
 }
 
@@ -2339,6 +2348,13 @@ func (m Model) scrollOverlay(dir tea.KeyType) Model {
 					m.playlistPick.MoveDown()
 				}
 			}
+		case ModeHelp:
+			if dir == tea.KeyUp {
+				m.helpScroll--
+			} else {
+				m.helpScroll++
+			}
+			m.helpScroll = max(0, min(m.helpScroll, helpMaxScroll(m.keys, m.width, m.height, m.helpPage)))
 		}
 	}
 	return m
@@ -2700,6 +2716,22 @@ func (m Model) volumeShow() volumeShow {
 	return volumeShow{level: m.volume, accepted: m.volumeAccepted, pending: m.volumeInFlight, glow: m.volumeGlow}
 }
 
+// underOverlay is the screen a floating panel (help, settings) is drawn
+// over: where it was opened from. With kitty art it's "" (a plain backdrop):
+// kitty draws a cover from the placeholder cells, and a panel spliced over
+// them leaves the cells to its right showing the wrong part of the image.
+func (m Model) underOverlay() string {
+	if artMode == ArtKitty {
+		return ""
+	}
+	under := m
+	under.mode = ModeNormal
+	if m.overlayReturn == ModeNowPlaying {
+		under.mode = ModeNowPlaying
+	}
+	return under.screen()
+}
+
 // screen is what's on screen under the toast: a popup, Now Playing, or the
 // main view.
 func (m Model) screen() string {
@@ -2722,9 +2754,9 @@ func (m Model) screen() string {
 		return m.playlistPick.View()
 	}
 
-	// Help overlay replaces everything
+	// Help floats over the screen it was opened from
 	if m.mode == ModeHelp {
-		return viewHelp(m.keys, m.width, m.height, m.helpScroll)
+		return viewHelp(m.keys, m.width, m.height, m.helpScroll, m.helpPage, m.underOverlay())
 	}
 
 	// Now Playing overlay replaces everything

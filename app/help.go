@@ -1,10 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // helpCategory groups keybindings by purpose.
@@ -140,78 +142,186 @@ func helpCategories(k KeyMap) []helpCategory {
 	}
 }
 
-// helpKeyColWidth is the key gutter width inside a help column.
-const helpKeyColWidth = 11
+// essentials is the help's first page: the keys a newcomer needs, from the
+// live KeyMap like the rest.
+func essentials(k KeyMap) []helpCategory {
+	return []helpCategory{
+		{Title: "MOVE", Bindings: []helpBinding{
+			pair(k.Down, k.Up, "down / up"),
+			{"gg / " + keyLabel(k.Bottom), "top / bottom"},
+			pair(k.FocusLeft, k.FocusRight, "left / right pane"),
+			{keyLabel(k.Back) + " / b", "back"},
+		}},
+		{Title: "PLAY", Bindings: []helpBinding{
+			hb(k.Enter, "play the selection"),
+			hb(k.PlayPause, "play / pause"),
+			pair(k.Next, k.Prev, "next / previous track"),
+			pair(k.VolDown, k.VolUp, "volume down / up"),
+		}},
+		{Title: "FIND", Bindings: []helpBinding{
+			hb(k.Search, "search Spotify"),
+			hb(k.Filter, "filter this list"),
+			hb(k.Command, "a command, like :vol 50"),
+		}},
+		{Title: "GO TO", Bindings: []helpBinding{
+			{"gq", "the queue"},
+			{"ga / gA", "album / artist of the selection"},
+			{"gl", "the library"},
+		}},
+		{Title: "DO", Bindings: []helpBinding{
+			hb(k.Actions, "actions for the selection"),
+			hb(k.AddQueue, "add to the queue"),
+			hb(k.Like, "like / unlike"),
+			hb(k.NowPlaying, "Now Playing (l there: lyrics)"),
+			hb(k.Devices, "devices"),
+			hb(k.Mode, "play in waxon ⇄ the Spotify app"),
+		}},
+		{Title: "WAXON", Bindings: []helpBinding{
+			hb(k.Help, "help: Tab for every key"),
+			hb(k.Quit, "quit"),
+		}},
+	}
+}
 
-// splitColumns distributes categories across n columns, filling each column
-// greedily until it reaches roughly an even share of the total height. Order is
-// preserved so related sections stay adjacent.
-func splitColumns(cats []helpCategory, n int) [][]helpCategory {
-	if n < 1 {
-		n = 1
-	}
-	total := 0
-	for _, c := range cats {
-		total += len(c.Bindings) + 2 // title + blank
-	}
-	target := (total + n - 1) / n
-	cols := make([][]helpCategory, 0, n)
-	cur := make([]helpCategory, 0, len(cats))
-	h := 0
-	for _, c := range cats {
-		ch := len(c.Bindings) + 2
-		if h > 0 && h+ch > target && len(cols) < n-1 {
-			cols = append(cols, cur)
-			cur, h = make([]helpCategory, 0, len(cats)), 0
+// helpPage is one page of the help overlay; cols is the most columns it
+// spreads over.
+type helpPage struct {
+	name string
+	cats []helpCategory
+	cols int
+}
+
+// helpPages are the help overlay's pages: the essentials first, then every
+// key, then every command.
+func helpPages(k KeyMap) []helpPage {
+	var keys, cmds []helpCategory
+	for _, c := range helpCategories(k) {
+		if c.Title == "COMMANDS" {
+			cmds = append(cmds, c)
+		} else {
+			keys = append(keys, c)
 		}
-		cur = append(cur, c)
-		h += ch
 	}
-	if len(cur) > 0 {
-		cols = append(cols, cur)
+	return []helpPage{
+		{"Essentials", essentials(k), 2},
+		{"All keys", keys, 3},
+		{"Commands", cmds, 1},
+	}
+}
+
+// helpGutter is a column's key gutter: its widest key, plus room.
+func helpGutter(cats []helpCategory) int {
+	w := 0
+	for _, c := range cats {
+		for _, b := range c.Bindings {
+			w = max(w, lipgloss.Width(b.Key))
+		}
+	}
+	return w + 2
+}
+
+// helpColWidth is the width a column needs to show every row in full.
+func helpColWidth(cats []helpCategory) int {
+	g, w := helpGutter(cats), 0
+	for _, c := range cats {
+		w = max(w, lipgloss.Width(c.Title))
+		for _, b := range c.Bindings {
+			w = max(w, 1+g+lipgloss.Width(b.Desc))
+		}
+	}
+	return w
+}
+
+// splitColumns distributes categories across n columns in order, choosing
+// the split whose tallest column is shortest, so the columns come out even.
+func splitColumns(cats []helpCategory, n int) [][]helpCategory {
+	n = max(1, min(n, len(cats)))
+	heights := make([]int, len(cats))
+	for i, c := range cats {
+		heights[i] = len(c.Bindings) + 2 // title + blank
+	}
+	// best[i][j]: the shortest tallest column for cats[i:] in j columns.
+	type cell struct{ tallest, cut int }
+	best := make([][]cell, len(cats)+1)
+	for i := range best {
+		best[i] = make([]cell, n+1)
+	}
+	for i := len(cats) - 1; i >= 0; i-- {
+		h := 0
+		for _, x := range heights[i:] {
+			h += x
+		}
+		best[i][1] = cell{h, len(cats)}
+		for j := 2; j <= n; j++ {
+			best[i][j] = cell{h, len(cats)}
+			h := 0
+			for cut := i + 1; cut < len(cats); cut++ {
+				h += heights[cut-1]
+				if t := max(h, best[cut][j-1].tallest); t < best[i][j].tallest {
+					best[i][j] = cell{t, cut}
+				}
+			}
+		}
+	}
+	cols := make([][]helpCategory, 0, n)
+	for i, j := 0, n; i < len(cats); j-- {
+		cut := best[i][j].cut
+		cols = append(cols, cats[i:cut])
+		i = cut
 	}
 	return cols
 }
 
-// ViewHelp renders the help overlay as a centered floating panel. Columns are
-// chosen from the terminal width (3 when it fits, else 2); what doesn't fit
-// the terminal's height scrolls (scroll is the first row shown).
+// ViewHelp renders the help overlay's first page as a centered floating
+// panel.
 func ViewHelp(width, height int) string {
-	return viewHelp(DefaultKeyMap(), width, height, 0)
+	return viewHelp(DefaultKeyMap(), width, height, 0, 0, "")
 }
 
-// helpBody is the help overlay's columns as lines, and its width.
-func helpBody(k KeyMap, width int) (lines []string, overlayW int) {
-	const colW = 30    // preferred column width
-	const colWMin = 24 // narrowest column before dropping to fewer columns
-	const gap = 2
-	ncols := 3
-	if width < colWMin*3+gap*2+8 {
-		ncols = 2
+// helpBody is a help page's columns as lines, and the overlay's width. It
+// uses as many columns (up to the page's) as fit with every row in full,
+// and truncates descriptions only when one column doesn't fit.
+func helpBody(k KeyMap, width, page int) (lines []string, overlayW int) {
+	const gap = 3
+	pages := helpPages(k)
+	pg := pages[max(0, min(page, len(pages)-1))]
+	avail := max(16, width-8) // the overlay's border and padding
+
+	var cols [][]helpCategory
+	var widths []int
+	for n := pg.cols; n >= 1; n-- {
+		cols = splitColumns(pg.cats, n)
+		widths = widths[:0]
+		total := gap * (len(cols) - 1)
+		for _, c := range cols {
+			w := helpColWidth(c)
+			widths = append(widths, w)
+			total += w
+		}
+		if total <= avail || n == 1 {
+			break
+		}
 	}
-	// Shrink columns on narrow terminals rather than overflowing.
-	cw := colW
-	if avail := (width - 8 - gap*(ncols-1)) / ncols; avail < cw {
-		cw = max(16, avail)
+	if len(cols) == 1 {
+		widths[0] = min(widths[0], avail)
 	}
-	overlayW = cw*ncols + gap*(ncols-1) + 4
 
 	catStyle := lipgloss.NewStyle().Foreground(ColorTextDim).Bold(true)
 	keyStyle := lipgloss.NewStyle().Foreground(ColorText)
 	descStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
 
-	renderCol := func(cats []helpCategory) string {
+	renderCol := func(cats []helpCategory, cw int) string {
+		g := helpGutter(cats)
 		var sb strings.Builder
 		for i, cat := range cats {
 			sb.WriteString(catStyle.Render(cat.Title) + "\n")
 			for _, b := range cat.Bindings {
-				key := keyStyle.Render(b.Key)
-				pad := max(1, helpKeyColWidth-lipgloss.Width(b.Key))
 				desc := b.Desc
-				if room := cw - 1 - helpKeyColWidth; lipgloss.Width(desc) > room && room > 1 {
+				if room := cw - 1 - g; lipgloss.Width(desc) > room && room > 1 {
 					desc = string([]rune(desc)[:room-1]) + "…"
 				}
-				sb.WriteString(" " + key + strings.Repeat(" ", pad) + descStyle.Render(desc) + "\n")
+				pad := max(1, g-lipgloss.Width(b.Key))
+				sb.WriteString(" " + keyStyle.Render(b.Key) + strings.Repeat(" ", pad) + descStyle.Render(desc) + "\n")
 			}
 			if i < len(cats)-1 {
 				sb.WriteString("\n")
@@ -220,33 +330,63 @@ func helpBody(k KeyMap, width int) (lines []string, overlayW int) {
 		return strings.TrimRight(sb.String(), "\n")
 	}
 
-	cols := splitColumns(helpCategories(k), ncols)
 	rendered := make([]string, 0, len(cols)*2)
+	overlayW = gap * (len(cols) - 1)
 	for i, c := range cols {
 		if i > 0 {
 			rendered = append(rendered, strings.Repeat(" ", gap))
 		}
-		rendered = append(rendered, lipgloss.NewStyle().Width(cw).Render(renderCol(c)))
+		rendered = append(rendered, lipgloss.NewStyle().Width(widths[i]).Render(renderCol(c, widths[i])))
+		overlayW += widths[i]
 	}
 	columns := lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 	return strings.Split(columns, "\n"), overlayW
 }
 
 // helpRows is how many body rows fit on screen: border (2), padding (2),
-// the header and the blank line under it, and a line for the scroll hint.
-func helpRows(height int) int { return max(1, height-7) }
+// the page tabs and the blank line under them, and the footer and the blank
+// line above it.
+func helpRows(height int) int { return max(1, height-8) }
 
-// helpMaxScroll is the furthest the help overlay scrolls.
-func helpMaxScroll(k KeyMap, width, height int) int {
-	lines, _ := helpBody(k, width)
+// helpMaxScroll is the furthest a help page scrolls.
+func helpMaxScroll(k KeyMap, width, height, page int) int {
+	lines, _ := helpBody(k, width, page)
 	return max(0, len(lines)-helpRows(height))
 }
 
-func viewHelp(k KeyMap, width, height, scroll int) string {
-	titleStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
-	hintStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
-	lines, overlayW := helpBody(k, width)
-	header := titleStyle.Render("Keybindings") + "  " + hintStyle.Render("? / Esc / q to close")
+// viewHelp draws the help page over base (the screen it was opened from),
+// or on its own backdrop when base is "". The panel is sized to the largest
+// page, so moving between pages doesn't resize it.
+func viewHelp(k KeyMap, width, height, scroll, page int, base string) string {
+	accent := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	dim := lipgloss.NewStyle().Foreground(ColorTextDim)
+	lines, _ := helpBody(k, width, page)
+
+	pages := helpPages(k)
+	overlayW, tallest := 0, 0
+	for p := range pages {
+		l, w := helpBody(k, width, p)
+		overlayW, tallest = max(overlayW, w), max(tallest, len(l))
+	}
+	for len(lines) < min(tallest, helpRows(height)) {
+		lines = append(lines, "")
+	}
+	tabs := make([]string, len(pages))
+	for i, p := range pages {
+		if i == page {
+			tabs[i] = accent.Render(p.name)
+		} else {
+			tabs[i] = dim.Render(p.name)
+		}
+	}
+	header := strings.Join(tabs, dim.Render("  ·  "))
+	room := max(10, width-6) // inside the border and padding
+	if lipgloss.Width(header) > room {
+		// Too narrow for every tab: this page's name and where it is.
+		header = accent.Render(pages[page].name) + dim.Render(fmt.Sprintf("  %d/%d · Tab", page+1, len(pages)))
+	}
+	footer := "Tab next page · ? / Esc / q to close"
+
 	content := header + "\n\n"
 	if rows := helpRows(height); len(lines) > rows {
 		scroll = max(0, min(scroll, len(lines)-rows))
@@ -255,18 +395,51 @@ func viewHelp(k KeyMap, width, height, scroll int) string {
 		if scroll == len(lines)-rows {
 			more = "↑ j/k to scroll"
 		}
-		content += "\n" + hintStyle.Render(more)
+		footer = more + " · " + footer
 	} else {
 		content += strings.Join(lines, "\n")
 	}
+	overlayW = min(max(overlayW, lipgloss.Width(header)), room)
+	if fw := lipgloss.Width(footer); fw > overlayW {
+		footer = string([]rune(footer)[:max(1, overlayW-1)]) + "…"
+	}
+	content += "\n\n" + dim.Render(footer)
 
 	border := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder).
-		Width(overlayW).
+		BorderForeground(ColorAccent).
+		Width(overlayW+4).
 		Padding(1, 2)
 
 	overlay := border.Render(content)
+	if base != "" {
+		return overlayCentered(base, overlay, width, height)
+	}
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, overlay,
 		overlayBackdrop())
+}
+
+// overlayCentered draws box over the middle of base, replacing the cells
+// under it and keeping the rest of each line.
+func overlayCentered(base, box string, width, height int) string {
+	lines := strings.Split(base, "\n")
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	boxLines := strings.Split(box, "\n")
+	boxW := lipgloss.Width(boxLines[0])
+	top := max(0, (height-len(boxLines))/2)
+	left := max(0, (width-boxW)/2)
+	for i, bl := range boxLines {
+		row := top + i
+		if row >= len(lines) {
+			break
+		}
+		l := ansi.Truncate(lines[row], left, "")
+		if w := lipgloss.Width(l); w < left {
+			l += strings.Repeat(" ", left-w)
+		}
+		lines[row] = l + "\033[0m" + bl + "\033[0m" + stripLeft(lines[row], left+boxW)
+	}
+	return strings.Join(lines, "\n")
 }

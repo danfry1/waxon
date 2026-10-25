@@ -67,7 +67,7 @@ func (m Model) handleGlobalKey(msg tea.KeyMsg, count int) (Model, tea.Cmd, bool)
 		m.cmdInput = ""
 		return m, nil, true
 	case key.Matches(msg, m.keys.Help):
-		m.mode = ModeHelp
+		m.mode, m.helpPage, m.helpScroll = ModeHelp, 0, 0
 		return m, nil, true
 	}
 	return m, nil, false
