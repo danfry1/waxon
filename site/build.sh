@@ -5,6 +5,6 @@
 set -e
 cd "$(dirname "$0")"
 rm -rf dist && mkdir dist
-cp -R index.html demo.js mark.svg favicon.svg og.png video dist/
+cp -R index.html demo.js mark.svg favicon.svg favicon.ico apple-touch-icon.png og.png video dist/
 mkdir -p dist/media/art
 cp ../demo/art/*.jpg dist/media/art/
