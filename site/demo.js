@@ -259,6 +259,21 @@
   term.addEventListener("focus", function () { if (keys && !touchOnly) keys.focus({ preventScroll: true }); });
   if (keys) keys.addEventListener("input", function () { keys.value = ""; });
 
+  // Vimium and similar extensions take Esc to leave a text box, which would
+  // drop the demo's focus. Esc is a demo key, so losing focus with no click,
+  // Tab or tab switch behind it is taken as Esc, and the demo keeps focus.
+  var lastPointer = 0, lastEsc = 0;
+  document.addEventListener("pointerdown", function () { lastPointer = Date.now(); }, true);
+  term.addEventListener("keydown", function (e) { if (e.key === "Escape") lastEsc = Date.now(); }, true);
+  if (keys) keys.addEventListener("blur", function () {
+    setTimeout(function () {
+      if (!document.hasFocus() || Date.now() - lastPointer < 400) return;
+      if (document.activeElement && document.activeElement !== document.body) return;
+      if (Date.now() - lastEsc > 200) { handle("Escape"); flashKey("Escape"); }
+      focusDemo();
+    }, 0);
+  });
+
   // While the demo is on screen, its keys work from anywhere on the page
   // (not Space, which scrolls), so you can just start typing.
   var pageKeys = "jkgGhlnpfNvlMS?+-m";
