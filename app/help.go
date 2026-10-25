@@ -104,6 +104,7 @@ func helpCategories(k KeyMap) []helpCategory {
 				hb(k.Command, "command mode"),
 				hb(k.NowPlaying, "now playing"),
 				hb(k.Help, "help"),
+				hb(k.Settings, "settings"),
 				hb(k.Quit, "quit"),
 			},
 		},
@@ -178,6 +179,7 @@ func essentials(k KeyMap) []helpCategory {
 		}},
 		{Title: "WAXON", Bindings: []helpBinding{
 			hb(k.Help, "help: Tab for every key"),
+			hb(k.Settings, "settings"),
 			hb(k.Quit, "quit"),
 		}},
 	}

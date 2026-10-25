@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -265,7 +266,38 @@ func applyUserConfig() app.Options {
 	opts.SaveTheme = func(name string) error {
 		return config.Save(config.Config{Theme: name})
 	}
+	opts.Settings = app.Settings{
+		Theme:        cmp.Or(cfg.Theme, app.DefaultThemeName),
+		Art:          cmp.Or(cfg.Art, "blocks"),
+		MediaKeysOff: cfg.MediaKeys != nil && !*cfg.MediaKeys,
+		CustomKeys:   len(cfg.Keys),
+		Path:         config.DefaultPath(),
+	}
+	if env := os.Getenv("WAXON_ART"); env != "" {
+		opts.Settings.ArtNote = "WAXON_ART=" + env + " overrides it"
+	}
+	if overSSH() {
+		opts.Settings.MediaKeysNote = "off over SSH"
+	}
+	opts.SaveSetting = saveSetting
 	return opts
+}
+
+// saveSetting saves one setting from the settings overlay by its
+// config.json name; config.Save merges it into the file.
+func saveSetting(name, value string) error {
+	on := value == "on"
+	switch name {
+	case "theme":
+		return config.Save(config.Config{Theme: value})
+	case "art":
+		return config.Save(config.Config{Art: value})
+	case "media_keys":
+		return config.Save(config.Config{MediaKeys: &on})
+	case "lyrics":
+		return config.Save(config.Config{Lyrics: &on})
+	}
+	return fmt.Errorf("unknown setting %q", name)
 }
 
 // newSource builds the Spotify-backed source from the saved token. On failure

@@ -26,6 +26,7 @@ const (
 	CmdLike       // StrArg: "on", "off" or "" (toggle), for the playing track
 	CmdMute
 	CmdHelp
+	CmdSettings
 )
 
 // commandHelp is the user-facing list of : commands shown in the help overlay.
@@ -51,6 +52,7 @@ var commandHelp = []helpBinding{
 	{":vinyl", "now playing: vinyl"},
 	{":theme NAME", "switch colour theme"},
 	{":playlist new NAME", "create a playlist"},
+	{":settings", "settings"},
 	{":h", "help"},
 	{":q", "quit"},
 }
@@ -60,7 +62,7 @@ var commandHelp = []helpBinding{
 var commandNames = []string{
 	"next", "play", "pause", "prev", "vol", "seek", "search", "shuffle", "like",
 	"mute", "device", "repeat", "recent", "albums", "artists", "podcasts",
-	"lyrics", "vinyl", "theme", "playlist new", "toggle", "help", "quit",
+	"lyrics", "vinyl", "theme", "playlist new", "toggle", "settings", "help", "quit",
 }
 
 // commandArgHints say what a command takes, shown dimmed once its name is
@@ -188,6 +190,9 @@ func ParseCommand(input string) (Command, error) {
 
 	case "h", "help":
 		return Command{Type: CmdHelp}, nil
+
+	case "settings":
+		return Command{Type: CmdSettings}, nil
 
 	case "repeat":
 		if len(args) != 1 {

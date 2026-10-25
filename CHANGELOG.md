@@ -8,6 +8,13 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Added
+
+- Settings (`,` or `:settings`): change the theme, album art, media keys and
+  lyrics from inside waxon, saved to `config.json` as you change them. The
+  player, the Spotify app and custom keys show where they stand and how to
+  change them.
+
 ### Changed
 
 - The help overlay (`?`) opens on a short page of essential keys; `Tab`

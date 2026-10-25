@@ -328,7 +328,8 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `v`              | Toggle vinyl mode (in Now Playing) |
 | `l`              | Toggle synced lyrics (in Now Playing) |
 | `Backspace` / `b` | Go back           |
-| `?`              | Toggle help overlay |
+| `?`              | Help: the essentials, then `Tab` for every key and command |
+| `,`              | Settings: theme, album art, media keys, lyrics, saved as you change them |
 | `q` / `Ctrl+c`   | Quit               |
 | `Esc`            | Close / cancel      |
 
@@ -360,10 +361,13 @@ Enter command mode by pressing `:`, then type a command. As you type, the likeli
 | `:vinyl`                | Now Playing, in vinyl mode |
 | `:theme <name>`         | Switch colour theme (saved to config) |
 | `:playlist new <name>`  | Create a playlist    |
+| `:settings`             | Settings             |
 | `:h`                    | Help                 |
 | `:q`                    | Quit                 |
 
 ## Configuration
+
+Press `,` (or `:settings`) to change the theme, album art, media keys and lyrics from inside waxon; each change is saved to the config file as you make it.
 
 waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on Windows, `$XDG_CONFIG_HOME/waxon` when that's set; `waxon config` prints the path. Everything is optional:
 
@@ -381,7 +385,7 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
   <img src="demo/recordings/themes.gif" alt="switching themes with :theme" width="800">
 </p>
 
-**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down mute shuffle repeat visual add_queue like like_playing actions actions_playing devices mode back filter search command help now_playing quit`. The `g`-prefix motions (`gg gl gq gc ga gA`) and `Esc` are fixed. The `?` help overlay always shows your live bindings. If a custom key is misspelt, has no keys, or is already another action's, waxon says so when it starts and uses the rest.
+**Keys** — `keys` maps an action to a comma-separated list of keys (Bubbletea names: `j`, `down`, `ctrl+d`, `space`, `enter`, `esc`, `tab`, `backspace`, `f1`…). Actions: `up down bottom half_up half_down focus_left focus_right cycle_pane enter play_pause next prev seek_fwd seek_back vol_up vol_down mute shuffle repeat visual add_queue like like_playing actions actions_playing devices mode back filter search command help now_playing settings quit`. The `g`-prefix motions (`gg gl gq gc ga gA`) and `Esc` are fixed. The `?` help overlay always shows your live bindings. If a custom key is misspelt, has no keys, or is already another action's, waxon says so when it starts and uses the rest.
 
 **Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
 

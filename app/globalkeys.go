@@ -69,6 +69,9 @@ func (m Model) handleGlobalKey(msg tea.KeyMsg, count int) (Model, tea.Cmd, bool)
 	case key.Matches(msg, m.keys.Help):
 		m.mode, m.helpPage, m.helpScroll = ModeHelp, 0, 0
 		return m, nil, true
+	case key.Matches(msg, m.keys.Settings):
+		m.mode, m.settingsCursor = ModeSettings, 0
+		return m, nil, true
 	}
 	return m, nil, false
 }
@@ -77,7 +80,7 @@ func (m Model) handleGlobalKey(msg tea.KeyMsg, count int) (Model, tea.Cmd, bool)
 // back to where they were opened (Model.overlayReturn).
 func returnsToOpener(mode Mode) bool {
 	switch mode {
-	case ModeSearch, ModeHelp, ModeCommand, ModeDevices:
+	case ModeSearch, ModeHelp, ModeSettings, ModeCommand, ModeDevices:
 		return true
 	}
 	return false

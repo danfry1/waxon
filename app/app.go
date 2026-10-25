@@ -350,6 +350,8 @@ type Model struct {
 	setup       *Setup // open in ModeSetup (setting up the player in place)
 	helpScroll  int    // first row of the help overlay shown
 	helpPage    int    // the help overlay's page (helpPages)
+	// settingsCursor is the settings overlay's selected row.
+	settingsCursor int
 	// overlayReturn is where search, help, the command line or the device
 	// picker returns to when closed: Now Playing if it was opened there.
 	// Set whenever one opens (Update), so it's never left over.
@@ -484,7 +486,13 @@ type Options struct {
 	// as; "" when it's off. Playback with no active device prefers it.
 	PlayerName string
 	// LyricsOff: the config turned lyrics off; lrclib.net is never asked.
+	// The settings overlay turns it on and off.
 	LyricsOff bool
+	// Settings is what the settings overlay shows (settings.go), and
+	// SaveSetting saves one of them by its config.json name ("theme",
+	// "art", "media_keys", "lyrics"). nil SaveSetting: nothing is saved.
+	Settings    Settings
+	SaveSetting func(name, value string) error
 	// KeysProblem says which of the config's custom keys weren't applied or
 	// clash; shown once at startup.
 	KeysProblem string
@@ -504,6 +512,7 @@ type Options struct {
 
 // WithOptions returns a copy of m with opts applied.
 func (m Model) WithOptions(opts Options) Model {
+	opts.Settings = opts.Settings.withDefaults()
 	m.opts = opts
 	if opts.Keys != nil {
 		m.keys = *opts.Keys
@@ -514,14 +523,10 @@ func (m Model) WithOptions(opts Options) Model {
 // setTheme applies a named theme (plus the configured colour overrides) to the
 // live UI and reports the outcome as a toast.
 func (m *Model) setTheme(name string) tea.Cmd {
-	p, err := ResolveTheme(name, m.opts.ColorOverrides)
-	if err != nil {
+	if err := m.applyTheme(name); err != nil {
 		m.toast.Show(err.Error(), "", ToastError)
 		return scheduleAutoDismiss()
 	}
-	ApplyTheme(p)
-	m.tracklist.Restyle()
-	m.sidebar.Restyle()
 	detail := ""
 	if m.opts.SaveTheme != nil {
 		if err := m.opts.SaveTheme(name); err != nil {
@@ -1493,6 +1498,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case ModeHelp:
 		return m.handleKeyHelp(msg)
+	case ModeSettings:
+		return m.handleKeySettings(msg)
 	case ModeNowPlaying:
 		return m.handleKeyNowPlaying(msg)
 	case ModeSearch:
@@ -2348,6 +2355,12 @@ func (m Model) scrollOverlay(dir tea.KeyType) Model {
 					m.playlistPick.MoveDown()
 				}
 			}
+		case ModeSettings:
+			if dir == tea.KeyUp {
+				m.settingsCursor = max(0, m.settingsCursor-1)
+			} else {
+				m.settingsCursor = min(len(m.settingRows())-1, m.settingsCursor+1)
+			}
 		case ModeHelp:
 			if dir == tea.KeyUp {
 				m.helpScroll--
@@ -2377,7 +2390,7 @@ func (m Model) closeOverlay() (Model, tea.Cmd) {
 	case ModePlaylistPick:
 		m.playlistPick = nil
 		m.mode = m.pickReturn
-	case ModeHelp:
+	case ModeHelp, ModeSettings:
 		m.leaveOverlay()
 	case ModeNowPlaying:
 		m.mode = ModeNormal
@@ -2754,7 +2767,10 @@ func (m Model) screen() string {
 		return m.playlistPick.View()
 	}
 
-	// Help floats over the screen it was opened from
+	// Settings and help float over the screen they were opened from
+	if m.mode == ModeSettings {
+		return m.viewSettings()
+	}
 	if m.mode == ModeHelp {
 		return viewHelp(m.keys, m.width, m.height, m.helpScroll, m.helpPage, m.underOverlay())
 	}
