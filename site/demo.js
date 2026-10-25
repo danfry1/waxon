@@ -143,7 +143,12 @@
 
   // ---- Keys ---------------------------------------------------------------
 
+  // A narrow demo (a phone) shows fewer rows, as a short terminal would.
   var visibleRows = 12;
+  var touchOnly = window.matchMedia("(hover: none)").matches;
+  function fitRows() { visibleRows = term.offsetWidth < 640 ? 8 : 12; }
+  fitRows();
+  window.addEventListener("resize", function () { fitRows(); moveCursor(cur()); render(); });
   function moveCursor(to) {
     if (s.pane === "lib") { s.libCursor = clamp(to, 0, playlists.length - 1); return; }
     var n = playlists[s.open].tracks.length;
@@ -231,7 +236,7 @@
     if (!onScreen || document.activeElement === term) return;
     var el = document.activeElement;
     if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
-    if (e.key.length !== 1 || pageKeys.indexOf(e.key) < 0) return;
+    if (e.key !== "Escape" && (e.key.length !== 1 || pageKeys.indexOf(e.key) < 0)) return;
     e.preventDefault();
     term.focus({ preventScroll: true });
     touch();
@@ -338,7 +343,7 @@
       ["j / k", "move down / up"], ["gg / G", "top / bottom"], ["h / l", "library / tracks"],
       ["Enter", "open / play"], ["Space", "play / pause"], ["n / p", "next / previous"],
       ["+ / -", "volume"], ["f", "like"], ["S", "shuffle"], ["N", "Now Playing"],
-      ["v / l", "vinyl / lyrics, in Now Playing"],
+      ["v / l", "vinyl / lyrics, in Now Playing"], ["Esc", "back from Now Playing or help"],
       ["M", "play in waxon ⇄ control the Spotify app"], ["?", "close help"],
     ];
     return '<div class="help"><div class="help-box"><div class="accent strong">Keys in this demo</div>' +
@@ -362,7 +367,9 @@
     var main = s.view === "np" ? nowPlaying()
       : '<div class="panes">' + libraryPane() + tracksPane() + "</div>" + nowBar();
     screen.innerHTML = main + (s.help ? help() : "") + (s.toast ? '<div class="toast">' + s.toast + "</div>" : "") +
-      (s.hint ? '<div class="invite-hint"><b>Your turn.</b> Press <kbd>j</kbd> <kbd>k</kbd> <kbd>Enter</kbd>, or <kbd>?</kbd> for every key.</div>' : "");
+      (s.hint ? '<div class="invite-hint"><b>Your turn.</b> ' + (touchOnly
+        ? "Tap the keys below."
+        : "Press <kbd>j</kbd> <kbd>k</kbd> <kbd>Enter</kbd>, or <kbd>?</kbd> for every key.") + "</div>" : "");
     screen.dataset.view = s.view;
     syncModes();
     screen.dataset.pane = s.pane;

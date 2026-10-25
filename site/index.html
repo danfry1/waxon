@@ -37,7 +37,7 @@
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  html, body { overflow-x: clip; }
+  html, body { overflow-x: hidden; overflow-x: clip; }
   body {
     margin: 0;
     background: var(--vinyl);
@@ -159,6 +159,7 @@
     position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
     background: var(--d-bg); color: var(--d-text); border: 1px solid var(--d-accent); border-radius: 6px;
     padding: 8px 14px; white-space: nowrap; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+    max-width: calc(100% - 24px);
   }
   .invite-hint b { color: var(--d-accent); }
   .invite-hint kbd { min-width: 0; height: auto; padding: 0 6px; font-size: 12px; border-width: 1px 1px 2px; border-radius: 4px; display: inline-block; }
@@ -261,8 +262,10 @@
   }
   .demo { container: demo / inline-size; }
   @media (max-width: 30rem) {
-    .demo { font-size: 12px; height: 30rem; }
-    .window-bar > span:first-of-type { display: none; }
+    .demo { font-size: 12px; height: 31rem; }
+    .window-bar > span:first-of-type, .window-bar i { display: none; }
+    .window-bar .demo-tag { margin-left: 0; }
+    .invite-hint { white-space: normal; text-align: center; bottom: 14px; }
     .keystrip .themes { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.4rem; scrollbar-width: none; }
     .themes button { flex: none; }
   }
@@ -458,6 +461,7 @@
           <button type="button" data-key="v">v</button><button type="button" data-key="l">l</button>
           <button type="button" data-key="M">M</button>
           <button type="button" data-key="?">?</button>
+          <button type="button" data-key="Escape">Esc</button>
         </div>
         <div class="themes" role="group" aria-label="Theme">
           <span>:theme</span>
