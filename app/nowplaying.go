@@ -26,6 +26,8 @@ type npLyrics struct {
 	line    int            // focus line index (highlighted when synced)
 	loading bool           // fetch in flight
 	err     bool           // last fetch failed
+	off     bool           // turned off in config
+	blocked bool           // lrclib.net can't be reached
 }
 
 // RenderNowPlaying renders the full-screen now playing overlay with
@@ -118,9 +120,9 @@ func RenderNowPlaying(track *source.Track, artBlock string, albumImg image.Image
 		sections = append(sections, dimStyle.Render(timeStr))
 		sections = append(sections, "")
 		lyricsHint := npLyricsHint(lyr)
-		hint := "space play · n/p skip · f like · a queue · " + lyricsHint + " · V vinyl · o actions · N close"
+		hint := "space play · n/p skip · f like · a queue · " + lyricsHint + " · v vinyl · o actions · N close"
 		if width < lipgloss.Width(hint)+2 {
-			hint = "space · n/p · f · a · l · V · o · N"
+			hint = "space · n/p · f · a · l · v · o · N"
 		}
 		sections = append(sections, dimStyle.Render(hint))
 	}
@@ -339,6 +341,8 @@ func activeLyricLine(lines []source.LyricLine, pos time.Duration) int {
 // it's clear before toggling whether the track has lyrics at all.
 func npLyricsHint(lyr npLyrics) string {
 	switch {
+	case lyr.off:
+		return "lyrics off"
 	case lyr.loading:
 		return "l lyrics…"
 	case lyr.err:
@@ -362,6 +366,10 @@ func renderLyricsBlock(lyr npLyrics, w, h int, accent lipgloss.Color, dim lipglo
 		return ""
 	}
 	switch {
+	case lyr.off:
+		return centeredMessageBlock(`Lyrics are off ("lyrics": false in config)`, w, h, dim)
+	case lyr.blocked:
+		return centeredMessageBlock("Can't reach lrclib.net for lyrics (blocked, or offline) · l to try again", w, h, dim)
 	case lyr.loading:
 		return centeredMessageBlock("Loading lyrics…", w, h, dim)
 	case lyr.err:

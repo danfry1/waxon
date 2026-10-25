@@ -6,6 +6,7 @@ package lyrics
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -26,6 +27,11 @@ const (
 	maxCacheSize  = 100
 	requestExpiry = 10 * time.Second
 )
+
+// ErrUnreachable means lrclib.net couldn't be reached at all (no network,
+// or a proxy or firewall blocking it), rather than a passing failure: it's
+// not worth asking again until the user does.
+var ErrUnreachable = errors.New("lrclib.net unreachable")
 
 // Client fetches and caches lyrics. The zero value is not usable; call New.
 type Client struct {
@@ -128,7 +134,10 @@ func (c *Client) fetch(ctx context.Context, track source.Track) (*source.Lyrics,
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("lrclib request: %w", err)
+		if ctx.Err() != nil {
+			return nil, err // cancelled: not lrclib's doing
+		}
+		return nil, fmt.Errorf("%w: %w", ErrUnreachable, err)
 	}
 	defer resp.Body.Close()
 
@@ -136,13 +145,18 @@ func (c *Client) fetch(ctx context.Context, track source.Track) (*source.Lyrics,
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
-	if resp.StatusCode != http.StatusOK {
+	switch {
+	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusProxyAuthRequired:
+		// lrclib itself doesn't answer these: a proxy or firewall in the way.
+		return nil, fmt.Errorf("%w: lrclib status %d", ErrUnreachable, resp.StatusCode)
+	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("lrclib status %d", resp.StatusCode)
 	}
 
 	var body lrclibResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("lrclib decode: %w", err)
+		// Not lrclib's JSON: often a proxy's "blocked" page, served as 200.
+		return nil, fmt.Errorf("%w: lrclib decode: %w", ErrUnreachable, err)
 	}
 	return fromResponse(body), nil
 }

@@ -50,9 +50,12 @@ type doctorEnv struct {
 	envID      string // $SPOTIFY_CLIENT_ID
 	tokenPath  string
 	// profile and devices talk to Spotify with the saved login.
-	profile    func(ctx context.Context) (name string, err error)
-	devices    func(ctx context.Context) ([]source.Device, error)
-	lyrics     func(ctx context.Context) error
+	profile func(ctx context.Context) (name string, err error)
+	devices func(ctx context.Context) ([]source.Device, error)
+	lyrics  func(ctx context.Context) error
+	// proxy is the proxy in use (HTTPS_PROXY, set from macOS's settings
+	// when they name one), and the PAC script macOS uses, if any.
+	proxy      func() (inUse, pac string)
 	player     func(path string) (bin, version string, err error)
 	playerDir  string
 	playerName string
@@ -178,14 +181,33 @@ func runDoctor(ctx context.Context, env doctorEnv) []check {
 		}
 	}
 
-	// Lyrics come from lrclib.net.
-	lookup, cancel := context.WithTimeout(ctx, 5*time.Second)
-	if err := env.lyrics(lookup); err != nil {
-		add(check{"Lyrics", checkWarn, "lrclib.net isn't reachable, so lyrics won't load: " + err.Error(), ""})
-	} else {
-		add(check{"Lyrics", checkOK, "lrclib.net reachable", ""})
+	// Proxy: a PAC script can't be followed, so say what to do if Spotify
+	// doesn't answer (the checks above show whether it did).
+	if env.proxy != nil {
+		switch inUse, pac := env.proxy(); {
+		case inUse != "":
+			add(check{"Proxy", checkInfo, "via " + inUse, ""})
+		case pac != "":
+			add(check{
+				"Proxy", checkWarn, "macOS picks a proxy with a PAC script (" + pac + "), which waxon can't follow",
+				"if Spotify doesn't answer, set HTTPS_PROXY to your proxy (e.g. HTTPS_PROXY=http://proxy:8080 waxon)",
+			})
+		}
 	}
-	cancel()
+
+	// Lyrics come from lrclib.net, unless they're off (then it's never
+	// contacted, here included).
+	if cfg.Lyrics != nil && !*cfg.Lyrics {
+		add(check{"Lyrics", checkInfo, "off: waxon contacts only Spotify", ""})
+	} else {
+		lookup, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := env.lyrics(lookup); err != nil {
+			add(check{"Lyrics", checkWarn, "lrclib.net isn't reachable, so lyrics won't load: " + err.Error(), `blocked on purpose? set "lyrics": false in config.json`})
+		} else {
+			add(check{"Lyrics", checkOK, "lrclib.net reachable", ""})
+		}
+		cancel()
+	}
 
 	// Terminal (skipped when the output isn't one).
 	switch env.colour {
@@ -303,6 +325,7 @@ func runDoctorCommand() int {
 			return src.Devices(ctx)
 		},
 		lyrics:     pingLyrics,
+		proxy:      func() (string, string) { return proxyFromEnv(), readSystemProxy().pac },
 		player:     librespotVersion,
 		playerDir:  player.Dir(),
 		playerName: player.DeviceName(),
