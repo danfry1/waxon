@@ -276,6 +276,10 @@
     flashKey(e.key);
   });
   document.querySelectorAll("[data-key]").forEach(function (b) {
+    // Pressing a key with a mouse or finger leaves focus on the demo, so it
+    // stays live (and keeps its keys) through the press.
+    b.addEventListener("pointerdown", function (e) { e.preventDefault(); });
+    b.addEventListener("mousedown", function (e) { e.preventDefault(); });
     b.addEventListener("click", function () {
       touch();
       var k = b.dataset.key;

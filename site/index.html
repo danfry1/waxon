@@ -193,7 +193,6 @@
   .window-bar .live-hint { margin-left: auto; color: var(--mint); opacity: 0; transition: opacity .2s; }
   .window:has(.demo.live) .live-hint { opacity: 1; }
   .window-bar .demo-tag { margin-left: 0.75rem; color: var(--vinyl); background: var(--mint); padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600; }
-  .window:has(.demo.live) .demo-tag { display: none; }
   .invite-hint {
     position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
     background: var(--d-bg); color: var(--d-text); border: 1px solid var(--d-accent); border-radius: 6px;
@@ -309,6 +308,7 @@
     .demo { font-size: 12px; height: 28.5rem; }
     .window-bar > span:first-of-type, .window-bar i { display: none; }
     .window-bar .demo-tag { margin-left: 0; }
+    .window-bar .live-hint { display: none; }
     .invite-hint { white-space: normal; text-align: center; bottom: auto; top: 45%; transform: translate(-50%, -50%); width: max-content; }
     .keystrip .themes { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.4rem; scrollbar-width: none; }
     .themes button { flex: none; }
