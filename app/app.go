@@ -1545,7 +1545,6 @@ func (m Model) quit() (Model, tea.Cmd) {
 func (m Model) handleKeyHelp(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if msg.Type == tea.KeyEscape || key.Matches(msg, m.keys.Help) || msg.String() == "q" {
 		m.leaveOverlay()
-		m.helpScroll, m.helpPage = 0, 0
 		return m, nil
 	}
 	half := max(1, helpRows(m.height)/2)
@@ -2349,6 +2348,13 @@ func (m Model) scrollOverlay(dir tea.KeyType) Model {
 					m.playlistPick.MoveDown()
 				}
 			}
+		case ModeHelp:
+			if dir == tea.KeyUp {
+				m.helpScroll--
+			} else {
+				m.helpScroll++
+			}
+			m.helpScroll = max(0, min(m.helpScroll, helpMaxScroll(m.keys, m.width, m.height, m.helpPage)))
 		}
 	}
 	return m
@@ -2710,6 +2716,22 @@ func (m Model) volumeShow() volumeShow {
 	return volumeShow{level: m.volume, accepted: m.volumeAccepted, pending: m.volumeInFlight, glow: m.volumeGlow}
 }
 
+// underOverlay is the screen a floating panel (help, settings) is drawn
+// over: where it was opened from. With kitty art it's "" (a plain backdrop):
+// kitty draws a cover from the placeholder cells, and a panel spliced over
+// them leaves the cells to its right showing the wrong part of the image.
+func (m Model) underOverlay() string {
+	if artMode == ArtKitty {
+		return ""
+	}
+	under := m
+	under.mode = ModeNormal
+	if m.overlayReturn == ModeNowPlaying {
+		under.mode = ModeNowPlaying
+	}
+	return under.screen()
+}
+
 // screen is what's on screen under the toast: a popup, Now Playing, or the
 // main view.
 func (m Model) screen() string {
@@ -2734,12 +2756,7 @@ func (m Model) screen() string {
 
 	// Help floats over the screen it was opened from
 	if m.mode == ModeHelp {
-		under := m
-		under.mode = ModeNormal
-		if m.overlayReturn == ModeNowPlaying {
-			under.mode = ModeNowPlaying
-		}
-		return viewHelp(m.keys, m.width, m.height, m.helpScroll, m.helpPage, under.screen())
+		return viewHelp(m.keys, m.width, m.height, m.helpScroll, m.helpPage, m.underOverlay())
 	}
 
 	// Now Playing overlay replaces everything

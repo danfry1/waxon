@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -379,6 +380,11 @@ func viewHelp(k KeyMap, width, height, scroll, page int, base string) string {
 		}
 	}
 	header := strings.Join(tabs, dim.Render("  ·  "))
+	room := max(10, width-6) // inside the border and padding
+	if lipgloss.Width(header) > room {
+		// Too narrow for every tab: this page's name and where it is.
+		header = accent.Render(pages[page].name) + dim.Render(fmt.Sprintf("  %d/%d · Tab", page+1, len(pages)))
+	}
 	footer := "Tab next page · ? / Esc / q to close"
 
 	content := header + "\n\n"
@@ -393,7 +399,7 @@ func viewHelp(k KeyMap, width, height, scroll, page int, base string) string {
 	} else {
 		content += strings.Join(lines, "\n")
 	}
-	overlayW = max(overlayW, lipgloss.Width(header))
+	overlayW = min(max(overlayW, lipgloss.Width(header)), room)
 	if fw := lipgloss.Width(footer); fw > overlayW {
 		footer = string([]rune(footer)[:max(1, overlayW-1)]) + "…"
 	}

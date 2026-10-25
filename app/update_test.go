@@ -1182,8 +1182,8 @@ func TestHelpListsEveryBoundKey(t *testing.T) {
 	}
 }
 
-// Tab and the number keys move between the help pages; closing returns to
-// the first.
+// Tab and the number keys move between the help pages; help always opens
+// on the first.
 func TestHelpPages(t *testing.T) {
 	m := newTestModel(&StubSource{})
 	m.width, m.height, m.mode = 160, 60, ModeHelp
@@ -1204,9 +1204,11 @@ func TestHelpPages(t *testing.T) {
 	if res.(Model).helpPage != 0 {
 		t.Error("Tab on the last page should wrap to the first")
 	}
+	m.helpPage = 2
 	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	res, _ = res.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
 	if res.(Model).helpPage != 0 {
-		t.Error("closing help should reset it to the first page")
+		t.Error("help should reopen on the first page, however it was closed")
 	}
 }
 
@@ -1244,7 +1246,7 @@ func TestHelpScrollsOnShortTerminal(t *testing.T) {
 }
 
 func TestHelpFitsWidth(t *testing.T) {
-	for _, w := range []int{60, 80, 100, 140} {
+	for _, w := range []int{40, 60, 80, 100, 140} {
 		got := ViewHelp(w, 60)
 		for _, line := range strings.Split(got, "\n") {
 			if lw := lipgloss.Width(line); lw > w {
