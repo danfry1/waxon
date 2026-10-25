@@ -12,34 +12,49 @@
   <a href="#install">Install</a> &middot;
   <a href="#features">Features</a> &middot;
   <a href="#keybindings">Keybindings</a> &middot;
-  <a href="#commands">Commands</a>
+  <a href="#commands">Commands</a> &middot;
+  <a href="#privacy--network">Privacy</a>
 </p>
 
 <p align="center">
   <img src="demo/recordings/full-tour.gif" alt="waxon demo" width="800">
 </p>
 
+Browse your library, search, queue and play without leaving the home row.
+
+- **Plays by itself or drives the Spotify app.** waxon can be the player (no
+  Spotify app needed), or the remote for your desktop app, phone or speakers;
+  `M` switches between the two, carrying on from the same point.
+- **Vim all the way down:** `j`/`k`, counts, `gg`/`G`, visual mode, `:`
+  commands, `/` to filter anything.
+- **Now Playing** with full-screen album art, a spinning vinyl view and
+  time-synced lyrics.
+- **Media keys** and the system's Now Playing (Control Center, MPRIS).
+- **Scriptable:** every action is also a subcommand, for tmux, waybar and
+  hotkeys.
+- **Talks only to Spotify** (and lrclib for lyrics, which you can turn off).
+  No telemetry.
+
+Requires **Spotify Premium**. Runs on macOS, Linux and Windows.
+
 ## Install
 
 **Homebrew** (macOS / Linux):
 
 ```
-brew trust danfry1/tap        # one-time: trust the third-party tap
+brew trust danfry1/tap        # once: Homebrew asks before using a third-party tap
 brew install danfry1/tap/waxon
 ```
 
-> Recent Homebrew versions refuse to load formulae from third-party taps until
-> they're trusted. If you see `Error: Refusing to load formula ... from
-> untrusted tap`, run the `brew trust danfry1/tap` line above (once) and retry.
->
-> The formula builds waxon from source (Homebrew fetches Go for the build), so
-> macOS never quarantines the binary.
->
-> **Installed the cask (1.7.0 – 1.10.0)?** waxon is a formula again, built from
-> source instead of shipping an unsigned binary. If you trusted the tap, the
-> next `brew update` installs the formula for you; then remove the old cask with
-> `brew uninstall --cask --force waxon`. Otherwise, or if that didn't happen:
-> `brew uninstall --cask --force waxon && brew install danfry1/tap/waxon`.
+<details>
+<summary>Coming from the waxon cask (1.7.0 – 1.10.0)?</summary>
+
+waxon is a Homebrew formula again, built from source instead of shipping an
+unsigned binary. If you trusted the tap, the next `brew update` installs the
+formula for you; then remove the old cask with
+`brew uninstall --cask --force waxon`. Otherwise:
+`brew uninstall --cask --force waxon && brew install danfry1/tap/waxon`.
+</details>
 
 **Nix** (flakes):
 
@@ -68,80 +83,76 @@ SHA-256 checksums) for Linux, macOS and Windows on `amd64` and `arm64`.
 ## Quick Start
 
 ```bash
-waxon         # first run opens a guided setup
+waxon
 ```
 
-Setup takes about a minute, in two steps:
-
-1. **Connect Spotify.** Use **your own** Spotify app (recommended: no rate
-   limits, about two minutes; waxon lists the exact clicks, opens the
-   dashboard and checks the Client ID as you paste it) or the **shared** one
-   (zero setup, but Spotify throttles it for everyone). Then approve in your
-   browser.
-2. **Choose where music plays.** waxon shows the Spotify devices on your
-   account, and you pick:
-   - **Your Spotify apps** — your phone, the desktop app, speakers. waxon is
-     the remote; nothing to install.
-   - **Right here in waxon** — no Spotify app needed. waxon plays through
-     [librespot](https://github.com/librespot-org/librespot), offers to
-     install it with your package manager (Homebrew, pacman, Nix or cargo),
-     and signs it in. From then on it starts its own Spotify Connect device,
-     `waxon (<host>)`, in the background and plays through it whenever
-     nothing else is playing.
+The first run is a guided setup of about a minute: connect your Spotify
+account in the browser, then choose where music plays (your Spotify apps, or
+right here in waxon). Press `?` for help at any time.
 
 <p align="center">
   <img src="demo/recordings/setup.gif" alt="guided setup" width="700">
 </p>
 
-Chose your Spotify apps and want waxon to play by itself later? Press `D`:
-the device picker has a **play here with waxon** row that runs the same
-player setup in place.
+Something not working? `waxon doctor` checks everything and says what to fix.
 
-Re-run or switch any time:
+## Playing & Devices
+
+waxon plays music in one of two ways, and `M` switches between them on this
+computer, carrying on from the same point:
+
+- **In waxon.** waxon runs its own Spotify Connect device, `waxon (<host>)`,
+  through [librespot](https://github.com/librespot-org/librespot): no Spotify
+  app needed. Setup offers to install librespot with your package manager
+  (Homebrew, pacman, Nix or cargo) and signs it in; after that it starts in
+  the background whenever nothing else is playing.
+- **As a remote** for the Spotify app on this computer, or your phone and
+  speakers: nothing to install. If the Spotify app is installed but closed,
+  `M` opens it and hands playback over once it's online.
+
+`D` picks any device on your account (its **play here with waxon** row sets
+up waxon's player if you skipped it), `:device <name>` switches by name, and
+`:device -` goes back to the previous one. If nothing is playing when you
+press play, waxon picks for you: its own player when it's set up, the only
+device when there's one, or it asks.
+
+<p align="center">
+  <img src="demo/recordings/no-device.gif" alt="picking a device when none is active" width="800">
+</p>
+
+Setup can be re-run or changed at any time:
 
 ```bash
 waxon auth            # guided setup again
-waxon auth --own      # set up / switch to your own app
+waxon auth --own      # set up / switch to your own Spotify app
 waxon auth --shared   # use the shared app
 waxon auth --client-id <ID>
 waxon player          # is waxon's own player set up?
 waxon player login    # set it up (or sign it in again)
 waxon player off      # stop using it
 waxon logout          # forget the saved logins
-waxon doctor          # something wrong? checks everything and says what to fix
 ```
 
-**Over SSH** (or whenever the browser is on another machine): open the link
-anywhere, approve, and paste the address the browser lands on into waxon.
-That page won't load, which is expected; waxon only needs its address.
+**Your own Spotify app or the shared one.** Setup recommends creating your own
+(free) Spotify developer app; waxon lists the exact clicks, opens the dashboard
+and checks the Client ID as you paste it. The shared one needs no setup, but
+Spotify throttles it for everyone using it. See
+[Using your own Spotify app](#using-your-own-spotify-app).
 
-Requires a **Spotify Premium** account. True-colour terminals get the full look; 256-colour and `NO_COLOR` terminals are supported with graceful fallbacks.
-
-If nothing is playing when you press play, waxon picks a device for you:
-its own player when you've set it up, the only device when there's one, or
-it asks which one when there are several.
-
-`M` switches waxon between its two modes on this computer: **playing by
-itself** and **controlling the Spotify app**, carrying on from the same
-point. If the Spotify app is installed but closed, `M` opens it (and the
-picker offers to **open the Spotify app**): waxon starts it in the
-background and hands playback to it once it's online. `:device -` goes
-back to whichever device you were on before, phones and speakers included.
+**Over SSH** (or whenever the browser is on another machine): open the sign-in
+link anywhere, approve, and paste the address the browser lands on into
+waxon. That page won't load, which is expected; waxon only needs its address.
 
 > **About the player login.** Spotify only lets its own apps stream audio, so
 > librespot — an open-source, unofficial Spotify Connect client (it also powers
 > spotifyd, raspotify and ncspot) — signs in as the Spotify desktop app, and
 > asks for the same broad permissions that app does. You approve on Spotify's
 > own sign-in page; your password never reaches waxon or librespot. The
-> resulting login token is saved only on your machine, in
-> waxon's config directory (`~/.config/waxon/librespot/`, or `%AppData%\waxon\librespot\`
-> on Windows), readable by you alone, and is sent nowhere
-> but Spotify. Being unofficial, librespot could stop working if Spotify
-> changes something; the player is opt-in for that reason.
-
-<p align="center">
-  <img src="demo/recordings/no-device.gif" alt="picking a device when none is active" width="800">
-</p>
+> resulting login token is saved only on your machine, in waxon's config
+> directory (`~/.config/waxon/librespot/`, or `%AppData%\waxon\librespot\` on
+> Windows), readable by you alone, and is sent nowhere but Spotify. Being
+> unofficial, librespot could stop working if Spotify changes something; the
+> player is opt-in for that reason.
 
 ## Features
 
@@ -163,7 +174,7 @@ Below 80 columns waxon shows one pane at a time — `h`/`l`/`Tab` switch between
 
 ### Now Playing
 
-Full-screen album art rendered with Unicode half-blocks over a gradient drawn from the cover. Press `V` for vinyl: the record turns at 33⅓ with the cover on its label, light catching the grooves, and a tonearm that moves across the record as the track plays.
+Full-screen album art rendered with Unicode half-blocks over a gradient drawn from the cover. Press `v` for vinyl: the record turns at 33⅓ with the cover on its label, light catching the grooves, and a tonearm that moves across the record as the track plays.
 
 <p align="center">
   <img src="demo/recordings/nowplaying.gif" alt="now playing view" width="800">
@@ -176,6 +187,10 @@ The keyboard's ⏯ ⏭ ⏮ keys control waxon, and the system's Now Playing (Con
 ### Queue
 
 `gq` shows the queue in the main pane, as the Spotify app does: **Now playing**, **Next in queue** (the tracks you added) and **Next from** the playlist (or **Up next**, when waxon can't tell them apart, as with shuffle on). Enter on a track skips forward to it, so the rest of the queue stays; the view follows along as tracks change.
+
+<p align="center">
+  <img src="demo/recordings/queue.gif" alt="the queue" width="800">
+</p>
 
 ### Synced Lyrics
 
@@ -193,8 +208,6 @@ Press `l` in Now Playing (or run `:lyrics` from anywhere) for time-synced lyrics
   <img src="demo/recordings/playlists.gif" alt="adding a track to a playlist" width="800">
 </p>
 
-> Upgrading? Playlist editing needs two extra Spotify permissions; waxon will ask you to run `waxon auth` once.
-
 ### Search
 
 Find tracks, artists, and albums across Spotify.
@@ -205,7 +218,7 @@ Find tracks, artists, and albums across Spotify.
 
 ### Artist & Album Browsing
 
-Explore discographies, browse full albums, and navigate with a browser-like back stack.
+Artist pages open with **Play** and **Shuffle**, then the popular tracks and the albums and singles; albums open in full. `ga` and `gA` jump to the selected track's album or artist, and `b` goes back, like a browser.
 
 <p align="center">
   <img src="demo/recordings/browsing.gif" alt="artist and album browsing" width="800">
@@ -372,9 +385,7 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
 
 **Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
 
-**Lyrics** — synced lyrics come from [lrclib.net](https://lrclib.net), the one service besides Spotify that waxon contacts. `"lyrics": false` turns them off, so waxon talks only to Spotify (useful on a work network). If a proxy or firewall blocks lrclib, waxon leaves it alone for ten minutes instead of asking on every track; `l` tries again sooner. A timeout or a moment offline is just retried on the next track.
-
-**Proxy** — waxon uses `HTTPS_PROXY` / `NO_PROXY` when they're set; on macOS it otherwise picks up the HTTPS proxy from System Settings. A proxy chosen by a PAC script can't be followed: set `HTTPS_PROXY` yourself (`waxon doctor` says when that's needed), or `HTTPS_PROXY=` (empty) to ignore macOS's. waxon's own player (librespot) doesn't use these settings.
+**Lyrics** — `"lyrics": false` turns synced lyrics off, so waxon talks only to Spotify (see [Privacy & Network](#privacy--network)).
 
 **Media keys** — on by default on macOS and Linux; `"media_keys": false` turns them and the Now Playing entry off.
 
@@ -448,7 +459,33 @@ cmd + alt - left  : waxon prev
 cmd + alt - l     : waxon like
 ```
 
-## Using Your Own Spotify App (Recommended if you see rate limits)
+## Privacy & Network
+
+waxon has no telemetry, no analytics and no update checks. It connects to:
+
+| Host | For |
+|---|---|
+| `accounts.spotify.com`, `api.spotify.com` | Signing in, and everything you do (Spotify's Web API) |
+| Spotify's image servers (`*.scdn.co`) | Album and playlist covers |
+| `lrclib.net` | Synced lyrics: the track's title, artist, album and length are sent to look them up |
+| Spotify's streaming servers | Only waxon's own player (librespot), when you use it |
+
+Sign-in uses PKCE: there's no client secret, and your password goes only to
+Spotify's own sign-in page. Logins and settings are stored in waxon's config
+directory (`waxon config` prints it), readable by you alone.
+
+**Turning lyrics off.** `"lyrics": false` in `config.json` stops waxon
+contacting lrclib, so it talks only to Spotify (useful on a work network). If a
+proxy or firewall blocks lrclib, waxon leaves it alone for ten minutes instead
+of asking on every track; `l` tries again sooner.
+
+**Proxies.** waxon uses `HTTPS_PROXY` / `NO_PROXY` when they're set; on macOS
+it otherwise picks up the HTTPS proxy from System Settings, as other apps do.
+A proxy chosen by a PAC script can't be followed: set `HTTPS_PROXY` yourself
+(`waxon doctor` says when that's needed), or `HTTPS_PROXY=` (empty) to ignore
+macOS's. waxon's own player (librespot) doesn't use these settings.
+
+## Using Your Own Spotify App
 
 waxon works out of the box with no configuration — it ships with a shared client ID used by several open-source Spotify clients. Spotify rate-limits that shared app as a whole, so at busy times you may see *Spotify rate limit* toasts or sluggish controls. A personal client ID has its own quota and takes two minutes to set up:
 
@@ -472,7 +509,7 @@ your terminal, and prints the fix for anything wrong.
 
 | Symptom | Cause / fix |
 |---|---|
-| *Spotify rate limit* / *Spotify is rate limiting* toasts | Spotify is throttling the app. waxon backs off automatically and honours Spotify's `Retry-After`. If it keeps happening, the shared client ID is busy — [use your own](#using-your-own-spotify-app-recommended-if-you-see-rate-limits). |
+| *Spotify rate limit* / *Spotify is rate limiting* toasts | Spotify is throttling the app. waxon backs off automatically and honours Spotify's `Retry-After`. If it keeps happening, the shared client ID is busy — [use your own](#using-your-own-spotify-app). |
 | *No active Spotify device* | Spotify must be open somewhere (desktop, phone, speaker), or let waxon play by itself: `D` → **play here with waxon**. waxon picks the only available device automatically or asks with `D`. |
 | *Not available with this Spotify app* | Spotify blocks that endpoint for development-mode (personal) apps — currently only artists' top tracks. |
 | A followed playlist shows no tracks | Spotify only lets development-mode (personal) apps list playlists you own or collaborate on. Press Enter to play it anyway, or `o` to open it in Spotify. |
