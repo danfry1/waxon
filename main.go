@@ -267,11 +267,17 @@ func applyUserConfig() app.Options {
 		return config.Save(config.Config{Theme: name})
 	}
 	opts.Settings = app.Settings{
-		Theme:      cmp.Or(cfg.Theme, app.DefaultThemeName),
-		Art:        cmp.Or(cfg.Art, "blocks"),
-		MediaKeys:  cfg.MediaKeys == nil || *cfg.MediaKeys,
-		CustomKeys: len(cfg.Keys),
-		Path:       config.DefaultPath(),
+		Theme:        cmp.Or(cfg.Theme, app.DefaultThemeName),
+		Art:          cmp.Or(cfg.Art, "blocks"),
+		MediaKeysOff: cfg.MediaKeys != nil && !*cfg.MediaKeys,
+		CustomKeys:   len(cfg.Keys),
+		Path:         config.DefaultPath(),
+	}
+	if env := os.Getenv("WAXON_ART"); env != "" {
+		opts.Settings.ArtNote = "WAXON_ART=" + env + " overrides it"
+	}
+	if overSSH() {
+		opts.Settings.MediaKeysNote = "off over SSH"
 	}
 	opts.SaveSetting = saveSetting
 	return opts

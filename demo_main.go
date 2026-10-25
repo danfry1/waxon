@@ -45,7 +45,7 @@ func runDemo() {
 	// and never persists :theme changes. WAXON_ART still applies, for trying
 	// kitty art without a Spotify account.
 	configureArt(os.Getenv("WAXON_ART"), "WAXON_ART")
-	m := app.NewModel(src).WithOptions(app.Options{Settings: app.Settings{MediaKeys: true}})
+	m := app.NewModel(src)
 	p := tea.NewProgram(m, programOptions()...)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
