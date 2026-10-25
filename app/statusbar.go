@@ -188,6 +188,8 @@ func (s StatusBar) ViewModeLine(mode Mode, cmdInput string, filterInput string, 
 		left = " " + StyleModeSearch.Render("SEARCH")
 	case ModeHelp:
 		left = " " + StyleModeNormal.Render("HELP")
+	case ModeSettings:
+		left = " " + StyleModeNormal.Render("SETTINGS")
 	case ModeActions:
 		left = " " + StyleModeNormal.Render("ACTIONS")
 	case ModeDevices:
