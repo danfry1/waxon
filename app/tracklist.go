@@ -292,7 +292,9 @@ func (tl *TrackList) rebuildRows() {
 		} else {
 			trackNum++
 			prefix := " "
-			if t.ID == tl.nowPlaying {
+			// In the queue only Now playing is marked, not queued copies of
+			// the same track.
+			if t.ID == tl.nowPlaying && (tl.contextURI != queueViewURI || trackNum == 1) {
 				prefix = "▶"
 			}
 			who := t.Artist

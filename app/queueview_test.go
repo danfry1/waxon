@@ -177,3 +177,26 @@ func TestQueueRereadAfterAdd(t *testing.T) {
 		t.Error("the re-read should load the queue")
 	}
 }
+
+// Playing a queued copy of a playlist track leaves the playlist where it
+// was: what follows is the playlist from there, not from the copy.
+func TestQueueSectionsPlayingQueuedCopy(t *testing.T) {
+	m := queueModel(&StubSource{})
+	m.track = &source.Track{ID: "c2", Name: "Copy", Playing: true}
+	queued, rest, ok := m.queueParts([]source.Track{
+		{ID: "q1"}, {ID: "q1"}, {ID: "c1"}, {ID: "c2"}, {ID: "c3"},
+	})
+	if !ok || len(queued) != 2 || len(rest) != 3 || rest[0].ID != "c1" {
+		t.Errorf("queued %d, from the playlist %d (ok %v); want 2 and 3", len(queued), len(rest), ok)
+	}
+}
+
+// Only Now playing gets the ▶, not a queued copy of the same track.
+func TestQueuePlayingMarkedOnce(t *testing.T) {
+	m := queueModel(&StubSource{})
+	m.tracklist.SetTracks(nil, "Queue", queueViewURI)
+	m.showQueue([]source.Track{{ID: "q1", Name: "Mine"}, {ID: "now", Name: "Playing"}, {ID: "c1"}})
+	if n := strings.Count(m.tracklist.View(true), "▶"); n != 1 {
+		t.Errorf("▶ shown %d times, want once", n)
+	}
+}
