@@ -8,6 +8,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-10-26
+
 ### Fixed
 
 - The queue (`gq`) no longer files a queued copy of the playlist's next
@@ -493,7 +495,8 @@ Initial release: vim-modal Spotify TUI with PKCE auth, library and queue
 sidebar, track list, search, device picker, Now Playing view with album art,
 and command mode.
 
-[Unreleased]: https://github.com/danfry1/waxon/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/danfry1/waxon/compare/v1.14.1...HEAD
+[1.14.1]: https://github.com/danfry1/waxon/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/danfry1/waxon/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/danfry1/waxon/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/danfry1/waxon/compare/v1.11.0...v1.12.0
