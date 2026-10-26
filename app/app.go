@@ -1174,6 +1174,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toast.Show("Created playlist", msg.playlist.Name, ToastSuccess)
 		return m, tea.Batch(scheduleAutoDismiss(), m.refreshPlaylists())
 
+	case queueRefreshMsg:
+		if m.showingQueue() {
+			return m, m.fetchQueue()
+		}
+		return m, nil
+
 	case queueLoadedMsg:
 		// Only into the queue view, opening or open: a reply arriving after
 		// the user moved on mustn't replace what they're looking at.
@@ -1296,9 +1302,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.toast.Show("Added to queue", msg.trackName, ToastSuccess)
 		}
-		// Refresh the queue view if it's showing
+		// Refresh the queue view if it's showing. Spotify's queue lags
+		// an add (the next read often doesn't have it yet), so it's read
+		// again shortly after.
 		if m.showingQueue() {
-			return m, tea.Batch(scheduleAutoDismiss(), m.fetchQueue())
+			return m, tea.Batch(scheduleAutoDismiss(), m.fetchQueue(),
+				refreshQueueAfter(queueSettle), refreshQueueAfter(3*queueSettle))
 		}
 		return m, scheduleAutoDismiss()
 

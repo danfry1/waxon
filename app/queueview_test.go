@@ -159,3 +159,21 @@ func TestQueueFromQueueViewSaysCopy(t *testing.T) {
 		t.Errorf("the toast should say it went to the end of the queue:\n%s", v)
 	}
 }
+
+// Spotify's queue lags an add, so the queue view reads it again once it
+// has settled, and only while the queue is showing.
+func TestQueueRereadAfterAdd(t *testing.T) {
+	stub := &StubSource{}
+	m := queueModel(stub)
+	if _, cmd := m.Update(queueRefreshMsg{}); cmd != nil {
+		t.Error("queue not showing: nothing should be read")
+	}
+	m.tracklist.SetTracks(nil, "Queue", queueViewURI)
+	_, cmd := m.Update(queueRefreshMsg{})
+	if cmd == nil {
+		t.Fatal("queue showing: it should be read again")
+	}
+	if _, ok := cmd().(queueLoadedMsg); !ok {
+		t.Error("the re-read should load the queue")
+	}
+}

@@ -24,6 +24,17 @@ const queueViewURI = "waxon:queue"
 // Spotify takes them one at a time.
 const skipPause = 150 * time.Millisecond
 
+// queueSettle is how long Spotify's queue takes to show a track just added
+// to it; the queue view is read again after it, and after three times it.
+const queueSettle = 700 * time.Millisecond
+
+// queueRefreshMsg reads the queue again for the queue view, if it's open.
+type queueRefreshMsg struct{}
+
+func refreshQueueAfter(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg { return queueRefreshMsg{} })
+}
+
 // showingQueue reports whether the track list is showing the queue.
 func (m Model) showingQueue() bool { return m.tracklist.ContextURI() == queueViewURI }
 
