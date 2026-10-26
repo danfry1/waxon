@@ -50,6 +50,18 @@ func TestQueueSections(t *testing.T) {
 	}
 }
 
+// A queued copy of the playlist's next track stays in "Next in queue":
+// the playlist part starts where the rest runs in the playlist's order.
+func TestQueueSectionsQueuedCopyOfNext(t *testing.T) {
+	m := queueModel(&StubSource{})
+	queued, rest, ok := m.queueParts([]source.Track{
+		{ID: "q1"}, {ID: "c1"}, {ID: "c2"}, {ID: "c1"}, {ID: "c1"}, {ID: "c2"}, {ID: "c3"},
+	})
+	if !ok || len(queued) != 4 || len(rest) != 3 || rest[0].ID != "c1" {
+		t.Errorf("queued %d, from the playlist %d (ok %v); want 4 and 3", len(queued), len(rest), ok)
+	}
+}
+
 // With shuffle on, or a context waxon hasn't loaded, they can't be told
 // apart: one "Up next".
 func TestQueueUnsplitWhenUnknown(t *testing.T) {
@@ -134,5 +146,16 @@ func TestQueueViewRenders(t *testing.T) {
 		if !strings.Contains(v, want) {
 			t.Errorf("queue view lacks %q:\n%s", want, v)
 		}
+	}
+}
+
+// Queuing from the queue view says the track was added again, at the end:
+// Spotify can't move tracks already queued.
+func TestQueueFromQueueViewSaysCopy(t *testing.T) {
+	m := queueModel(&StubSource{})
+	m.tracklist.SetTracks(nil, "Queue", queueViewURI)
+	res, _ := m.Update(queueDoneMsg{trackName: "Dance Yrself Clean", count: 1})
+	if v := res.(Model).View(); !strings.Contains(v, "end of the queue") {
+		t.Errorf("the toast should say it went to the end of the queue:\n%s", v)
 	}
 }
