@@ -83,9 +83,11 @@ func main() {
 			return
 		case "version", "--version", "-v":
 			fmt.Println("waxon " + version)
+			// What the last launch found, on stderr: no network, and the
+			// output scripts read stays one line.
 			if cfg, _ := config.Load(); updateCheckOn(cfg) {
-				if v := update.Available(context.Background(), version, updateStatePath()); v != "" {
-					fmt.Println(newVersionLine(v))
+				if v := update.Known(version, updateStatePath()); v != "" {
+					fmt.Fprintln(os.Stderr, newVersionLine(v))
 				}
 			}
 			return
