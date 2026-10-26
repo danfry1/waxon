@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +20,7 @@ import (
 	"github.com/danfry1/waxon/media"
 	"github.com/danfry1/waxon/player"
 	myspotify "github.com/danfry1/waxon/spotify"
+	"github.com/danfry1/waxon/update"
 )
 
 // version is set at build time via ldflags:
@@ -80,6 +83,13 @@ func main() {
 			return
 		case "version", "--version", "-v":
 			fmt.Println("waxon " + version)
+			// What the last launch found, on stderr: no network, and the
+			// output scripts read stays one line.
+			if cfg, _ := config.Load(); updateCheckOn(cfg) {
+				if v := update.Known(version, updateStatePath()); v != "" {
+					fmt.Fprintln(os.Stderr, newVersionLine(v))
+				}
+			}
 			return
 		case "demo":
 			runDemo()
@@ -165,11 +175,14 @@ func main() {
 		p = tea.NewProgram(m, programOptions()...)
 		prog.Store(p)
 		runner.start(context.Background(), src, p)
-		_, err := p.Run()
+		final, err := p.Run()
 		runner.stop()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
+		}
+		if fm, ok := final.(app.Model); ok && fm.NewVersion() != "" {
+			fmt.Println(newVersionLine(fm.NewVersion()))
 		}
 		return 0
 	}
@@ -279,8 +292,53 @@ func applyUserConfig() app.Options {
 	if overSSH() {
 		opts.Settings.MediaKeysNote = "off over SSH"
 	}
+	opts.Settings.UpdateCheckOff = !updateCheckOn(cfg)
+	opts.Version = version
+	opts.UpgradeCommand = upgradeCommand()
+	if updateCheckOn(cfg) {
+		opts.CheckUpdate = func() string {
+			return update.Available(context.Background(), version, updateStatePath())
+		}
+	}
 	opts.SaveSetting = saveSetting
 	return opts
+}
+
+// updateCheckOn: the config hasn't turned update checks off.
+func updateCheckOn(cfg config.Config) bool {
+	return cfg.UpdateCheck == nil || *cfg.UpdateCheck
+}
+
+// updateStatePath is where the last update check is kept, beside the
+// library cache.
+func updateStatePath() string {
+	dir := app.DefaultImageCacheDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(dir), "update.json")
+}
+
+// upgradeCommand is how this copy of waxon was installed, as the command
+// that upgrades it ("" when that can't be told).
+func upgradeCommand() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return update.Command(exe)
+}
+
+// newVersionLine tells the terminal a newer release is out and how to get it.
+func newVersionLine(v string) string {
+	how := upgradeCommand()
+	if how == "" {
+		how = update.ReleasesURL
+	}
+	return fmt.Sprintf("waxon %s is out (this is %s). Upgrade: %s", v, strings.TrimPrefix(version, "v"), how)
 }
 
 // saveSetting saves one setting from the settings overlay by its
@@ -296,6 +354,8 @@ func saveSetting(name, value string) error {
 		return config.Save(config.Config{MediaKeys: &on})
 	case "lyrics":
 		return config.Save(config.Config{Lyrics: &on})
+	case "update_check":
+		return config.Save(config.Config{UpdateCheck: &on})
 	}
 	return fmt.Errorf("unknown setting %q", name)
 }

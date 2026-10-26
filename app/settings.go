@@ -24,8 +24,10 @@ type Settings struct {
 	Theme        string
 	Art          string // blocks, kitty or auto
 	MediaKeysOff bool
-	CustomKeys   int    // keybindings remapped in the config
-	Path         string // the config file
+	// UpdateCheckOff: waxon doesn't ask GitHub for newer releases.
+	UpdateCheckOff bool
+	CustomKeys     int    // keybindings remapped in the config
+	Path           string // the config file
 	// ArtNote and MediaKeysNote, when set, say why what's in effect isn't
 	// the setting (WAXON_ART set, no media keys over SSH).
 	ArtNote, MediaKeysNote string
@@ -80,6 +82,10 @@ func (m Model) settingRows() []settingRow {
 	if s.CustomKeys > 0 {
 		keys = fmt.Sprintf("%d remapped", s.CustomKeys)
 	}
+	version, versionNote := cmp.Or(strings.TrimPrefix(m.opts.Version, "v"), "dev"), ""
+	if m.newVersion != "" {
+		versionNote = m.newVersion + " is out: " + strings.TrimPrefix(m.upgradeHint(), "Upgrade: ")
+	}
 	return []settingRow{
 		{"Theme", s.Theme, "", func(m *Model, dir int) tea.Cmd {
 			return m.changeTheme(cycle(ThemeNames(), m.opts.Settings.Theme, dir))
@@ -106,9 +112,14 @@ func (m Model) settingRows() []settingRow {
 			}
 			return tea.Batch(save, m.ensureLyrics())
 		}},
+		{"Update check", onOff(!s.UpdateCheckOff), "at launch, once a day", func(m *Model, _ int) tea.Cmd {
+			m.opts.Settings.UpdateCheckOff = !m.opts.Settings.UpdateCheckOff
+			return m.saveSetting("update_check", onOff(!m.opts.Settings.UpdateCheckOff))
+		}},
 		{"Plays in", player, playerNote, nil},
 		{"Spotify app", spotifyApp, appNote, nil},
 		{"Keys", keys, "remap in config.json", nil},
+		{"Version", version, versionNote, nil},
 	}
 }
 

@@ -39,8 +39,11 @@ type Config struct {
 	// and showing in the system's Now Playing (default on).
 	MediaKeys *bool `json:"media_keys,omitempty"`
 	// Lyrics, when false, stops waxon fetching lyrics, so it contacts
-	// nothing but Spotify (lrclib.net is the one other service it uses).
+	// nothing but Spotify and, for update checks, GitHub.
 	Lyrics *bool `json:"lyrics,omitempty"`
+	// UpdateCheck, when false, stops waxon asking GitHub (at most once a
+	// day, at launch) whether a newer release is out (default on).
+	UpdateCheck *bool `json:"update_check,omitempty"`
 }
 
 // Dir returns the waxon config directory: $XDG_CONFIG_HOME/waxon when set,
@@ -238,6 +241,9 @@ func merge(existing, updates Config) Config {
 	}
 	if updates.MediaKeys != nil {
 		result.MediaKeys = updates.MediaKeys
+	}
+	if updates.UpdateCheck != nil {
+		result.UpdateCheck = updates.UpdateCheck
 	}
 	return result
 }

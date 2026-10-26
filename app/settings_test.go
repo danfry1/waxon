@@ -178,3 +178,65 @@ func TestSettingsCommand(t *testing.T) {
 		t.Errorf(":settings left mode %v", m.mode)
 	}
 }
+
+// The update check is turned off and on from the settings, and a newer
+// release shows on the Version row.
+func TestSettingsUpdateCheck(t *testing.T) {
+	m, saved := settingsModel(t)
+	m.opts.Version = "1.13.0"
+	m.opts.UpgradeCommand = "brew upgrade waxon"
+	res, _ := m.Update(updateMsg{"1.14.0"})
+	m = res.(Model)
+	if m.NewVersion() != "1.14.0" || !strings.Contains(m.View(), "1.14.0 is out") {
+		t.Fatal("a newer release should be toasted and remembered")
+	}
+	m = pressKeys(t, m, ",")
+	for range 4 {
+		m = pressKeys(t, m, "j")
+	}
+	m = pressKeys(t, m, "l")
+	if !m.opts.Settings.UpdateCheckOff || strings.Join(*saved, " ") != "update_check=off" {
+		t.Errorf("saved %v, want update_check=off", *saved)
+	}
+	if v := m.View(); !strings.Contains(v, "1.14.0 is out: brew upgrade waxon") {
+		t.Errorf("the Version row should say how to upgrade:\n%s", v)
+	}
+}
+
+// Without a newer release there's nothing to say.
+func TestUpdateNothingNew(t *testing.T) {
+	m, _ := settingsModel(t)
+	if m.checkUpdate() != nil {
+		t.Error("no CheckUpdate: nothing should run")
+	}
+	res, cmd := m.Update(updateMsg{""})
+	if res.(Model).NewVersion() != "" || cmd != nil {
+		t.Error("no newer release: no toast")
+	}
+}
+
+// A toast already up at launch (the player didn't start) isn't replaced by
+// the update notice, which waits for it.
+func TestUpdateWaitsForToast(t *testing.T) {
+	m, _ := settingsModel(t)
+	m.toast.Show("waxon's player didn't start", "Not signed in", ToastError)
+	res, cmd := m.Update(updateMsg{"1.14.0"})
+	m = res.(Model)
+	if !strings.Contains(m.View(), "player didn't start") || cmd == nil {
+		t.Fatal("the earlier toast should stay up, with the notice to follow")
+	}
+	if m.NewVersion() != "1.14.0" {
+		t.Error("the newer release should still be remembered")
+	}
+}
+
+// Turning the check off stops the notice as waxon quits.
+func TestUpdateTurnedOff(t *testing.T) {
+	m, _ := settingsModel(t)
+	res, _ := m.Update(updateMsg{"1.14.0"})
+	m = res.(Model)
+	m.opts.Settings.UpdateCheckOff = true
+	if m.NewVersion() != "" {
+		t.Error("with the check turned off, nothing should be said on quitting")
+	}
+}
