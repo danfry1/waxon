@@ -3,5 +3,6 @@
   "framework": null,
   "buildCommand": "sh build.sh",
   "outputDirectory": "dist",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "ignoreCommand": "[ \"$VERCEL_ENV\" != production ]"
 }
