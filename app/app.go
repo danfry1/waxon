@@ -165,7 +165,10 @@ type recentTracksLoadedMsg struct {
 	tracks []source.Track
 }
 type (
-	queueLoadedMsg     struct{ tracks []source.Track }
+	queueLoadedMsg struct {
+		tracks []source.Track
+		at     time.Time // when it was asked for (zero: apply regardless)
+	}
 	devicesLoadedMsg   struct{ devices []source.Device }
 	controlDoneMsg     struct{}
 	playbackRefreshMsg struct{} // fired shortly after a control action to re-poll
@@ -359,6 +362,7 @@ type Model struct {
 	overlayReturn Mode
 	muteRestore   int              // the volume before m muted it
 	queueShownFor string           // the track playing when the queue view was last filled
+	queueShownAt  time.Time        // when the queue on show was asked for: older replies are dropped
 	pagination    *paginationState // non-nil while a playlist is being lazily loaded
 
 	npArt        string      // large rendered art for now playing view
@@ -1175,15 +1179,21 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(scheduleAutoDismiss(), m.refreshPlaylists())
 
 	case queueRefreshMsg:
-		if m.showingQueue() {
+		if m.showingQueue() && !m.coolingDown() {
 			return m, m.fetchQueue()
 		}
 		return m, nil
 
 	case queueLoadedMsg:
 		// Only into the queue view, opening or open: a reply arriving after
-		// the user moved on mustn't replace what they're looking at.
+		// the user moved on mustn't replace what they're looking at. Nor
+		// may one asked for before the queue on show (reads overlap after
+		// an add).
 		if m.showingQueue() || (m.tracklist.loading && m.tracklist.title == "Queue") {
+			if !msg.at.IsZero() && msg.at.Before(m.queueShownAt) {
+				return m, nil
+			}
+			m.queueShownAt = msg.at
 			m.showQueue(msg.tracks)
 		}
 		return m, nil
@@ -1305,7 +1315,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh the queue view if it's showing. Spotify's queue lags
 		// an add (the next read often doesn't have it yet), so it's read
 		// again shortly after.
-		if m.showingQueue() {
+		if m.showingQueue() && !m.coolingDown() {
 			return m, tea.Batch(scheduleAutoDismiss(), m.fetchQueue(),
 				refreshQueueAfter(queueSettle), refreshQueueAfter(3*queueSettle))
 		}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -65,10 +66,17 @@ func (m Model) queueParts(queue []source.Track) (queued, fromContext []source.Tr
 	}
 	at := map[string][]int{} // where each track is in the context
 	for k, t := range context {
-		at[t.ID] = append(at[t.ID], k)
+		if t.ID != "" {
+			at[t.ID] = append(at[t.ID], k)
+		}
 	}
 	for i := range queue {
 		for _, k := range at[queue[i].ID] {
+			// A lone last track is the context's only when it's the one
+			// after the playing track: otherwise it's as likely queued.
+			if i == len(queue)-1 && (k == 0 || context[k-1].ID != m.track.ID) {
+				continue
+			}
 			if runsInContext(queue[i:], context[k:]) {
 				return queue[:i], queue[i:], true
 			}
@@ -85,12 +93,9 @@ func runsInContext(rest, context []source.Track) bool {
 	if n < min(2, len(rest)) {
 		return false
 	}
-	for j := range n {
-		if rest[j].ID != context[j].ID {
-			return false
-		}
-	}
-	return true
+	return slices.EqualFunc(rest[:n], context[:n], func(r, c source.Track) bool {
+		return r.ID != "" && r.ID == c.ID
+	})
 }
 
 // contextTracks are the playing context's tracks, from the track cache:
@@ -191,18 +196,19 @@ func (m *Model) showQueue(queue []source.Track) {
 	if m.track != nil {
 		playing = m.track.ID
 	}
-	// A refresh keeps the cursor, unless the queue moved on (a new track
-	// playing), when the rows under it are different ones.
+	// A refresh keeps the cursor on its track, unless the queue moved on
+	// (a new track playing), when the rows under it are different ones.
 	refresh := m.showingQueue() && !m.tracklist.loading && playing == m.queueShownFor
+	selID, nth := m.tracklist.selectedOccurrence()
 	m.queueShownFor = playing
 	m.tracklist.SetTracks(rows, "Queue", queueViewURI)
 	m.tracklist.SetHeaderInfo(info)
 	m.tracklist.SetArt("")
-	if m.track != nil {
-		m.tracklist.SetNowPlaying(m.track.ID)
-	}
+	m.tracklist.SetNowPlaying(playing)
 	if refresh {
-		m.tracklist.GotoRow(cursor)
+		if !m.tracklist.gotoOccurrence(selID, nth) {
+			m.tracklist.GotoRow(cursor)
+		}
 	} else {
 		m.tracklist.GotoTop()
 		m.tracklist.MoveDown(0) // off the heading, onto the first track

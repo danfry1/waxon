@@ -192,12 +192,13 @@ func (m Model) fetchNPArt(url string) tea.Cmd {
 func (m Model) fetchQueue() tea.Cmd {
 	src := m.source
 	ctx := m.ctx
+	at := time.Now()
 	return func() tea.Msg {
 		tracks, err := src.Queue(ctx)
 		if err != nil {
 			return trackErrorMsg{err}
 		}
-		return queueLoadedMsg{tracks}
+		return queueLoadedMsg{tracks, at}
 	}
 }
 
@@ -212,6 +213,7 @@ func (m *Model) maybePrefetchNext() tea.Cmd {
 	}
 	m.prefetchedFor = t.ID
 	src, ctx, ap := m.source, m.ctx, m.artworkProvider
+	at := time.Now()
 	return func() tea.Msg {
 		tracks, err := src.Queue(ctx)
 		if isRateLimitError(err) {
@@ -228,7 +230,7 @@ func (m *Model) maybePrefetchNext() tea.Cmd {
 			}
 		}
 		// The queue came for free: refresh the sidebar if it's showing it.
-		return queueLoadedMsg{tracks}
+		return queueLoadedMsg{tracks, at}
 	}
 }
 
