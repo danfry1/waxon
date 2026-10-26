@@ -261,7 +261,11 @@ func (tl *TrackList) rebuildRows() {
 	display := tl.displayTracks()
 	rows := make([]table.Row, len(display))
 	trackNum := 0
+	heading := ""
 	for i, t := range display {
+		if t.IsSeparator && t.Name != "" {
+			heading = t.Name
+		}
 		if t.IsSeparator {
 			if t.Name == "" {
 				// Blank spacer row for breathing room
@@ -292,7 +296,9 @@ func (tl *TrackList) rebuildRows() {
 		} else {
 			trackNum++
 			prefix := " "
-			if t.ID == tl.nowPlaying {
+			// In the queue only Now playing is marked, not queued copies of
+			// the same track.
+			if t.ID == tl.nowPlaying && (tl.contextURI != queueViewURI || heading == "Now playing") {
 				prefix = "▶"
 			}
 			who := t.Artist
@@ -584,6 +590,40 @@ func (tl *TrackList) SetNowPlaying(trackID string) {
 	if len(tl.tracks) > 0 {
 		tl.rebuildRows()
 	}
+}
+
+// selectedOccurrence is the selected track's ID and which of the rows with
+// that ID it is (0 for the first), so a refresh can find it again.
+func (tl *TrackList) selectedOccurrence() (id string, nth int) {
+	display := tl.displayTracks()
+	if tl.cursor < 0 || tl.cursor >= len(display) || display[tl.cursor].IsSeparator {
+		return "", 0
+	}
+	id = display[tl.cursor].ID
+	for _, t := range display[:tl.cursor] {
+		if !t.IsSeparator && t.ID == id {
+			nth++
+		}
+	}
+	return id, nth
+}
+
+// gotoOccurrence selects the nth row with track id; false when there's no
+// such row.
+func (tl *TrackList) gotoOccurrence(id string, nth int) bool {
+	if id == "" {
+		return false
+	}
+	for i, t := range tl.displayTracks() {
+		if !t.IsSeparator && t.ID == id {
+			if nth == 0 {
+				tl.GotoRow(i)
+				return true
+			}
+			nth--
+		}
+	}
+	return false
 }
 
 func (tl *TrackList) SelectedTrack() *source.Track {

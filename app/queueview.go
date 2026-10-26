@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,17 @@ const queueViewURI = "waxon:queue"
 // Spotify takes them one at a time.
 const skipPause = 150 * time.Millisecond
 
+// queueSettle is how long Spotify's queue takes to show a track just added
+// to it; the queue view is read again after it, and after three times it.
+const queueSettle = 700 * time.Millisecond
+
+// queueRefreshMsg reads the queue again for the queue view, if it's open.
+type queueRefreshMsg struct{}
+
+func refreshQueueAfter(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg { return queueRefreshMsg{} })
+}
+
 // showingQueue reports whether the track list is showing the queue.
 func (m Model) showingQueue() bool { return m.tracklist.ContextURI() == queueViewURI }
 
@@ -40,52 +52,59 @@ func (m *Model) openQueue() tea.Cmd {
 // whose tracks waxon has (and shuffle is off, which would reorder them);
 // otherwise it's all "up next" and ok is false. The context part is the
 // first place from which the rest of the queue runs in the context's
-// order, so a queued copy of the context's next track stays queued.
+// order. That run can start anywhere in the context, not just after the
+// playing track: playing a queued copy of a playlist track leaves the
+// playlist where it was. And a queued copy of the context's next track
+// stays queued.
 func (m Model) queueParts(queue []source.Track) (queued, fromContext []source.Track, ok bool) {
 	if m.shuffleOn || m.track == nil {
 		return nil, queue, false
 	}
-	next := m.contextNext(m.track.ID)
-	if len(next) == 0 {
+	context := m.contextTracks()
+	if len(context) == 0 {
 		return nil, queue, false
 	}
+	at := map[string][]int{} // where each track is in the context
+	for k, t := range context {
+		if t.ID != "" {
+			at[t.ID] = append(at[t.ID], k)
+		}
+	}
 	for i := range queue {
-		if followsContext(queue[i:], next) {
-			return queue[:i], queue[i:], true
+		for _, k := range at[queue[i].ID] {
+			// A lone last track is the context's only when it's the one
+			// after the playing track: otherwise it's as likely queued.
+			if i == len(queue)-1 && (k == 0 || context[k-1].ID != m.track.ID) {
+				continue
+			}
+			if runsInContext(queue[i:], context[k:]) {
+				return queue[:i], queue[i:], true
+			}
 		}
 	}
 	return nil, queue, false
 }
 
-// followsContext reports whether rest starts with next's tracks in order,
-// as far as both go (past the context's end, Spotify may carry on with
-// tracks of its own).
-func followsContext(rest, next []source.Track) bool {
-	for j := range min(len(rest), len(next)) {
-		if rest[j].ID != next[j].ID {
-			return false
-		}
+// runsInContext reports whether rest starts with context's tracks in
+// order, as far as both go (past the context's end, Spotify may carry on
+// with tracks of its own), over at least two tracks when rest has them.
+func runsInContext(rest, context []source.Track) bool {
+	n := min(len(rest), len(context))
+	if n < min(2, len(rest)) {
+		return false
 	}
-	return true
+	return slices.EqualFunc(rest[:n], context[:n], func(r, c source.Track) bool {
+		return r.ID != "" && r.ID == c.ID
+	})
 }
 
-// contextNext is what follows trackID in the playing context, from the
-// track cache: nil when the context isn't a cached playlist.
-func (m Model) contextNext(trackID string) []source.Track {
+// contextTracks are the playing context's tracks, from the track cache:
+// nil when the context isn't a cached playlist.
+func (m Model) contextTracks() []source.Track {
 	for _, pl := range m.playlists {
-		if !m.isPlayingFrom(pl) {
-			continue
+		if m.isPlayingFrom(pl) {
+			return m.trackCache[pl.ID].tracks
 		}
-		cached, ok := m.trackCache[pl.ID]
-		if !ok {
-			return nil
-		}
-		for i, t := range cached.tracks {
-			if t.ID == trackID {
-				return cached.tracks[i+1:]
-			}
-		}
-		return nil
 	}
 	return nil
 }
@@ -177,18 +196,19 @@ func (m *Model) showQueue(queue []source.Track) {
 	if m.track != nil {
 		playing = m.track.ID
 	}
-	// A refresh keeps the cursor, unless the queue moved on (a new track
-	// playing), when the rows under it are different ones.
+	// A refresh keeps the cursor on its track, unless the queue moved on
+	// (a new track playing), when the rows under it are different ones.
 	refresh := m.showingQueue() && !m.tracklist.loading && playing == m.queueShownFor
+	selID, nth := m.tracklist.selectedOccurrence()
 	m.queueShownFor = playing
 	m.tracklist.SetTracks(rows, "Queue", queueViewURI)
 	m.tracklist.SetHeaderInfo(info)
 	m.tracklist.SetArt("")
-	if m.track != nil {
-		m.tracklist.SetNowPlaying(m.track.ID)
-	}
+	m.tracklist.SetNowPlaying(playing)
 	if refresh {
-		m.tracklist.GotoRow(cursor)
+		if !m.tracklist.gotoOccurrence(selID, nth) {
+			m.tracklist.GotoRow(cursor)
+		}
 	} else {
 		m.tracklist.GotoTop()
 		m.tracklist.MoveDown(0) // off the heading, onto the first track

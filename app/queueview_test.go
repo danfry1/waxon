@@ -159,3 +159,106 @@ func TestQueueFromQueueViewSaysCopy(t *testing.T) {
 		t.Errorf("the toast should say it went to the end of the queue:\n%s", v)
 	}
 }
+
+// Spotify's queue lags an add, so the queue view reads it again once it
+// has settled, and only while the queue is showing.
+func TestQueueRereadAfterAdd(t *testing.T) {
+	stub := &StubSource{}
+	m := queueModel(stub)
+	if _, cmd := m.Update(queueRefreshMsg{}); cmd != nil {
+		t.Error("queue not showing: nothing should be read")
+	}
+	m.tracklist.SetTracks(nil, "Queue", queueViewURI)
+	_, cmd := m.Update(queueRefreshMsg{})
+	if cmd == nil {
+		t.Fatal("queue showing: it should be read again")
+	}
+	if _, ok := cmd().(queueLoadedMsg); !ok {
+		t.Error("the re-read should load the queue")
+	}
+}
+
+// Playing a queued copy of a playlist track leaves the playlist where it
+// was: what follows is the playlist from there, not from the copy.
+func TestQueueSectionsPlayingQueuedCopy(t *testing.T) {
+	m := queueModel(&StubSource{})
+	m.track = &source.Track{ID: "c2", Name: "Copy", Playing: true}
+	queued, rest, ok := m.queueParts([]source.Track{
+		{ID: "q1"}, {ID: "q1"}, {ID: "c1"}, {ID: "c2"}, {ID: "c3"},
+	})
+	if !ok || len(queued) != 2 || len(rest) != 3 || rest[0].ID != "c1" {
+		t.Errorf("queued %d, from the playlist %d (ok %v); want 2 and 3", len(queued), len(rest), ok)
+	}
+}
+
+// Only Now playing gets the ▶, not a queued copy of the same track.
+func TestQueuePlayingMarkedOnce(t *testing.T) {
+	m := queueModel(&StubSource{})
+	m.tracklist.SetTracks(nil, "Queue", queueViewURI)
+	m.showQueue([]source.Track{{ID: "q1", Name: "Mine"}, {ID: "now", Name: "Playing"}, {ID: "c1"}})
+	if n := strings.Count(m.tracklist.View(true), "▶"); n != 1 {
+		t.Errorf("▶ shown %d times, want once", n)
+	}
+}
+
+// A lone last track that's in the playlist, but not the one after the
+// playing track, isn't taken for the playlist's.
+func TestQueueLoneQueuedPlaylistTrack(t *testing.T) {
+	m := queueModel(&StubSource{})
+	if _, _, ok := m.queueParts([]source.Track{{ID: "c3"}}); ok {
+		t.Error("a lone queued playlist track shouldn't be filed under the playlist")
+	}
+	if queued, _, ok := m.queueParts([]source.Track{{ID: "q1"}, {ID: "c3"}, {ID: "q2"}, {ID: "c3"}}); ok && len(queued) != 4 {
+		t.Errorf("user tracks only: %d queued, want all 4 or no split", len(queued))
+	}
+	if queued, rest, ok := m.queueParts([]source.Track{{ID: "c1"}}); !ok || len(queued) != 0 || len(rest) != 1 {
+		t.Error("the playlist's next track alone should be the playlist's")
+	}
+}
+
+// Reads overlap after an add: a reply asked for before the queue on show
+// doesn't replace it.
+func TestQueueStaleReplyDropped(t *testing.T) {
+	m := queueModel(&StubSource{})
+	m.tracklist.SetTracks(nil, "Queue", queueViewURI)
+	now := time.Now()
+	res, _ := m.Update(queueLoadedMsg{tracks: []source.Track{{ID: "q1", Name: "Newer"}}, at: now})
+	res, _ = res.(Model).Update(queueLoadedMsg{tracks: []source.Track{{ID: "q0", Name: "Older"}}, at: now.Add(-time.Second)})
+	if v := res.(Model).tracklist.View(true); !strings.Contains(v, "Newer") || strings.Contains(v, "Older") {
+		t.Errorf("an older reply replaced a newer one:\n%s", v)
+	}
+}
+
+// A refresh that adds rows above the cursor keeps it on the same track.
+func TestQueueRefreshKeepsCursorOnTrack(t *testing.T) {
+	m := queueModel(&StubSource{})
+	m.tracklist.SetTracks(nil, "Queue", queueViewURI)
+	m.showQueue([]source.Track{{ID: "c1", Name: "One"}, {ID: "c2", Name: "Two"}})
+	m.tracklist.JumpToTrack("c2")
+	m.showQueue([]source.Track{{ID: "q1", Name: "Mine"}, {ID: "c1", Name: "One"}, {ID: "c2", Name: "Two"}})
+	if sel := m.tracklist.SelectedTrack(); sel == nil || sel.ID != "c2" {
+		t.Errorf("cursor on %v after the refresh, want c2", sel)
+	}
+}
+
+// While rate-limited, the re-reads after an add wait.
+func TestQueueRereadWaitsForCooldown(t *testing.T) {
+	m := queueModel(&StubSource{})
+	m.tracklist.SetTracks(nil, "Queue", queueViewURI)
+	m.rateLimitedUntil = time.Now().Add(time.Minute)
+	if _, cmd := m.Update(queueRefreshMsg{}); cmd != nil {
+		t.Error("no queue reads while rate-limited")
+	}
+}
+
+// With nothing playing, no row is marked ▶.
+func TestQueueNothingPlayingUnmarked(t *testing.T) {
+	m := queueModel(&StubSource{})
+	m.tracklist.SetNowPlaying("q1") // left over from another list
+	m.track = nil
+	m.tracklist.SetTracks(nil, "Queue", queueViewURI)
+	m.showQueue([]source.Track{{ID: "q1", Name: "Mine"}})
+	if strings.Contains(m.tracklist.View(true), "▶") {
+		t.Error("nothing playing: nothing should be marked")
+	}
+}

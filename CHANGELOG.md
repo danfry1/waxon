@@ -8,6 +8,16 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Queuing a track with the queue (`gq`) open shows it there straight away,
+  instead of after the next one: Spotify's queue lags an add, so waxon reads
+  it again once it has settled.
+- After skipping to a queued copy of a playlist track, the queue no longer
+  lists the playlist's next tracks under "Next in queue": the playlist
+  part is found wherever it carries on from. Only the Now playing row is
+  marked ▶, not queued copies of the same track.
+
 ## [1.14.1] - 2026-10-26
 
 ### Fixed
