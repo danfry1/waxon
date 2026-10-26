@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -39,8 +40,10 @@ func TestAvailable(t *testing.T) {
 	if got := available(context.Background(), "1.14.0", path, now.Add(25*time.Hour), fetch); got != "" {
 		t.Errorf("on the newest release: %q, want nothing", got)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("kept answer: %v, %v; want a 0600 file", info, err)
+	if info, err := os.Stat(path); err != nil {
+		t.Errorf("answer not kept: %v", err)
+	} else if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Errorf("kept answer is %v, want 0600", info.Mode().Perm())
 	}
 }
 
