@@ -32,8 +32,8 @@ Browse your library, search, queue and play without leaving the home row.
 - **Media keys** and the system's Now Playing (Control Center, MPRIS).
 - **Scriptable:** every action is also a subcommand, for tmux, waybar and
   hotkeys.
-- **Talks only to Spotify** (and lrclib for lyrics, which you can turn off).
-  No telemetry.
+- **Talks only to Spotify**, plus lrclib for lyrics and a daily check for a
+  new release, both of which you can turn off. No telemetry.
 
 Requires **Spotify Premium**. Runs on macOS, Linux and Windows.
 
@@ -329,7 +329,7 @@ Vim-style commands for volume, shuffle, repeat, device switching, and more.
 | `l`              | Toggle synced lyrics (in Now Playing) |
 | `Backspace` / `b` | Go back           |
 | `?`              | Help: the essentials, then `Tab` for every key and command |
-| `,`              | Settings: theme, album art, media keys, lyrics, saved as you change them |
+| `,`              | Settings: theme, album art, media keys, lyrics, update check, saved as you change them |
 | `q` / `Ctrl+c`   | Quit               |
 | `Esc`            | Close / cancel      |
 
@@ -367,7 +367,7 @@ Enter command mode by pressing `:`, then type a command. As you type, the likeli
 
 ## Configuration
 
-Press `,` (or `:settings`) to change the theme, album art, media keys and lyrics from inside waxon; each change is saved to the config file as you make it.
+Press `,` (or `:settings`) to change the theme, album art, media keys, lyrics and the update check from inside waxon; each change is saved to the config file as you make it.
 
 waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on Windows, `$XDG_CONFIG_HOME/waxon` when that's set; `waxon config` prints the path. Everything is optional:
 
@@ -389,7 +389,9 @@ waxon reads `~/.config/waxon/config.json` — `%AppData%\waxon\config.json` on W
 
 **Player** — `"player": "librespot"` (set by `waxon player login`) runs waxon's own playback device; `"player_path"` points at a librespot binary that isn't on `PATH`. librespot's log goes to the `WAXON_LOG` file when set.
 
-**Lyrics** — `"lyrics": false` turns synced lyrics off, so waxon talks only to Spotify (see [Privacy & Network](#privacy--network)).
+**Lyrics** — `"lyrics": false` turns synced lyrics off (see [Privacy & Network](#privacy--network)).
+
+**Update check** — once a day at most, when it starts, waxon asks GitHub for the latest release; if it's newer, waxon says so and, as it quits, prints the command that upgrades it (`brew upgrade waxon`, `scoop update waxon` or `go install …`, by how it was installed). `"update_check": false` turns it off.
 
 **Media keys** — on by default on macOS and Linux; `"media_keys": false` turns them and the Now Playing entry off.
 
@@ -465,21 +467,23 @@ cmd + alt - l     : waxon like
 
 ## Privacy & Network
 
-waxon has no telemetry, no analytics and no update checks. It connects to:
+waxon has no telemetry and no analytics. It connects to:
 
 | Host | For |
 |---|---|
 | `accounts.spotify.com`, `api.spotify.com` | Signing in, and everything you do (Spotify's Web API) |
 | Spotify's image servers (`*.scdn.co`) | Album and playlist covers |
 | `lrclib.net` | Synced lyrics: the track's title, artist, album and length are sent to look them up |
+| `api.github.com` | Once a day at most, at launch: the latest waxon release, to say when there's a newer one. Nothing is sent but the request |
 | Spotify's streaming servers | Only waxon's own player (librespot), when you use it |
 
 Sign-in uses PKCE: there's no client secret, and your password goes only to
 Spotify's own sign-in page. Logins and settings are stored in waxon's config
 directory (`waxon config` prints it), readable by you alone.
 
-**Turning lyrics off.** `"lyrics": false` in `config.json` stops waxon
-contacting lrclib, so it talks only to Spotify (useful on a work network). If a
+**Talking only to Spotify.** `"lyrics": false` in `config.json` stops waxon
+contacting lrclib, and `"update_check": false` stops it contacting GitHub, so
+it talks only to Spotify (useful on a work network). If a
 proxy or firewall blocks lrclib, waxon leaves it alone for ten minutes instead
 of asking on every track; `l` tries again sooner.
 

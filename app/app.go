@@ -341,7 +341,8 @@ type Model struct {
 	resumePlaylistID string
 	tracklistVersion string
 
-	playerErr error // why waxon's own player stopped, if it did
+	playerErr  error  // why waxon's own player stopped, if it did
+	newVersion string // a newer waxon release, once CheckUpdate finds one
 	// System media controls (media.go): what was last published, and the
 	// current track's cover for them.
 	mediaLast   mediaPublished
@@ -505,6 +506,13 @@ type Options struct {
 	// returns its device name.
 	PlayerSetup *SetupDeps
 	StartPlayer func() string
+	// Version is this build's version, shown in the settings. CheckUpdate,
+	// when set, is run once at launch, off the UI, and returns a newer
+	// release's version or ""; UpgradeCommand is how to install it ("" when
+	// it can't be told).
+	Version        string
+	CheckUpdate    func() string
+	UpgradeCommand string
 	// Media publishes what's playing to the system's media controls (media
 	// keys, Now Playing); presses come back as MediaMsg. nil: none.
 	Media media.Controller
@@ -547,6 +555,7 @@ func (m Model) Init() tea.Cmd {
 		m.loadSnapshot(),
 		m.reportPlayerProblem(),
 		m.reportKeysProblem(),
+		m.checkUpdate(),
 	)
 }
 
@@ -770,6 +779,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePlayerExited(msg)
 	case playerProblemMsg:
 		return m.handlePlayerProblem(msg)
+	case updateMsg:
+		return m.handleUpdate(msg)
 
 	case playlistsLoadedMsg:
 		m.playlists = msg.playlists

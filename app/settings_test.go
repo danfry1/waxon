@@ -178,3 +178,39 @@ func TestSettingsCommand(t *testing.T) {
 		t.Errorf(":settings left mode %v", m.mode)
 	}
 }
+
+// The update check is turned off and on from the settings, and a newer
+// release shows on the Version row.
+func TestSettingsUpdateCheck(t *testing.T) {
+	m, saved := settingsModel(t)
+	m.opts.Version = "1.13.0"
+	m.opts.UpgradeCommand = "brew upgrade waxon"
+	res, _ := m.Update(updateMsg{"1.14.0"})
+	m = res.(Model)
+	if m.NewVersion() != "1.14.0" || !strings.Contains(m.View(), "1.14.0 is out") {
+		t.Fatal("a newer release should be toasted and remembered")
+	}
+	m = pressKeys(t, m, ",")
+	for range 4 {
+		m = pressKeys(t, m, "j")
+	}
+	m = pressKeys(t, m, "l")
+	if !m.opts.Settings.UpdateCheckOff || strings.Join(*saved, " ") != "update_check=off" {
+		t.Errorf("saved %v, want update_check=off", *saved)
+	}
+	if v := m.View(); !strings.Contains(v, "1.14.0 is out: brew upgrade waxon") {
+		t.Errorf("the Version row should say how to upgrade:\n%s", v)
+	}
+}
+
+// Without a newer release there's nothing to say.
+func TestUpdateNothingNew(t *testing.T) {
+	m, _ := settingsModel(t)
+	if m.checkUpdate() != nil {
+		t.Error("no CheckUpdate: nothing should run")
+	}
+	res, cmd := m.Update(updateMsg{""})
+	if res.(Model).NewVersion() != "" || cmd != nil {
+		t.Error("no newer release: no toast")
+	}
+}
