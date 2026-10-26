@@ -1289,6 +1289,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case queueDoneMsg:
 		if msg.failed > 0 {
 			m.toast.Show(fmt.Sprintf("Queued %d of %d tracks", msg.count, msg.count+msg.failed), "Spotify refused the rest — try again shortly", ToastError)
+		} else if m.showingQueue() {
+			// Spotify's queue can't be reordered: a track queued from the
+			// queue view is added again at the end of "Next in queue".
+			m.toast.Show("Added to the end of the queue", "Spotify can't move tracks already queued", ToastSuccess)
 		} else {
 			m.toast.Show("Added to queue", msg.trackName, ToastSuccess)
 		}

@@ -8,6 +8,13 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- The queue (`gq`) no longer files a queued copy of the playlist's next
+  track under "Next from …": that part now starts where the rest of the
+  queue runs in the playlist's order. Queuing a track from the queue view
+  says it goes to the end, since Spotify can't move queued tracks.
+
 ## [1.14.0] - 2026-10-26
 
 ### Added

@@ -38,7 +38,9 @@ func (m *Model) openQueue() tea.Cmd {
 // queueParts splits the queue into the tracks the user queued and those
 // that follow from the playing context, when the context is a playlist
 // whose tracks waxon has (and shuffle is off, which would reorder them);
-// otherwise it's all "up next" and ok is false.
+// otherwise it's all "up next" and ok is false. The context part is the
+// first place from which the rest of the queue runs in the context's
+// order, so a queued copy of the context's next track stays queued.
 func (m Model) queueParts(queue []source.Track) (queued, fromContext []source.Track, ok bool) {
 	if m.shuffleOn || m.track == nil {
 		return nil, queue, false
@@ -48,11 +50,23 @@ func (m Model) queueParts(queue []source.Track) (queued, fromContext []source.Tr
 		return nil, queue, false
 	}
 	for i := range queue {
-		if queue[i].ID == next[0].ID {
+		if followsContext(queue[i:], next) {
 			return queue[:i], queue[i:], true
 		}
 	}
 	return nil, queue, false
+}
+
+// followsContext reports whether rest starts with next's tracks in order,
+// as far as both go (past the context's end, Spotify may carry on with
+// tracks of its own).
+func followsContext(rest, next []source.Track) bool {
+	for j := range min(len(rest), len(next)) {
+		if rest[j].ID != next[j].ID {
+			return false
+		}
+	}
+	return true
 }
 
 // contextNext is what follows trackID in the playing context, from the
