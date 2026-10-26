@@ -214,3 +214,29 @@ func TestUpdateNothingNew(t *testing.T) {
 		t.Error("no newer release: no toast")
 	}
 }
+
+// A toast already up at launch (the player didn't start) isn't replaced by
+// the update notice, which waits for it.
+func TestUpdateWaitsForToast(t *testing.T) {
+	m, _ := settingsModel(t)
+	m.toast.Show("waxon's player didn't start", "Not signed in", ToastError)
+	res, cmd := m.Update(updateMsg{"1.14.0"})
+	m = res.(Model)
+	if !strings.Contains(m.View(), "player didn't start") || cmd == nil {
+		t.Fatal("the earlier toast should stay up, with the notice to follow")
+	}
+	if m.NewVersion() != "1.14.0" {
+		t.Error("the newer release should still be remembered")
+	}
+}
+
+// Turning the check off stops the notice as waxon quits.
+func TestUpdateTurnedOff(t *testing.T) {
+	m, _ := settingsModel(t)
+	res, _ := m.Update(updateMsg{"1.14.0"})
+	m = res.(Model)
+	m.opts.Settings.UpdateCheckOff = true
+	if m.NewVersion() != "" {
+		t.Error("with the check turned off, nothing should be said on quitting")
+	}
+}

@@ -104,3 +104,28 @@ func TestCommand(t *testing.T) {
 		}
 	}
 }
+
+// With nowhere to keep the answer, waxon doesn't check: it would otherwise
+// ask on every launch.
+func TestAvailableNowhereToKeep(t *testing.T) {
+	calls := 0
+	if got := available(context.Background(), "1.13.0", "", time.Now(), fetcher("v1.14.0", nil, &calls)); got != "" || calls != 0 {
+		t.Errorf("no state path: %q after %d checks, want nothing and none", got, calls)
+	}
+}
+
+// Known reads the last answer without asking.
+func TestKnown(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "update.json")
+	if got := Known("1.13.0", path); got != "" {
+		t.Errorf("never checked: %q, want nothing", got)
+	}
+	calls := 0
+	available(context.Background(), "1.13.0", path, time.Now(), fetcher("v1.14.0", nil, &calls))
+	if got := Known("1.13.0", path); got != "1.14.0" {
+		t.Errorf("Known = %q, want 1.14.0", got)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(path)); len(entries) != 1 {
+		t.Errorf("left behind %d files, want just update.json", len(entries))
+	}
+}

@@ -35,15 +35,26 @@ type state struct {
 // Available returns the newest release's version (without the "v") when
 // it's newer than current, else "". The last answer is kept at path, so
 // GitHub is asked at most once a day; a failed check also waits a day.
-// Builds without a release version ("dev") never check.
+// Builds without a release version ("dev") never check, and nor does
+// anything when there's nowhere to keep the answer (path ""), which would
+// otherwise ask on every launch.
 func Available(ctx context.Context, current, path string) string {
 	return available(ctx, current, path, time.Now(), fetchLatest)
+}
+
+// Known is what the last check found, without asking GitHub: a newer
+// release's version, or "".
+func Known(current, path string) string {
+	if latest := load(path).Latest; newer(latest, current) {
+		return strings.TrimPrefix(latest, "v")
+	}
+	return ""
 }
 
 func available(ctx context.Context, current, path string, now time.Time,
 	fetch func(context.Context) (string, error),
 ) string {
-	if _, ok := parse(current); !ok {
+	if _, ok := parse(current); !ok || path == "" {
 		return ""
 	}
 	s := load(path)
@@ -58,10 +69,7 @@ func available(ctx context.Context, current, path string, now time.Time,
 			slog.Debug("update check not saved", "error", err)
 		}
 	}
-	if newer(s.Latest, current) {
-		return strings.TrimPrefix(s.Latest, "v")
-	}
-	return ""
+	return Known(current, path)
 }
 
 func fetchLatest(ctx context.Context) (string, error) {
@@ -95,29 +103,38 @@ func fetchLatest(ctx context.Context) (string, error) {
 
 func load(path string) state {
 	var s state
+	if path == "" {
+		return s
+	}
 	if data, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(data, &s) // a damaged file just means checking again
 	}
 	return s
 }
 
-// save writes s atomically, readable by the user alone.
+// save writes s atomically, readable by the user alone. The temporary
+// file is unique, so two waxons starting at once can't mix their writes.
 func save(path string, s state) error {
-	if path == "" {
-		return nil
-	}
 	data, err := json.Marshal(s)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "update-*.tmp") // 0o600
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	defer func() { _ = os.Remove(tmp.Name()) }() // gone already once renamed
+	_, err = tmp.Write(data)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // parse reads "v1.2.3" or "1.2.3"; anything else (a dev build, a

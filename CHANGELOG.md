@@ -12,8 +12,8 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 - waxon says when a newer release is out: once a day at most, at launch, it
   asks GitHub for the latest release, shows a notice, and prints the command
-  that upgrades it as it quits (`brew upgrade waxon` for Homebrew). `waxon
-  version` checks too. Turn it off in Settings or with
+  that upgrades it as it quits (`brew upgrade waxon` for Homebrew); `waxon
+  version` repeats it on stderr. Turn it off in Settings or with
   `"update_check": false`.
 
 ## [1.13.0] - 2026-10-25
