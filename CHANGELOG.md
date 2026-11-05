@@ -8,6 +8,14 @@ Each release's section is also used verbatim as the GitHub Release notes.
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-11-05
+
+### Fixed
+
+- With lrclib.net blocked, `l` closes the lyrics view again instead of
+  retrying in place, so Now Playing (`N`) no longer stays stuck on the
+  "blocked" message. Opening lyrics again is what retries.
+
 ## [1.14.2] - 2026-10-26
 
 ### Fixed
@@ -507,7 +515,8 @@ Initial release: vim-modal Spotify TUI with PKCE auth, library and queue
 sidebar, track list, search, device picker, Now Playing view with album art,
 and command mode.
 
-[Unreleased]: https://github.com/danfry1/waxon/compare/v1.14.2...HEAD
+[Unreleased]: https://github.com/danfry1/waxon/compare/v1.14.3...HEAD
+[1.14.3]: https://github.com/danfry1/waxon/compare/v1.14.2...v1.14.3
 [1.14.2]: https://github.com/danfry1/waxon/compare/v1.14.1...v1.14.2
 [1.14.1]: https://github.com/danfry1/waxon/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/danfry1/waxon/compare/v1.13.0...v1.14.0
