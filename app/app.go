@@ -1703,16 +1703,12 @@ func (m Model) handleKeyNowPlaying(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.renderNPArt()
 		return m, nil
 	case msg.String() == "l":
-		if m.lyricsView && m.lyricsBlocked() {
-			// "l to try again": ask lrclib now, staying on the lyrics.
-			m.lyricsBlockedUntil, m.lyricsTrackID = time.Time{}, ""
-			return m, m.ensureLyrics()
-		}
 		m.lyricsView = !m.lyricsView
 		if m.lyricsView {
 			m.vinylMode = false
 			if m.lyricsBlocked() {
-				m.lyricsBlockedUntil, m.lyricsTrackID = time.Time{}, "" // asked for: try now
+				// Asked for while blocked: try lrclib again now.
+				m.lyricsBlockedUntil, m.lyricsTrackID = time.Time{}, ""
 			}
 			return m, m.ensureLyrics()
 		}
