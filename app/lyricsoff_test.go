@@ -67,9 +67,9 @@ func TestUnreachableLyricsStopAsking(t *testing.T) {
 	}
 }
 
-// "l to try again" is shown with the lyrics open: l there retries and
-// keeps them open, rather than closing them.
-func TestRetryWithLyricsOpen(t *testing.T) {
+// With the blocked message showing, l closes the lyrics like any other
+// time; opening them again is what retries.
+func TestBlockedLyricsToggleOff(t *testing.T) {
 	asked := 0
 	m := newTestModel(lyricsStub(nil, &asked))
 	m.track = &source.Track{ID: "t1", Name: "One"}
@@ -77,8 +77,13 @@ func TestRetryWithLyricsOpen(t *testing.T) {
 	m.lyricsTrackID = "t1"
 	m.lyricsBlockedUntil = time.Now().Add(time.Minute)
 	res, cmd := m.Update(runeKey("l"))
+	m = res.(Model)
+	if m.lyricsView || cmd != nil {
+		t.Fatalf("l should close the lyrics: view %v, cmd %v", m.lyricsView, cmd != nil)
+	}
+	res, cmd = m.Update(runeKey("l"))
 	if cmd == nil || !res.(Model).lyricsView {
-		t.Fatalf("l with the blocked message showing: cmd %v, view %v", cmd != nil, res.(Model).lyricsView)
+		t.Fatalf("l again should reopen and retry: cmd %v, view %v", cmd != nil, res.(Model).lyricsView)
 	}
 	cmd()
 	if asked != 1 {
