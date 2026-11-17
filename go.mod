@@ -9,13 +9,13 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.9
-	github.com/ebitengine/purego v0.11.2
+	github.com/ebitengine/purego v0.11.3
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/mattn/go-isatty v0.0.24
 	github.com/muesli/cancelreader v0.2.2
 	github.com/muesli/termenv v0.16.0
 	github.com/zmb3/spotify/v2 v2.4.3
-	golang.org/x/oauth2 v0.37.0
+	golang.org/x/oauth2 v0.38.0
 )
 
 require (
